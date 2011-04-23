@@ -619,8 +619,8 @@ class EM(object):
             
         # sort fasta sequences longest to shortest
         tmp_fastafilename = fastafilename + ".sorted.tmp.fasta"
-        # check_call("usearch --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) # NEW version 4
-        check_call("uclust --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) 
+        check_call("usearch --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) # NEW version 4
+        # check_call("uclust --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) 
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         # do global alignments with USEARCH/UCLUST.
         # turn off banding in later rounds to increase alignment accuracy (more merging) at expense of speed
@@ -632,8 +632,8 @@ class EM(object):
         # if really few seqs, then no use not doing smith-waterman alignments
         if num_seqs < 50:
             band_string = "--nofastalign"
-        cmd = "uclust %s --query %s --db %s --id 0 --iddef 0 --uc %s.uc --self --maxaccepts 0 --maxrejects 0 --allhits"%(band_string, tmp_fastafilename, tmp_fastafilename, tmp_fastafilename)
-        # cmd = "usearch %s --cluster %s --db %s --id 0 --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0"%(band_string, tmp_fastafilename, tmp_fastafilename, tmp_fastafilename) # NEW version 4
+        # cmd = "uclust %s --query %s --db %s --id 0 --iddef 0 --uc %s.uc --self --maxaccepts 0 --maxrejects 0 --allhits"%(band_string, tmp_fastafilename, tmp_fastafilename, tmp_fastafilename)
+        cmd = "usearch %s --cluster %s --db %s --id 0 --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0"%(band_string, tmp_fastafilename, tmp_fastafilename, tmp_fastafilename) # NEW version 4
 
         if self._VERBOSE:
             sys.stderr.write("usearch command was:\n%s\n"%(cmd))
@@ -646,8 +646,10 @@ class EM(object):
         alnstring_pat = re.compile(r'(\d*)([MDI])')
         already_removed = set()  # seq_ids
         # this is a bit slow and almost certainly could be sped up with algorithmic improvements.
+        times = []  # DEBUG
         for row in csv.reader(file("%s.uc"%tmp_fastafilename), delimiter='\t'):
             if row[0] == "H":  # here's an alignment
+                t0 = time()
                 # member == query
                 member_name = self.clustermark_pat.search(row[8]).groups()[1]  # strip off beginning cluster marks
                 member_seq_id = self.sequence_name2sequence_i[-1][member_name]
@@ -667,7 +669,7 @@ class EM(object):
                 seed_fasta_seq   = tmp_fastafile.fetch(seed_name)
                 member_unmapped = self.unmapped_bases[member_seq_id]  # unmapped positions (default prob)
                 seed_unmapped = self.unmapped_bases[seed_seq_id]
-                
+
                 for count, aln_code in alnstring_pat.findall(row[7]):
                     if not len(count):
                         count = 1  # "As a special case, if n=1 then n is omitted"
@@ -705,8 +707,10 @@ class EM(object):
                 if (aln_columns < 500) or ((float(matches) / aln_columns) < self.cluster_thresh):
                     continue
 
+                times.append(time()-t0)
                 # OKAY TO MERGE AT THIS POINT
                 # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
+                t0 = time()
                 if self.priors[-1][seed_seq_id] > self.priors[-1][member_seq_id]:
                     keep_seq_id = seed_seq_id
                     remove_seq_id = member_seq_id
@@ -727,10 +731,16 @@ class EM(object):
                 already_removed.add(remove_seq_id)
                 nummerged += 1
                 if self._VERBOSE:
-                    sys.stderr.write("\t...merging %d|%s into %d|%s\n"%(remove_seq_id, remove_name,
-                                                                        keep_seq_id,   keep_name))
+                    sys.stderr.write("\t...merging %d|%s into %d|%s in %.3f seconds\n"%(remove_seq_id, remove_name,
+                                                                                       keep_seq_id,   keep_name,
+                                                                                       time() - t0))
             else:  # not an alignment line in input .uc file
                 continue
+
+        if len(times) and self._VERBOSE:  # DEBUG
+            sys.stderr.write("average time per hit line: %.3f"%(numpy.mean(times)))
+            sys.stderr.write("min time per hit line: %.3f"%(numpy.min(times)))
+            sys.stderr.write("max time per hit line: %.3f"%(numpy.max(times)))
 
         # write new fasta file with only new sequences
         if self._VERBOSE:
@@ -930,7 +940,7 @@ class EM(object):
         # convert to csc format for storage and use in self.calc_prior later.
         self.posteriors[-1] = self.posteriors[-1].tocsc()
         if self._VERBOSE:
-            sys.stderr.write("DONE Calculating posteriors for iteration %d at %s [%.2f seconds]...\n"%(self.iteration_i, ctime(), time() - t_start))
+            sys.stderr.write("DONE Calculating posteriors for iteration %d at %s [%.3f seconds]...\n"%(self.iteration_i, ctime(), time() - t_start))
         
     def calc_probN(self):
         """
