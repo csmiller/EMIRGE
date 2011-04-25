@@ -614,7 +614,7 @@ class EM(object):
             sys.stderr.write("Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
             sys.stderr.write("\tcluster threshold = %.3f\n"%(self.cluster_thresh))
 
-        # get posteriors ready for slicing:
+        # get posteriors ready for slicing (just prior to this call, is csr matrix?):
         self.posteriors[-1] = self.posteriors[-1].tolil()
             
         # sort fasta sequences longest to shortest
@@ -707,7 +707,6 @@ class EM(object):
                 if (aln_columns < 500) or ((float(matches) / aln_columns) < self.cluster_thresh):
                     continue
 
-                times.append(time()-t0)
                 # OKAY TO MERGE AT THIS POINT
                 # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
                 t0 = time()
@@ -721,26 +720,39 @@ class EM(object):
                     remove_seq_id = seed_seq_id
                     keep_name   = member_name
                     remove_name = seed_name
-                
+
                 # merge priors (add remove_seq_id probs to keep_seq_id probs).
                 self.priors[-1][keep_seq_id] += self.priors[-1][remove_seq_id]
                 self.priors[-1][remove_seq_id] = 0.0
-                # now merge posteriors (all remove probs go to keep).
-                self.posteriors[-1][keep_seq_id, :] = self.posteriors[-1][keep_seq_id, :] + self.posteriors[-1][remove_seq_id, :]
-                self.posteriors[-1][remove_seq_id, :] = self.posteriors[-1][remove_seq_id, :] * 0.0
+
+                # now merge posteriors (all removed probs from remove_seq_id go to keep_seq_id).
+                # self.posteriors[-1] at this point is lil_matrix
+                # some manipulations of underlying sparse matrix data structures for efficiency here.
+                # 1st, do addition in csr format (fast), convert to lil format, and store result in temporary array.
+                new_row = (self.posteriors[-1].getrow(keep_seq_id).tocsr() + self.posteriors[-1].getrow(remove_seq_id).tocsr()).tolil() # NEW 4
+                # then change linked lists directly in the posteriors data structure -- this is very fast
+                self.posteriors[-1].data[keep_seq_id] = new_row.data[0] # NEW 4
+                self.posteriors[-1].rows[keep_seq_id] = new_row.rows[0] # NEW 4
+                # these two lines remove the row from the linked list (or rather, make them empty rows), essentially setting all elements to 0
+                self.posteriors[-1].rows[remove_seq_id] = []  
+                self.posteriors[-1].data[remove_seq_id] = []
+
                 already_removed.add(remove_seq_id)
                 nummerged += 1
                 if self._VERBOSE:
+                    times.append(time()-t0)
                     sys.stderr.write("\t...merging %d|%s into %d|%s in %.3f seconds\n"%(remove_seq_id, remove_name,
                                                                                        keep_seq_id,   keep_name,
-                                                                                       time() - t0))
+                                                                                       times[-1]))
             else:  # not an alignment line in input .uc file
                 continue
 
-        if len(times) and self._VERBOSE:  # DEBUG
-            sys.stderr.write("average time per hit line: %.3f"%(numpy.mean(times)))
-            sys.stderr.write("min time per hit line: %.3f"%(numpy.min(times)))
-            sys.stderr.write("max time per hit line: %.3f"%(numpy.max(times)))
+        # if len(times) and self._VERBOSE:  # DEBUG
+        #     sys.stderr.write("merges: %d\n"%(len(times)))
+        #     sys.stderr.write("total time for all merges: %.3f seconds\n"%(numpy.sum(times)))
+        #     sys.stderr.write("average time per merge: %.3f seconds\n"%(numpy.mean(times)))
+        #     sys.stderr.write("min time per merge: %.3f seconds\n"%(numpy.min(times)))
+        #     sys.stderr.write("max time per merge: %.3f seconds\n"%(numpy.max(times)))
 
         # write new fasta file with only new sequences
         if self._VERBOSE:
