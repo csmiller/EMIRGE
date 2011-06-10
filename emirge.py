@@ -1347,8 +1347,8 @@ def do_initial_mapping(working_dir, options):
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
     sys.stdout.flush()
     sys.stderr.flush()
-    os.fsync(sys.stdout.fileno())  # make sure it gets synced?
-    os.fsync(sys.stderr.fileno())  # make sure it gets synced?
+    # os.fsync(sys.stdout.fileno())  # make sure it gets synced?
+    # os.fsync(sys.stderr.fileno())  # make sure it gets synced?
     
     return bampath_prefix+".bam"
 
@@ -1481,7 +1481,7 @@ def main(argv = sys.argv[1:]):
     sys.stdout.write(' '.join([__file__]+argv))
     sys.stdout.write('\n\n')
     sys.stdout.flush()
-    os.fsync(sys.stdout.fileno())  # make sure it gets synced?
+    # os.fsync(sys.stdout.fileno())  # make sure it gets synced?
 
     # first handle RESUME case
     # if options.resume_from is not None:
