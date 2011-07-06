@@ -436,8 +436,16 @@ class EM(object):
         self.cluster_sequences(consensus_filename)  # merges sequences that have evolved to be the same (USEARCH)
 
         # leave a few things around for later.  Note that print_priors also leaves sequence_name2sequence_i mapping, basically.
+        if self._VERBOSE:
+            sys.stderr.write("Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
         self.print_priors()
-        cPickle.dump(self.probN, gzip.GzipFile(os.path.join(self.iterdir, 'probN.pkl.gz'), 'w'), cPickle.HIGHEST_PROTOCOL)
+        # python gzip.GzipFile is slow.  Use system call instead
+        # cPickle.dump(self.probN, gzip.GzipFile(os.path.join(self.iterdir, 'probN.pkl.gz'), 'w'), cPickle.HIGHEST_PROTOCOL)
+        pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
+        cPickle.dump(self.probN, file(pickled_filename, 'w'), cPickle.HIGHEST_PROTOCOL)
+        check_call("gzip -f %s"%(pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
+        if self._VERBOSE:
+            sys.stderr.write("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
 
         # now do a new mapping run for next iteration
         self.do_mapping(consensus_filename, nice = self.mapping_nice)
@@ -862,6 +870,7 @@ class EM(object):
         """
         if self._VERBOSE:
             sys.stderr.write("Calculating likelihood %s for iteration %d at %s...\n"%(self.likelihoods.shape, self.iteration_i, ctime()))
+            start_time = time()
         # first calculate self.probN from mapped reads, previous round's posteriors
         self.calc_probN()   # (handles initial iteration differently within this method)
         bamfile = pysam.Samfile(self.current_bam_filename, "rb")
@@ -913,7 +922,7 @@ class EM(object):
         # now actually construct sparse matrix.
         self.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), self.likelihoods.shape, dtype=self.likelihoods.dtype).tocsr()
         if self._VERBOSE:
-            sys.stderr.write("DONE Calculating likelihood for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            sys.stderr.write("DONE Calculating likelihood for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
         return
 
     def calc_posteriors(self):
@@ -962,6 +971,7 @@ class EM(object):
         """
         if self._VERBOSE:
             sys.stderr.write("\tCalculating Pr(N=n) for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            start_time = time()
 
         bamfile = pysam.Samfile(self.current_bam_filename, "rb")
         # basecounts = [seqprobNarray.astype(numpy.uint32) for seqprobNarray in self.probN]
@@ -1053,7 +1063,8 @@ class EM(object):
                 probNarray[(zero_indices[0], numeric_bases)] += (1. - error_P)
                 # TODO: figure out if all this can be kept in log space... rounding errors might be +/- 3e-12
         if self._VERBOSE:
-            sys.stderr.write("\tDONE calculating Pr(N=n) for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            sys.stderr.write("\tDONE calculating Pr(N=n) for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
+            
         return
         
 
@@ -1244,59 +1255,6 @@ def test_generic(cwd, bam_ref, fasta_ref,
 
     return em
 
-def hack_it_together(max_iter):
-    """
-    until I get that UI going... I've got to see what it does!
-
-    ASSUMES A GLOBAL VARIABLE CALLED em
-    """
-    assert 'em' in globals()
-    global em
-    os.chdir(em.cwd)
-
-    # em = test_initialize(n_cpus = 12, cwd = workdir)
-    # em.snp_percentage_thresh = 0.04
-    if em.iteration_i < 0:  # first run
-        em.do_iteration(em.current_bam_filename, em.current_reference_fasta_filename)
-
-    while em.iteration_i < max_iter:
-        subdir = os.path.join(em.cwd, "iter.%02d"%(em.iteration_i))
-        em.do_iteration(os.path.join(subdir, "bowtie.iter.%02d.sort.PE.bam"%(em.iteration_i)),
-                        os.path.join(subdir, "iter.%02d.cons.fasta"%(em.iteration_i)))
-
-def hack_all():
-    assert 'em' in globals()
-    global em
-    os.chdir(em.cwd)
-
-    for newmax in range(10,130, 10):
-	hack_it_together(newmax)
- 	filename = em.save_state()
-        os.system("bzip2 -f %s &"%(filename))
-
-def countem(thresh):
-    i = 0
-    indices = []
-    for seq_i, probNarray in enumerate(em.probN):
-        if probNarray is None:
-            continue
-        try:
-            num_mapped_indices = numpy.argwhere(probNarray > (1-0.05)).shape[0]
-        except:
-            print seq_i
-            raise
- 	if float(num_mapped_indices) / float(probNarray.shape[0]) <= thresh:
-            indices.append(seq_i)
-    return indices
-
-def do_Rifle():
-    global em
-    wd = "/localdisk1/work/csmiller/16S/emess_Rifle"
-    em = test_generic(wd, os.path.join(wd, "s_7_trim_B.min60.PE.sort.bam"), "/work/csmiller/16S/good_reference_database/SSURef_102_tax_silva.sorted.fixed.97.fasta", os.path.join(wd, "s_7_trim_B.min60.PE.1.fastq"), os.path.join(wd, "s_7_trim_B.min60.PE.2.fastq.gz"), 479, 195, max_read_length = 105, snp_percentage_thresh = 0.04, n_cpus = 20)
-    em.min_depth = 3
-    em.mapping_nice = 4
-    hack_all()
-
 def do_iterations(em, max_iter, save_every):
     """
     an EM object is passed in, so that one could in theory start from a saved state
@@ -1347,8 +1305,6 @@ def do_initial_mapping(working_dir, options):
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
     sys.stdout.flush()
     sys.stderr.flush()
-    # os.fsync(sys.stdout.fileno())  # make sure it gets synced?
-    # os.fsync(sys.stderr.fileno())  # make sure it gets synced?
     
     return bampath_prefix+".bam"
 
@@ -1481,7 +1437,6 @@ def main(argv = sys.argv[1:]):
     sys.stdout.write(' '.join([__file__]+argv))
     sys.stdout.write('\n\n')
     sys.stdout.flush()
-    # os.fsync(sys.stdout.fileno())  # make sure it gets synced?
 
     # first handle RESUME case
     # if options.resume_from is not None:
