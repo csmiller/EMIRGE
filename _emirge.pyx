@@ -49,7 +49,7 @@ cpdef int base_alpha2int(char base_ascii):
         return 4
         
 cpdef double calc_likelihood_cell(unsigned int seq_i, unsigned int read_i, unsigned int pair_i,
-                                  unsigned int rlen, unsigned int qlen, unsigned int pos,
+                                  unsigned int pos,
                                   np.ndarray[np.uint8_t, ndim=1] numeric_bases,
                                   np.ndarray[np.uint8_t, ndim=1] qualints,
                                   np.ndarray[np.float_t, ndim=2] probN):  # an individual probN numpy matrix
@@ -80,5 +80,44 @@ cpdef double calc_likelihood_cell(unsigned int seq_i, unsigned int read_i, unsig
     # do at least this product in log space (0.94005726833168002 vs. 0.94005726833167991)
     # likelihood[seq_i, read_i] = e**(np_log(prob_b_i).sum())
     return c_pow(M_E, p)
+
+def calc_probN_read(bint initial_iteration,
+                    unsigned int seq_i, unsigned int read_i,
+                    unsigned int pos,
+                    double weight,
+                    # np.ndarray[np.float_t, ndim=1] priors,
+                    # np.ndarray[np.float_t, ndim=2] posteriors,
+                    np.ndarray[np.uint8_t, ndim=1] numeric_bases,
+                    np.ndarray[np.uint8_t, ndim=1] qualints,
+                    np.ndarray[np.float_t, ndim=2] probN):  # an individual probN numpy matrix. Passed by ref?
+    """
+    calculates effect of a single read on probN
+
+    this is inside loop over bamfile_data
+    """
+    cdef int i
+    cdef int j
+    # cdef double weight
+
+    ## posteriors is a sparse matrix, so this presents a little bit of a tricky situation until
+    ## I can think about how to pass this.  Have to choose correct data struct, manip internals
     
-    
+    # if initial_iteration:
+    #     weight = priors[seq_i]
+    # else:
+    #     if seq_i < posteriors.shape[0] and read_i < posteriors.shape[1]:
+    #         weight = posteriors[seq_i, read_i]
+    #     else:
+    #         weight = priors[seq_i]
+
+    for i in range(numeric_bases.shape[0]):
+    # for i from 0 <= i < numeric_bases.shape[0]:  # old syntax, range syntax above fast if i is cdef-ed.
+        s = 0.0
+        for j in range(4):
+            if numeric_bases[i] == j:   # this is called base, add (1-P) * weight
+                probN[pos + i, j] += qual2one_minus_p[qualints[i]] * weight
+            else:                       # this is not the called base, so add P/3 * weight
+                probN[pos + i, j] += qual2p_div_3[qualints[i]] * weight
+
+    return
+
