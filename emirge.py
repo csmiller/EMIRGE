@@ -967,11 +967,12 @@ class EM(object):
         initial_iteration = self.iteration_i < 1
         
         # for speed:
-        arange = numpy.arange
         probN = self.probN
         if not initial_iteration:
             self.posteriors[-2] = self.posteriors[-2].tolil()
             posteriors = self.posteriors[-2]  # this depends on PREVIOUS iteration's posteriors (seq_n x read_n)
+        else:
+            posteriors = None
         priors     = self.priors[-2]          # and if no posteriors are present (or initial iter), falls back on priors from previous round
         base2i_get = self.base2i.get
         asciibase2i_get = self.asciibase2i.get
@@ -987,39 +988,14 @@ class EM(object):
         calc_probN_read = _emirge.calc_probN_read
         for alignedread_i in range(bamfile_data.shape[0]):
             seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
-            if initial_iteration:
-                weight = priors[seq_i]
-            else:
-                try:
-                    weight = posteriors[seq_i, read_i]
-                except IndexError:
-                    weight = priors[seq_i]
-                
             calc_probN_read(initial_iteration,
                             seq_i, read_i, pos,
-                            weight,
+                            priors,
+                            posteriors,
                             bamfile_sequences[alignedread_i],
                             quals[pair_i, read_i, :qlen],
                             probN[seq_i])
             
-            # if initial_iteration:
-            #     weight = priors[seq_i]
-            # else:
-            #     try:
-            #         weight = posteriors[seq_i, read_i]
-            #     except IndexError:
-            #         weight = priors[seq_i]
-                
-            # read_pos_index = arange(int(pos), int(pos + qlen))
-            # # add P/3 * Pr(S_t-1 | R) to all bases.
-            # error_P = 10**(quals[pair_i, read_i, :rlen] / -10.)
-            # weighted_vals = (error_P / 3.) * weight
-            # probN[seq_i][pos: pos+qlen, 0:4] += weighted_vals.reshape((rlen, 1))
-            # # subtract P/3 from called base
-            # probN[seq_i][(read_pos_index, bamfile_sequences[alignedread_i])] -= weighted_vals
-            # # add (1-P) to called base
-            # probN[seq_i][(read_pos_index, bamfile_sequences[alignedread_i])] += ((1. - error_P) * weight)
-            # # TODO: figure out if all this can be kept in log space... rounding errors might be important
 
         numpy_where = numpy.where
         numpy_nonzero = numpy.nonzero
