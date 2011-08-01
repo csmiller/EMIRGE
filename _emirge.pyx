@@ -84,9 +84,8 @@ cpdef double calc_likelihood_cell(unsigned int seq_i, unsigned int read_i, unsig
 def calc_probN_read(bint initial_iteration,
                     unsigned int seq_i, unsigned int read_i,
                     unsigned int pos,
-                    double weight,
-                    # np.ndarray[np.float_t, ndim=1] priors,
-                    # np.ndarray[np.float_t, ndim=2] posteriors,
+                    np.ndarray[np.float_t, ndim=1] priors,
+                    posteriors,  # pass as python object for now
                     np.ndarray[np.uint8_t, ndim=1] numeric_bases,
                     np.ndarray[np.uint8_t, ndim=1] qualints,
                     np.ndarray[np.float_t, ndim=2] probN):  # an individual probN numpy matrix. Passed by ref?
@@ -97,18 +96,19 @@ def calc_probN_read(bint initial_iteration,
     """
     cdef int i
     cdef int j
-    # cdef double weight
+    cdef double weight
 
     ## posteriors is a sparse matrix, so this presents a little bit of a tricky situation until
-    ## I can think about how to pass this.  Have to choose correct data struct, manip internals
+    ## I can think about how to pass this.  Have to choose correct data struct, manip internals?
+    ## for now, just keep as python obj.
     
-    # if initial_iteration:
-    #     weight = priors[seq_i]
-    # else:
-    #     if seq_i < posteriors.shape[0] and read_i < posteriors.shape[1]:
-    #         weight = posteriors[seq_i, read_i]
-    #     else:
-    #         weight = priors[seq_i]
+    if initial_iteration:
+        weight = priors[seq_i]
+    else:
+        if seq_i < posteriors.shape[0] and read_i < posteriors.shape[1]:
+            weight = posteriors[seq_i, read_i]
+        else:
+            weight = priors[seq_i]
 
     for i in range(numeric_bases.shape[0]):
     # for i from 0 <= i < numeric_bases.shape[0]:  # old syntax, range syntax above fast if i is cdef-ed.
