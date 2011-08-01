@@ -36,6 +36,7 @@ from time import ctime, time
 from datetime import timedelta
 import gzip
 import cPickle
+import _emirge
 
 BOWTIE_l = 20
 BOWTIE_e  = 300
@@ -86,6 +87,8 @@ class EM(object):
     _VERBOSE = True
     base2i = {"A":0,"T":1,"C":2,"G":3}
     i2base = dict([(v,k) for k,v in base2i.iteritems()])
+    asciibase2i = {65:0,84:1,67:2,71:3}
+    
     clustermark_pat = re.compile(r'(\d+\|.?\|)?(.*)')  # cludgey code associated with this should go into a method: get_seq_i()
     DEFAULT_ERROR = 0.05
     def __init__(self, reads1_filepath, reads2_filepath,
@@ -172,7 +175,10 @@ class EM(object):
                 self.unmapped_bases
                 self.coverage
                 self.sequence_name2fasta_name
+                self.bamfile_refnames
+                self.bamfile_readnames
                 self.bamfile_data
+                self.bamfile_sequences
                 
         paired reads are treated as separate, individual reads.
 
@@ -213,12 +219,21 @@ class EM(object):
         getrname = bamfile.getrname  # speed hack
         # clustermark_pat_search = self.clustermark_pat.search
 
-        # this is data struct to avoid lookups, since I read through bam file several times in an iteration.
-        self.bamfile_data = [] # (refname, readname, seq_i, read_i, pair_i)
+        # these are data structs to avoid lookups, since I read through bam file several times in an iteration.
+        self.bamfile_refnames = []
+        self.bamfile_readnames = []
+        self.bamfile_data = [] # (seq_i, read_i, pair_i, rlen, qlen, pos)
+        self.bamfile_sequences = []
+
+        bamfile_refnames = self.bamfile_refnames
+        bamfile_readnames = self.bamfile_readnames
         bamfile_data = self.bamfile_data  # speed hack
+        bamfile_sequences = self.bamfile_sequences
+        uint = numpy.uint
         # this loop is pretty fast still (6 seconds on slow iterations)
         for alignedread_i, (alignedread) in enumerate(bamfile):
             refname = getrname(alignedread.rname)
+            
             seq_i_to_cache = self.sequence_name2sequence_i[-1].get(refname, seq_i)
             if refname not in self.sequence_name2sequence_i[-1]:
                 self.sequence_name2sequence_i[-1][refname] = seq_i
@@ -231,30 +246,19 @@ class EM(object):
                 self.read_name2read_i[-1][readname] = read_i
                 self.read_i2read_name[-1][read_i] = readname
                 read_i += 1
-            bamfile_data.append((refname, readname, seq_i_to_cache, read_i_to_cache, pair_i))
-        # self.read_lengths = numpy.zeros((2, read_i), dtype=numpy.uint8)
-        # self.reads = numpy.zeros((2, read_i, self.max_read_length), dtype='c')
+            bamfile_refnames.append(refname)
+            bamfile_readnames.append(readname)
+            bamfile_data.append(numpy.array([seq_i_to_cache, read_i_to_cache, pair_i, alignedread.rlen, alignedread.qlen, alignedread.pos], dtype=int))
+        self.bamfile_data = numpy.array(self.bamfile_data, dtype=int)
         self.quals = numpy.zeros((2, read_i, self.max_read_length), dtype=numpy.uint8)
 
-        # these are pretty big in memory.  1 GB for 42272 reads and 1584 ref. sequences .
-        # whole script uses about 3.5 GB in practice.
-        # Most reads will have only one or a few sequences, so this is a very
-        # sparse table.
-        # one alternative is to use sparse matrices for the 2D arrays.
-        # These act mostly like numpy arrays but if you need to convert, then numpy.array(a.todense())
-        # self.priors.append(numpy.zeros(seq_i+1, dtype = numpy.float))
-        # self.likelihoods.append(sparse.lil_matrix((seq_i+1, read_i+1)))
-        # self.posteriors.append(sparse.lil_matrix((seq_i+1, read_i+1)))
-        # really only need to keep t-1 and t, so maybe not so bad
         self.priors.append(numpy.zeros(seq_i, dtype = numpy.float))
-        # self.likelihoods = numpy.zeros((seq_i, read_i), dtype = numpy.float)
         self.likelihoods = sparse.coo_matrix((seq_i, read_i), dtype = numpy.float)  # init all to zero.
-        # self.posteriors.append(numpy.zeros_like(self.likelihoods))
         self.posteriors.append(sparse.lil_matrix((seq_i+1, read_i+1), dtype=numpy.float))
 
         self.coverage = numpy.zeros_like(self.priors[-1])
 
-        # now second pass to populate (self.read_lengths,) XXself.readsXX, self.quals, self.coverage
+        # now second pass to populate (self.read_lengths,) XXself.readsXX, self.quals, self.coverage, self.bamfile_sequences
         bamfile.close()
         bamfile = pysam.Samfile(bam_filename, "rb")
 
@@ -267,25 +271,25 @@ class EM(object):
         sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
         read_name2read_i = self.read_name2read_i[-1]
         bamfile_data = self.bamfile_data
+        # self.bamfile_sequences = numpy.zeros((len(self.bamfile_data), self.max_read_length), dtype=numpy.uint8) # **numeric** vals (not chars)
+        self.bamfile_sequences = []  # list of numpy uint8 arrays
+        bamfile_sequences = self.bamfile_sequences
         ascii_offset = BOWTIE_ASCII_OFFSET
         # clustermark_pat_search = self.clustermark_pat.search
 
         # slowish.  1m8s... now 48s... now 42s on slow iteration
         # print >> sys.stderr, "***", ctime()
+        fromstring = numpy.fromstring
+        uint8 = numpy.uint8
+        asciibase2i_get = self.asciibase2i.get
+        base_alpha2int = _emirge.base_alpha2int
         
         for alignedread_i, alignedread in enumerate(bamfile):
-            refname, readname, seq_i, read_i, pair_i = bamfile_data[alignedread_i]
-
-            # refname = getrname(alignedread.rname)
-            # seq_i = sequence_name2sequence_i[refname]
-            # pair_i = int(alignedread.is_read2)
-            # readname = "%s/%d"%(alignedread.qname, int(alignedread.is_read2)+1)
-            # read_i = read_name2read_i[readname]
-
-            # self.read_lengths[pair_i, read_i] = alignedread.rlen
-            # reads[pair_i, read_i, :alignedread.rlen] = alignedread.seq
-            quals[pair_i, read_i, :alignedread.rlen] = [ord_local(l)-ascii_offset for l in  alignedread.qual]  # could speed this up with ctypes
-            coverage[seq_i] += alignedread.rlen
+            seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
+            quals[pair_i, read_i, :rlen] = fromstring(alignedread.qual, dtype=uint8) - ascii_offset
+            # bamfile_sequences[alignedread_i, :rlen] = [base_alpha2int(x) for x in fromstring(alignedread.seq, dtype=uint8)]
+            bamfile_sequences.append(numpy.array([base_alpha2int(x) for x in fromstring(alignedread.seq, dtype=uint8)], dtype=uint8))
+            coverage[seq_i] += rlen
         bamfile.close()
 
         self.probN = [None for x in range(max(self.sequence_name2sequence_i[-1].values())+1)]
@@ -335,20 +339,10 @@ class EM(object):
         self.read_bam(bam_filename, reference_fasta_filename)
         # initialize priors.  Here just adding a count for each read mapped to each reference sequence
         # also initialize Pr(N=n), which is the only other thing besides Pr(S) in the M step that depends on iteration t-1.
-        bamfile = pysam.Samfile(self.current_bam_filename, "rb")
-        getrname = bamfile.getrname
-        sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
-        bamfile_data = self.bamfile_data
-        # clustermark_pat_search = self.clustermark_pat.search
-
         # PRIOR
-        for alignedread_i, alignedread in enumerate(bamfile):
-            refname, readname, seq_i, read_i, pair_i = bamfile_data[alignedread_i]
-
-            # refname = getrname(alignedread.rname)
-            # seq_i = sequence_name2sequence_i[refname]
+        for (seq_i, read_i, pair_i, rlen, qlen, pos) in self.bamfile_data:
             self.priors[-1][seq_i] += 1
-        bamfile.close()
+
         nonzero_indices = numpy.nonzero(self.priors[-1])  # only divide cells with at least one count.  Set all others to Pr(S) = 0
         self.priors[-1] = self.priors[-1][nonzero_indices] / self.priors[-1][nonzero_indices].sum()  # turn these into probabilities
         self.priors.append(self.priors[-1].copy())  # push this back to t-1 (index == -2)
@@ -873,7 +867,6 @@ class EM(object):
             start_time = time()
         # first calculate self.probN from mapped reads, previous round's posteriors
         self.calc_probN()   # (handles initial iteration differently within this method)
-        bamfile = pysam.Samfile(self.current_bam_filename, "rb")
 
         # for speed:
         probN = self.probN
@@ -881,44 +874,41 @@ class EM(object):
         quals       = self.quals
         sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
         read_name2read_i         = self.read_name2read_i[-1]
-        getrname = bamfile.getrname
         base2i_get = self.base2i.get
         arange = numpy.arange
         numpy_log = numpy.log
         e = numpy.e
-        lik_row_seqi = []  # these for constructing coo_matrix for likelihood.
-        lik_col_readi = []
-        lik_data = []
+        lik_row_seqi = numpy.empty(len(self.bamfile_data), dtype=numpy.uint) # these for constructing coo_matrix for likelihood.
+        lik_col_readi = numpy.empty_like(lik_row_seqi)
+        lik_data = numpy.empty(len(self.bamfile_data), dtype=numpy.float)
         bamfile_data = self.bamfile_data
+        bamfile_sequences = self.bamfile_sequences
         zeros = numpy.zeros
-        # clustermark_pat_search = self.clustermark_pat.search # no longer needed
-        # could multi-thread this part here.  Only data structure I write to is self.likelihoods (here: likelihood), so I'd have to be careful about concurrent writes to that.
-        for alignedread_i, alignedread in enumerate(bamfile):
-            refname, readname, seq_i, read_i, pair_i = bamfile_data[alignedread_i]
 
-            # refname = getrname(alignedread.rname)
-            # seq_i = sequence_name2sequence_i[refname]
-            # readname = "%s/%d"%(alignedread.qname, int(alignedread.is_read2)+1)
-            # read_i = read_name2read_i[readname]
-            # pair_i = int(alignedread.is_read2)
-            prob_bases = zeros((alignedread.rlen, 5), dtype=numpy_float)
-            # add P/3 to all bases.
-            error_P = 10**(quals[pair_i, read_i, :alignedread.rlen] / -10.)
-            prob_bases[:, :4] += (error_P / 3.).reshape((alignedread.rlen, 1))
-            # subtract P/3 from called base
-            numeric_bases = [base2i_get(base, 4) for base in alignedread.seq]
-            read_pos_index = arange(alignedread.pos, alignedread.pos + alignedread.qlen)
-            prob_bases[(arange(len(numeric_bases)), numeric_bases)] -= (error_P / 3.)
-            # add (1-P) to called base
-            prob_bases[(arange(len(numeric_bases)), numeric_bases)] += (1. - error_P)
-            prob_b_i = (prob_bases[:, :4] * probN[seq_i][read_pos_index, :4]).sum(axis=1)  # this is Pr(b_i|S), where axis=0 is i
-            # do at least this product in log space (0.94005726833168002 vs. 0.94005726833167991)
-            # likelihood[seq_i, read_i] = e**(numpy_log(prob_b_i).sum())
-            lik_row_seqi.append(seq_i)
-            lik_col_readi.append(read_i)
-            lik_data.append(e**(numpy_log(prob_b_i).sum()))
-            
-        bamfile.close()
+        # TODO: multiprocess -- worker pools would just return three arrays that get appended at end (extend instead of append) before coo matrix construction
+        # data needed outside of bamfile:
+        # optional: bamfile_data, quals
+        # required: base2i, probN
+
+        # lik_row_seqi, lik_col_readi, lik_data = _emirge.likelihood_loop(self.bamfile_data,
+        #                                                                 self.bamfile_sequences,
+        #                                                                 self.quals,
+        #                                                                 self.probN,
+        #                                                                 self.max_read_length)
+
+
+
+        # keep looping here in python so that we can use multiprocessing with an iterator (no cython looping).
+        calc_likelihood_cell = _emirge.calc_likelihood_cell
+        for alignedread_i, (seq_i, read_i, pair_i, rlen, qlen, pos) in enumerate(bamfile_data):
+            lik_row_seqi[alignedread_i] = seq_i
+            lik_col_readi[alignedread_i] = read_i
+            lik_data[alignedread_i] = calc_likelihood_cell(seq_i, read_i, pair_i,
+                                                           rlen, qlen, pos,
+                                                           bamfile_sequences[alignedread_i],
+                                                           quals[pair_i, read_i, :qlen],
+                                                           probN[seq_i])
+
         # now actually construct sparse matrix.
         self.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), self.likelihoods.shape, dtype=self.likelihoods.dtype).tocsr()
         if self._VERBOSE:
@@ -973,12 +963,10 @@ class EM(object):
             sys.stderr.write("\tCalculating Pr(N=n) for iteration %d at %s...\n"%(self.iteration_i, ctime()))
             start_time = time()
 
-        bamfile = pysam.Samfile(self.current_bam_filename, "rb")
         # basecounts = [seqprobNarray.astype(numpy.uint32) for seqprobNarray in self.probN]
         initial_iteration = self.iteration_i < 1
         
         # for speed:
-        getrname = bamfile.getrname 
         arange = numpy.arange
         probN = self.probN
         if not initial_iteration:
@@ -986,20 +974,18 @@ class EM(object):
             posteriors = self.posteriors[-2]  # this depends on PREVIOUS iteration's posteriors (seq_n x read_n)
         priors     = self.priors[-2]          # and if no posteriors are present (or initial iter), falls back on priors from previous round
         base2i_get = self.base2i.get
+        asciibase2i_get = self.asciibase2i.get
         sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
         read_name2read_i = self.read_name2read_i[-1]
         bamfile_data = self.bamfile_data
+        bamfile_sequences = self.bamfile_sequences
         quals = self.quals
-        # clustermark_pat_search = self.clustermark_pat.search
+        np_int = numpy.int
 
         # could multithread this too.  self.probN is what is being written to.
-        for alignedread_i, alignedread in enumerate(bamfile):
-            refname, readname, seq_i, read_i, pair_i = bamfile_data[alignedread_i]
-
-            # refname = getrname(alignedread.rname)
-            # seq_i = sequence_name2sequence_i[refname]
-            # readname = "%s/%d"%(alignedread.qname, int(alignedread.is_read2)+1)
-            # read_i = read_name2read_i[readname]
+        # for alignedread_i, (seq_i, read_i, pair_i, rlen, qlen, pos) in enumerate(bamfile_data):
+        for alignedread_i in range(bamfile_data.shape[0]):
+            seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
             if initial_iteration:
                 weight = priors[seq_i]
             else:
@@ -1008,26 +994,16 @@ class EM(object):
                 except IndexError:
                     weight = priors[seq_i]
                 
-            numeric_bases = [base2i_get(base, 4) for base in alignedread.seq]
-            read_pos_index = arange(alignedread.pos, alignedread.pos + alignedread.qlen)
-            # basecounts[seq_i][(read_pos_index, numeric_bases)] += 1
-            # pair_i = int(alignedread.is_read2)
+            read_pos_index = arange(int(pos), int(pos + qlen))
             # add P/3 * Pr(S_t-1 | R) to all bases.
-            error_P = 10**(quals[pair_i, read_i, :alignedread.rlen] / -10.)
+            error_P = 10**(quals[pair_i, read_i, :rlen] / -10.)
             weighted_vals = (error_P / 3.) * weight
-            # try:
-            probN[seq_i][alignedread.pos: alignedread.pos+alignedread.qlen, 0:4] += weighted_vals.reshape((alignedread.rlen, 1)) # TODO: broadcasting correct?
-            # except:
-            #     print alignedread
-            #     print seq_i
-            #     print self.sequence_i2sequence_name[-1][seq_i]
-            #     raise
+            probN[seq_i][pos: pos+qlen, 0:4] += weighted_vals.reshape((rlen, 1))
             # subtract P/3 from called base
-            probN[seq_i][(read_pos_index, numeric_bases)] -= weighted_vals
+            probN[seq_i][(read_pos_index, bamfile_sequences[alignedread_i])] -= weighted_vals
             # add (1-P) to called base
-            probN[seq_i][(read_pos_index, numeric_bases)] += ((1. - error_P) * weight)
+            probN[seq_i][(read_pos_index, bamfile_sequences[alignedread_i])] += ((1. - error_P) * weight)
             # TODO: figure out if all this can be kept in log space... rounding errors might be important
-        bamfile.close()
 
         numpy_where = numpy.where
         numpy_nonzero = numpy.nonzero
@@ -1092,7 +1068,7 @@ class EM(object):
         bamfile_data = self.bamfile_data
         reads = 0
         for alignedread_i, alignedread in enumerate(bamfile):
-            refname, readname, this_seq_i, read_i, pair_i = bamfile_data[alignedread_i]
+            this_seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
             if this_seq_i != seq_i or posteriors[seq_i, read_i] < 0.5:
                 continue
             # means we have a read with more than 50% prob assigned to this sequence
@@ -1125,11 +1101,10 @@ class EM(object):
         bamfile_data = self.bamfile_data
         reads = 0
         for alignedread_i, alignedread in enumerate(bamfile):
-            refname, readname, this_seq_i, read_i, pair_i = bamfile_data[alignedread_i]
+            this_seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
             if this_seq_i != seq_i or posteriors[seq_i, read_i] < 0.5:
                 continue
             # means we have a read with more than 50% prob assigned to this sequence
-            # MARK!!!
             of_sam.write(alignedread)
             reads += 1
         of_sam.close()
@@ -1158,19 +1133,18 @@ class EM(object):
         # of original file.
         self.posteriors[-1] = self.posteriors[-1].tolil()  # seq_i x read_i
         posteriors = self.posteriors[-1]  # seq_i x read_i
-        bamfile = pysam.Samfile(self.current_bam_filename, "rb")
         of_fasta_name = '%s.reads.fasta'%(output_prefix)
         of_fasta = file(of_fasta_name, 'w')
         bamfile_data = self.bamfile_data
         reads = 0
-        for alignedread_i, alignedread in enumerate(bamfile):
-            refname, readname, this_seq_i, read_i, pair_i = bamfile_data[alignedread_i]
+        for alignedread_i, (this_seq_i, read_i, pair_i, rlen, qlen, pos) in enumerate(self.bamfile_data):
             if this_seq_i != seq_i or posteriors[seq_i, read_i] < 0.5:
                 continue
             # means we have a read with more than 50% prob assigned to this sequence
-            header = "%s DIRECTION: fwd CHEM: unknown TEMPLATE: %s"%(readname, readname)
+            header = "%s DIRECTION: fwd CHEM: unknown TEMPLATE: %s"%(bamfile_readnames[alignedread_i],
+                                                                     bamfile_readnames[alignedread_i])
             # header = "%s"%(reads)
-            of_fasta.write(">%s\n%s\n"%(header, alignedread.seq))
+            of_fasta.write(">%s\n%s\n"%(header, bamfile_sequences[alignedread_i, :rlen]))
             #, alignedread.qual))
             reads += 1
         of_fasta.close()

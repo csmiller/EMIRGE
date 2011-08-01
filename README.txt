@@ -43,11 +43,31 @@ EMIRGE expects the following programs to be installed and available in your path
 
  -python (tested with version 2.6), with the following packages installed:
   -BioPython
+  -Cython
   -pysam
   -scipy / numpy
  -usearch (www.drive5.com/usearch/ -- tested with usearch version 4.0.38).
  -samtools (http://samtools.sourceforge.net/ -- tested with verison 0.1.7)
  -bowtie (http://bowtie-bio.sourceforge.net/index.shtml -- tested with version 0.12.5)
+
+INSTALLATION
+------------------------------
+
+After installing the dependencies listed above, type the following to build emirge:
+
+  $ python setup.py build
+
+To install (you may skip straight to this step), type the following as root, or with sudo:
+
+  $ python setup.py install
+
+You can also type the following for more options:
+  $ python setup.py --help install
+
+For example, to install instead to a location in your home directory
+where you have permission to write, you might type something like:
+
+  $ python setup.py install --prefix=$HOME/software
 
 HELP
 ------------------------------
