@@ -1320,11 +1320,33 @@ def resume(working_dir, options):
     do_iterations(em, max_iter = options.iterations, save_every = options.save_every)
     return
 
+def dependency_check():
+    """
+    check presense, versions of programs used in emirge
+    TODO: right now just checking uclust, as the command line params
+    and behavior are finicky and seem to change from version to
+    version
+    """
+    # usearch
+    working_maj = '4'
+    working_minor = '2'
+    match = re.search(r'usearch v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
+    if match is None:
+        print >> sys.stderr, "FATAL: usearch not found in path!"
+        exit(0)
+    major, minor, minor_minor = match.groups()
+    if major != working_maj or (major == working_maj and minor != working_minor):
+        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge.py has only been verified to run with version %s.%s.*\nuclust is a bit finicky from version to version, so please download that version."%(major, minor, minor_minor, working_maj, working_minor)
+        exit(0)
+    return 
+    
 def main(argv = sys.argv[1:]):
     """
     command line interface to emirge
     
     """
+    dependency_check()
+
     parser = OptionParser("usage: %prog DIR <required_parameters> [options]\n\nEMIRGE attempts to reconstruct rRNA SSU genes from Illumina metagenomic data.\n DIR is the working directory to process data in.\nuse --help to see a list of required and optional arguments")
 
 
@@ -1459,6 +1481,8 @@ def main(argv = sys.argv[1:]):
     do_iterations(em, max_iter = options.iterations, save_every = options.save_every)
 
     return
+
+
 
 if __name__ == '__main__':
     main()
