@@ -20,7 +20,7 @@ Copyright (C) 2010 Christopher S. Miller  (csmiller@berkeley.edu)
 https://github.com/csmiller/EMIRGE
 """
 
-from libc.stdlib cimport malloc, free
+from libc.stdlib cimport malloc, free, atoi
 from libc.math cimport M_E, log, pow as c_pow
 import numpy as np
 cimport numpy as np
@@ -121,3 +121,53 @@ def calc_probN_read(bint initial_iteration,
 
     return
 
+
+def count_cigar_aln(char* query_seq, char* hit_seq,
+                    np.ndarray[np.uint8_t, ndim=1] query_unmapped_bases,
+                    np.ndarray[np.uint8_t, ndim=1] hit_unmapped_bases,
+                    alncode_list):
+    """
+    alncode list comes from a cigar string (see call in emirge.py)
+    
+    returns number of aligned columns and number of matches in those aligned columns as tuple
+    """
+
+    cdef int query_i = 0
+    cdef int hit_i   = 0
+    cdef int matches = 0
+    cdef int aln_columns    = 0
+    cdef int count
+    # cdef char aln_code  # doesn't work.  Expects integer
+    cdef int i
+    cdef int j
+
+    for i in range(len(alncode_list)):
+        count_a, aln_code = alncode_list[i]
+        # print >> sys.stderr, "***", count_a, aln_code, len(query_seq), len(query_unmapped_bases), len(hit_seq), len(hit_unmapped_bases)
+        if not len(count_a):
+            count = 1  # "As a special case, if n=1 then n is omitted"
+        else:
+            count = int(count_a)
+
+        if aln_code == 'M':    # match (letter-letter column; could be mismatch)
+            for j in range(count):
+                # print >> sys.stderr, "***", query_i+j, hit_i+j, query_seq[query_i+j], hit_seq[hit_i+j]
+                
+                if query_unmapped_bases[query_i+j] == 0:
+                    if hit_unmapped_bases[hit_i+j] == 0:
+                        aln_columns += 1
+                        if query_seq[query_i+j] == hit_seq[hit_i+j]:
+                            matches += 1
+            query_i += count
+            hit_i += count
+        elif aln_code == 'I':
+            query_i += count
+        elif aln_code == 'D':
+            hit_i += count
+        else:
+            raise ValueError, "unknown alignment code: '%s'"%aln_code
+
+    return aln_columns, matches
+        
+    
+                                       
