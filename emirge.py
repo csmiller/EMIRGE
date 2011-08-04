@@ -175,7 +175,6 @@ class EM(object):
                 self.unmapped_bases
                 self.coverage
                 self.sequence_name2fasta_name
-                self.bamfile_refnames
                 self.bamfile_readnames
                 self.bamfile_data
                 self.bamfile_sequences
@@ -188,7 +187,8 @@ class EM(object):
         """
         if self._VERBOSE:
             sys.stderr.write("Reading bam file %s at %s...\n"%(bam_filename, ctime()))
-
+            start_time = time()
+            
         initial_iteration = self.iteration_i < 0  # this is initial iteration            
         self.current_bam_filename = bam_filename
         self.current_reference_fasta_filename = reference_fasta_filename
@@ -220,17 +220,23 @@ class EM(object):
         # clustermark_pat_search = self.clustermark_pat.search
 
         # these are data structs to avoid lookups, since I read through bam file several times in an iteration.
-        self.bamfile_refnames = []
         self.bamfile_readnames = []
         self.bamfile_data = [] # (seq_i, read_i, pair_i, rlen, qlen, pos)
         self.bamfile_sequences = []
 
-        bamfile_refnames = self.bamfile_refnames
-        bamfile_readnames = self.bamfile_readnames
-        bamfile_data = self.bamfile_data  # speed hack
-        bamfile_sequences = self.bamfile_sequences
+        # speed hacks!
+        bamfile_readnames_append = self.bamfile_readnames.append
+        bamfile_data_append = self.bamfile_data.append
         uint = numpy.uint
-        # this loop is pretty fast still (6 seconds on slow iterations)
+
+
+        # set here:
+        #       self.sequence_name2sequence_i
+        #       self.sequence_i2sequence_name
+        #       self.read_i2read_name
+        #       self.read_name2read_i
+        #       bamfile_readnames
+        #       bamfile_data
         for alignedread_i, (alignedread) in enumerate(bamfile):
             refname = getrname(alignedread.rname)
             
@@ -246,9 +252,8 @@ class EM(object):
                 self.read_name2read_i[-1][readname] = read_i
                 self.read_i2read_name[-1][read_i] = readname
                 read_i += 1
-            bamfile_refnames.append(refname)
-            bamfile_readnames.append(readname)
-            bamfile_data.append(numpy.array([seq_i_to_cache, read_i_to_cache, pair_i, alignedread.rlen, alignedread.qlen, alignedread.pos], dtype=int))
+            bamfile_readnames_append(readname)
+            bamfile_data_append(numpy.array([seq_i_to_cache, read_i_to_cache, pair_i, alignedread.rlen, alignedread.qlen, alignedread.pos], dtype=int))
         self.bamfile_data = numpy.array(self.bamfile_data, dtype=int)
         self.quals = numpy.zeros((2, read_i, self.max_read_length), dtype=numpy.uint8)
 
@@ -271,24 +276,27 @@ class EM(object):
         sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
         read_name2read_i = self.read_name2read_i[-1]
         bamfile_data = self.bamfile_data
-        # self.bamfile_sequences = numpy.zeros((len(self.bamfile_data), self.max_read_length), dtype=numpy.uint8) # **numeric** vals (not chars)
         self.bamfile_sequences = []  # list of numpy uint8 arrays
-        bamfile_sequences = self.bamfile_sequences
+        bamfile_sequences_append = self.bamfile_sequences.append
         ascii_offset = BOWTIE_ASCII_OFFSET
         # clustermark_pat_search = self.clustermark_pat.search
 
         # slowish.  1m8s... now 48s... now 42s on slow iteration
         # print >> sys.stderr, "***", ctime()
         fromstring = numpy.fromstring
+        array = numpy.array
         uint8 = numpy.uint8
         asciibase2i_get = self.asciibase2i.get
         base_alpha2int = _emirge.base_alpha2int
-        
+
+
+        # set here:
+        # self.quals
+        # self.bamfile_sequences
         for alignedread_i, alignedread in enumerate(bamfile):
             seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
             quals[pair_i, read_i, :rlen] = fromstring(alignedread.qual, dtype=uint8) - ascii_offset
-            # bamfile_sequences[alignedread_i, :rlen] = [base_alpha2int(x) for x in fromstring(alignedread.seq, dtype=uint8)]
-            bamfile_sequences.append(numpy.array([base_alpha2int(x) for x in fromstring(alignedread.seq, dtype=uint8)], dtype=uint8))
+            bamfile_sequences_append(array([base_alpha2int(x) for x in fromstring(alignedread.seq, dtype=uint8)], dtype=uint8))
             coverage[seq_i] += rlen
         bamfile.close()
 
@@ -317,7 +325,7 @@ class EM(object):
                 del trash
 
         if self._VERBOSE:
-            sys.stderr.write("DONE Reading bam file %s at %s...\n"%(bam_filename, ctime()))
+            sys.stderr.write("DONE Reading bam file %s at %s [%s]...\n"%(bam_filename, ctime(), timedelta(seconds = time()-start_time)))
         return
 
     def initialize_EM(self, bam_filename, reference_fasta_filename):
@@ -615,14 +623,14 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
             sys.stderr.write("\tcluster threshold = %.3f\n"%(self.cluster_thresh))
+            start_time = time()
 
         # get posteriors ready for slicing (just prior to this call, is csr matrix?):
         self.posteriors[-1] = self.posteriors[-1].tolil()
             
         # sort fasta sequences longest to shortest
         tmp_fastafilename = fastafilename + ".sorted.tmp.fasta"
-        check_call("usearch --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) # NEW version 4
-        # check_call("uclust --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) 
+        check_call("usearch --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) 
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         # do global alignments with USEARCH/UCLUST.
         # turn off banding in later rounds to increase alignment accuracy (more merging) at expense of speed
@@ -630,12 +638,18 @@ class EM(object):
         # if em.iteration_i > 10:
         num_seqs = len([x for x in self.probN if x is not None])
         if num_seqs < 400:
-            band_string = "--band 128"
+            band_string = "--band 128"  # slower, but more sensitive
         # if really few seqs, then no use not doing smith-waterman alignments
         if num_seqs < 50:
-            band_string = "--nofastalign"
-        # cmd = "uclust %s --query %s --db %s --id 0 --iddef 0 --uc %s.uc --self --maxaccepts 0 --maxrejects 0 --allhits"%(band_string, tmp_fastafilename, tmp_fastafilename, tmp_fastafilename)
-        cmd = "usearch %s --cluster %s --db %s --id 0 --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0"%(band_string, tmp_fastafilename, tmp_fastafilename, tmp_fastafilename) # NEW version 4
+            # band_string = "--nofastalign" # *much* slower -- full smith-waterman
+            band_string = "--band 128"      # compromise?
+            
+        cmd = "usearch --query %s --db %s --id %.3f --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0 --global --nousort %s"%\
+              (tmp_fastafilename, tmp_fastafilename,
+               self.cluster_thresh - 0.1,
+               # self.cluster_thresh - 0.2,
+               tmp_fastafilename, band_string)
+        # --nousort needed to report >1 match now (v4.2).  Really slows down.  Wish you could report up to 3 or something to get away from self matches.
 
         if self._VERBOSE:
             sys.stderr.write("usearch command was:\n%s\n"%(cmd))
@@ -654,10 +668,10 @@ class EM(object):
                 t0 = time()
                 # member == query
                 member_name = self.clustermark_pat.search(row[8]).groups()[1]  # strip off beginning cluster marks
-                member_seq_id = self.sequence_name2sequence_i[-1][member_name]
                 seed_name = self.clustermark_pat.search(row[9]).groups()[1]  # strip off beginning cluster marks
                 if member_name == seed_name:
                     continue # new version of usearch doesn't officially support --self?
+                member_seq_id = self.sequence_name2sequence_i[-1][member_name]
                 seed_seq_id = self.sequence_name2sequence_i[-1][seed_name]
                 if member_seq_id in already_removed or seed_seq_id in already_removed:
                     continue
@@ -671,35 +685,43 @@ class EM(object):
                 seed_fasta_seq   = tmp_fastafile.fetch(seed_name)
                 member_unmapped = self.unmapped_bases[member_seq_id]  # unmapped positions (default prob)
                 seed_unmapped = self.unmapped_bases[seed_seq_id]
+                t0 = time()
 
-                for count, aln_code in alnstring_pat.findall(row[7]):
-                    if not len(count):
-                        count = 1  # "As a special case, if n=1 then n is omitted"
-                    else:
-                        count = int(count)
-                    if aln_code == 'M':    # match (letter-letter column; could be mismatch)
-                        s1 = member_fasta_seq[member_i:member_i+count]
-                        s1_unmapped = member_unmapped[member_i:member_i+count]
-                        s2 = seed_fasta_seq[seed_i:seed_i+count]
-                        s2_unmapped = seed_unmapped[seed_i:seed_i+count]
-
-                        both_columns_mapped = sum((s1_unmapped==False) &  (s2_unmapped==False))
-                        aln_columns += both_columns_mapped  # count
-
-                        # pure python (actually faster than numpy version below):
-                        matches += sum(ch1 == ch2 for ch1, ch2, s1_u, s2_u in zip(s1, s2, s1_unmapped, s2_unmapped) if \
-                                       not s1_u and not s2_u ) # only count match if both bases have read support
-                        # numpy (a touch slower):
-                        # matches += (numpy.array(s1, dtype='c') == numpy.array(s2, dtype='c')).sum()
-                        member_i += count
-                        seed_i += count
-                    elif aln_code == 'D':  # seems like doc is backwards on this
-                        member_i += count  
-                    elif aln_code == 'I':
-                        seed_i += count
-                    else:
-                        raise ValueError, "unknown alignment code: '%s'"%aln_code
+                aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name),
+                                                               tmp_fastafile.fetch(member_name),
+                                                               self.unmapped_bases[seed_seq_id].astype(numpy.uint8),
+                                                               self.unmapped_bases[member_seq_id].astype(numpy.uint8),
+                                                               alnstring_pat.findall(row[7]))
+                                                       
                 
+                # for count, aln_code in alnstring_pat.findall(row[7]):
+                #     if not len(count):
+                #         count = 1  # "As a special case, if n=1 then n is omitted"
+                #     else:
+                #         count = int(count)
+                #     if aln_code == 'M':    # match (letter-letter column; could be mismatch)
+                #         s1 = member_fasta_seq[member_i:member_i+count]
+                #         s1_unmapped = member_unmapped[member_i:member_i+count]
+                #         s2 = seed_fasta_seq[seed_i:seed_i+count]
+                #         s2_unmapped = seed_unmapped[seed_i:seed_i+count]
+
+                #         both_columns_mapped = sum((s1_unmapped==False) &  (s2_unmapped==False))
+                #         aln_columns += both_columns_mapped  # count
+
+                #         # pure python (actually faster than numpy version below):
+                #         matches += sum(ch1 == ch2 for ch1, ch2, s1_u, s2_u in zip(s1, s2, s1_unmapped, s2_unmapped) if \
+                #                        not s1_u and not s2_u ) # only count match if both bases have read support
+                #         # numpy (a touch slower):
+                #         # matches += (numpy.array(s1, dtype='c') == numpy.array(s2, dtype='c')).sum()
+                #         member_i += count
+                #         seed_i += count
+                #     elif aln_code == 'D':  # seems like doc is backwards on this
+                #         member_i += count  
+                #     elif aln_code == 'I':
+                #         seed_i += count
+                #     else:
+                #         raise ValueError, "unknown alignment code: '%s'"%aln_code
+                print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
 
                 # DEBUG PRINT:
                 if self._VERBOSE and num_seqs < 50:
@@ -711,6 +733,7 @@ class EM(object):
 
                 # OKAY TO MERGE AT THIS POINT
                 # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
+                percent_id = (float(matches) / aln_columns) * 100.
                 t0 = time()
                 if self.priors[-1][seed_seq_id] > self.priors[-1][member_seq_id]:
                     keep_seq_id = seed_seq_id
@@ -743,9 +766,11 @@ class EM(object):
                 nummerged += 1
                 if self._VERBOSE:
                     times.append(time()-t0)
-                    sys.stderr.write("\t...merging %d|%s into %d|%s in %.3f seconds\n"%(remove_seq_id, remove_name,
-                                                                                       keep_seq_id,   keep_name,
-                                                                                       times[-1]))
+                    sys.stderr.write("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns) in %.3f seconds\n"%\
+                                     (remove_seq_id, remove_name,
+                                      keep_seq_id,   keep_name,
+                                      percent_id, aln_columns, 
+                                      times[-1]))
             else:  # not an alignment line in input .uc file
                 continue
 
@@ -776,7 +801,7 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("\tremoved %d sequences after merging\n"%(nummerged))
-            sys.stderr.write("DONE Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            sys.stderr.write("DONE Clustering sequences for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
 
         return
 
