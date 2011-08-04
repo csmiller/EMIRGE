@@ -290,9 +290,11 @@ class EM(object):
         base_alpha2int = _emirge.base_alpha2int
 
 
+        # SECOND PASS
         # set here:
         # self.quals
         # self.bamfile_sequences
+        # coverage
         for alignedread_i, alignedread in enumerate(bamfile):
             seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
             quals[pair_i, read_i, :rlen] = fromstring(alignedread.qual, dtype=uint8) - ascii_offset
@@ -633,23 +635,30 @@ class EM(object):
         check_call("usearch --sort %s --output %s"%(fastafilename, tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr) 
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         # do global alignments with USEARCH/UCLUST.
-        # turn off banding in later rounds to increase alignment accuracy (more merging) at expense of speed
-        band_string = ""
+        # I don't use --cluster because it doesn't report alignments
+        # usearch is fast but will sometimes miss things -- I've tried to tune params as best as I can.
+        # Also, I use a lower %ID thresh than specified for joining because I really calculate %ID over *mapped* sequence positions.
+        
+        # turn off banding when fewer seqs to increase alignment accuracy (more merging) at expense of speed
+        sens_string = ""
+        uclust_id = 0.9
+        # uclust_id = self.cluster_thresh - 0.05
+
         # if em.iteration_i > 10:
         num_seqs = len([x for x in self.probN if x is not None])
         if num_seqs < 400:
-            band_string = "--band 128"  # slower, but more sensitive
+            # sens_string = "--band 128 -w 4 "  # slower, but more sensitive
+            sens_string = "--band 128 --nousort "  # slower, but more sensitive
         # if really few seqs, then no use not doing smith-waterman alignments
         if num_seqs < 50:
-            # band_string = "--nofastalign" # *much* slower -- full smith-waterman
-            band_string = "--band 128"      # compromise?
+            # sens_string = "--nofastalign" # *much* slower -- full smith-waterman
+            sens_string = "--band 128 --nousort"      # turn off u-sorting -- this is now a lot like blast.
+            uclust_id = 0.8
             
-        cmd = "usearch --query %s --db %s --id %.3f --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0 --global --nousort %s"%\
+        cmd = "usearch --query %s --db %s --id %.3f --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0 --global --self %s"%\
               (tmp_fastafilename, tmp_fastafilename,
-               self.cluster_thresh - 0.1,
-               # self.cluster_thresh - 0.2,
-               tmp_fastafilename, band_string)
-        # --nousort needed to report >1 match now (v4.2).  Really slows down.  Wish you could report up to 3 or something to get away from self matches.
+               uclust_id,
+               tmp_fastafilename, sens_string)
 
         if self._VERBOSE:
             sys.stderr.write("usearch command was:\n%s\n"%(cmd))
@@ -692,36 +701,7 @@ class EM(object):
                                                                self.unmapped_bases[seed_seq_id].astype(numpy.uint8),
                                                                self.unmapped_bases[member_seq_id].astype(numpy.uint8),
                                                                alnstring_pat.findall(row[7]))
-                                                       
-                
-                # for count, aln_code in alnstring_pat.findall(row[7]):
-                #     if not len(count):
-                #         count = 1  # "As a special case, if n=1 then n is omitted"
-                #     else:
-                #         count = int(count)
-                #     if aln_code == 'M':    # match (letter-letter column; could be mismatch)
-                #         s1 = member_fasta_seq[member_i:member_i+count]
-                #         s1_unmapped = member_unmapped[member_i:member_i+count]
-                #         s2 = seed_fasta_seq[seed_i:seed_i+count]
-                #         s2_unmapped = seed_unmapped[seed_i:seed_i+count]
-
-                #         both_columns_mapped = sum((s1_unmapped==False) &  (s2_unmapped==False))
-                #         aln_columns += both_columns_mapped  # count
-
-                #         # pure python (actually faster than numpy version below):
-                #         matches += sum(ch1 == ch2 for ch1, ch2, s1_u, s2_u in zip(s1, s2, s1_unmapped, s2_unmapped) if \
-                #                        not s1_u and not s2_u ) # only count match if both bases have read support
-                #         # numpy (a touch slower):
-                #         # matches += (numpy.array(s1, dtype='c') == numpy.array(s2, dtype='c')).sum()
-                #         member_i += count
-                #         seed_i += count
-                #     elif aln_code == 'D':  # seems like doc is backwards on this
-                #         member_i += count  
-                #     elif aln_code == 'I':
-                #         seed_i += count
-                #     else:
-                #         raise ValueError, "unknown alignment code: '%s'"%aln_code
-                print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
+                ## print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
 
                 # DEBUG PRINT:
                 if self._VERBOSE and num_seqs < 50:
@@ -1395,7 +1375,7 @@ def main(argv = sys.argv[1:]):
                       help="minimum probability of second most probable base at a site required in order to call site a variant.  See also --snp_fraction_thresh.  (default: %default)")
     group_opt.add_option("-j", "--join_threshold",
                       type="float", default="0.97",
-                      help="If two candidate sequences share >= this fractional identity over their bases with mapped reads, then merge the two sequences into one for the next iteration.  (default: %default) ")
+                      help="If two candidate sequences share >= this fractional identity over their bases with mapped reads, then merge the two sequences into one for the next iteration.  (default: %default; valid range: [0.95, 1.0] ) ")
     group_opt.add_option("-c", "--min_depth",
                       type="float",
                       default = 3,
@@ -1422,6 +1402,9 @@ def main(argv = sys.argv[1:]):
 
     if len(args) !=1:
         parser.error("DIR is required, and all options except DIR should have a flag associated with them (options without flags: %s)"%args)
+    if options.join_threshold < 0.95 or options.join_threshold > 1:
+        parser.error("join_threshold must be between [0.95, 1.0].  You supplied %.3f"%options.join_threshold)
+        
     working_dir = os.path.abspath(args[0])
 
     sys.stdout.write("Command:\n")
