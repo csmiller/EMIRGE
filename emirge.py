@@ -217,7 +217,6 @@ class EM(object):
         # open bam file to get all sequences that have >= 1 mapping, and all reads
         bamfile = pysam.Samfile(bam_filename, "rb")
         getrname = bamfile.getrname  # speed hack
-        # clustermark_pat_search = self.clustermark_pat.search
 
         # these are data structs to avoid lookups, since I read through bam file several times in an iteration.
         self.bamfile_readnames = []
@@ -655,7 +654,7 @@ class EM(object):
             sens_string = "--band 128 --nousort"      # turn off u-sorting -- this is now a lot like blast.
             uclust_id = 0.8
             
-        cmd = "usearch --query %s --db %s --id %.3f --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0 --global --self %s"%\
+        cmd = "usearch --query %s --db %s --id %.3f --iddef 2 --uc %s.uc --maxaccepts 0 --maxrejects 0 --global --self %s"%\
               (tmp_fastafilename, tmp_fastafilename,
                uclust_id,
                tmp_fastafilename, sens_string)
