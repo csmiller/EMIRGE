@@ -42,7 +42,7 @@ BOWTIE_l = 20
 BOWTIE_e  = 300
 
 BOWTIE_ASCII_OFFSET = 33   # currently, bowtie writes quals with an ascii offset of 33 
-# ILLUMINA_ASCII_OFFSET = 64  # not used... right now emirge.py assumes Illumina1.3+ 64-offset and sends appropriate command to bowtie.
+
 
 class Record:
     """
@@ -87,7 +87,7 @@ class EM(object):
     _VERBOSE = True
     base2i = {"A":0,"T":1,"C":2,"G":3}
     i2base = dict([(v,k) for k,v in base2i.iteritems()])
-    asciibase2i = {65:0,84:1,67:2,71:3}
+    # asciibase2i = {65:0,84:1,67:2,71:3}
     
     clustermark_pat = re.compile(r'(\d+\|.?\|)?(.*)')  # cludgey code associated with this should go into a method: get_seq_i()
     DEFAULT_ERROR = 0.05
@@ -97,7 +97,8 @@ class EM(object):
                  n_cpus = 1,
                  cwd = os.getcwd(), max_read_length = 76,
                  iterdir_prefix = "iter.", cluster_thresh = 0.97,
-                 mapping_nice = None):
+                 mapping_nice = None,
+                 reads_ascii_offset = 64):
         """
 
         n_cpus is how many processors to use for multithreaded steps (currently only the bowtie mapping)
@@ -111,6 +112,7 @@ class EM(object):
         self.insert_sd = insert_sd
         self.n_cpus = n_cpus
         self.mapping_nice   = mapping_nice
+        self.reads_ascii_offset = reads_ascii_offset
 
         self.iteration_i = None    # keeps track of which iteration we are on.
         self.cwd = cwd
@@ -137,10 +139,9 @@ class EM(object):
         # this one for mapping between names with and without cluster numbers.
         self.sequence_name2fasta_name = {}
 
-        # lists of numpy arrays of shape (max_read_length,)  Paired reads, so 0 = read 1, 1 = read 2
-        # self.read_lengths = [[], []]
-        # self.reads = [[], []]  # not used in current implementation
-        self.quals = [[], []]
+        self.quals = []
+        self.reads = []
+        self.readlengths = []
 
         # other constants, potentially changeable, tunable later, or could incorporate into probabilistic model.
         self.min_depth = 5.0    # minimum depth to keep sequence around for next round
@@ -161,23 +162,22 @@ class EM(object):
                 self.sequence_name2sequence_i
                 self.read_i2read_name           
                 self.read_name2read_i
+                self.reads
+                self.quals
+                self.readlengths
                 
         creates a new EMPTY entry for (appends to list, removes t-2
                 self.priors
                 self.posteriors
 
         creates new each iteration (overwrites):
-                # self.read_lengths
                 self.likelihoods
-                # self.reads
-                self.quals
                 self.probN
                 self.unmapped_bases
                 self.coverage
                 self.sequence_name2fasta_name
-                self.bamfile_readnames
                 self.bamfile_data
-                self.bamfile_sequences
+
                 
         paired reads are treated as separate, individual reads.
 
@@ -193,7 +193,6 @@ class EM(object):
         self.current_bam_filename = bam_filename
         self.current_reference_fasta_filename = reference_fasta_filename
         self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
-        
 
         for d in [self.sequence_name2sequence_i, self.sequence_i2sequence_name,
                   self.read_name2read_i, self.read_i2read_name]:
@@ -213,110 +212,91 @@ class EM(object):
             seq_i = max(self.sequence_i2sequence_name[-2].keys()) + 1
             read_i = max(self.read_i2read_name[-2].keys()) + 1
 
-        # FIRST PASS through file just to get number of reads, id mappings between names and integer ids
-        # open bam file to get all sequences that have >= 1 mapping, and all reads
+        # reset this every iteration
+        self.coverage = [0]*seq_i
+
+        # FIRST PASS through file just to get values out of file in memory.
+        # no actual processing of data here.
+        # Goal is to use multiprocess.Pool, but farming out parsing of samfile
+        # bogs down with concurrent disk access from worker threads.
+
+        # speed hacks
         bamfile = pysam.Samfile(bam_filename, "rb")
-        getrname = bamfile.getrname  # speed hack
+        getrname = bamfile.getrname
+        quals = self.quals
+        readlengths = self.readlengths
+        reads = self.reads
+        coverage = self.coverage
+        ascii_offset = BOWTIE_ASCII_OFFSET
+        fromstring = numpy.fromstring
+        array = numpy.array
+        uint8 = numpy.uint8
+        base_alpha2int = _emirge.base_alpha2int
 
-        # these are data structs to avoid lookups, since I read through bam file several times in an iteration.
-        self.bamfile_readnames = []
-        self.bamfile_data = [] # (seq_i, read_i, pair_i, rlen, qlen, pos)
-        self.bamfile_sequences = []
+        # this pass just to read from file, get disk access over with.  As little processing as possible.
+        predata = [(alignedread.pos, alignedread.tid, alignedread.is_read2, alignedread.qname,
+                    alignedread.qual, alignedread.seq) for alignedread in bamfile]
 
-        # speed hacks!
-        bamfile_readnames_append = self.bamfile_readnames.append
-        bamfile_data_append = self.bamfile_data.append
-        uint = numpy.uint
-
-
+        # cache bamfile information in this data structure, bamfile_data:
+        # [seq_i, read_i, pair_i, rlen, pos], dtype=int))
+        self.bamfile_data = numpy.empty((len(predata), 5), dtype=int)
+        bamfile_data = self.bamfile_data # speed hack to avoid dot lookups
+        
         # set here:
         #       self.sequence_name2sequence_i
         #       self.sequence_i2sequence_name
         #       self.read_i2read_name
         #       self.read_name2read_i
-        #       bamfile_readnames
         #       bamfile_data
-        for alignedread_i, (alignedread) in enumerate(bamfile):
-            refname = getrname(alignedread.rname)
-            
+        #       self.reads
+        #       self.readlengths
+        #       self.quals
+
+        #       samfile.getrname can be replaced with index to samfile.references (tuple) ?
+        # could push this to multiprocessing.Pool or cython at this point, since disk access to bam file is already done.
+        for alignedread_i, (pos, tid, is_read2, qname, qual, seq) in enumerate(predata):
+            refname = getrname(tid)
             seq_i_to_cache = self.sequence_name2sequence_i[-1].get(refname, seq_i)
-            if refname not in self.sequence_name2sequence_i[-1]:
+            if refname not in self.sequence_name2sequence_i[-1]:  # new sequence we haven't seen before
                 self.sequence_name2sequence_i[-1][refname] = seq_i
                 self.sequence_i2sequence_name[-1][seq_i] = refname
+                coverage.append(0)
                 seq_i += 1
-            pair_i = int(alignedread.is_read2)
-            readname = "%s/%d"%(alignedread.qname, pair_i+1)
+            pair_i = int(is_read2)
+            readname = "%s/%d"%(qname, pair_i+1)
             read_i_to_cache = self.read_name2read_i[-1].get(readname, read_i)
-            if readname not in self.read_name2read_i[-1]:
+            if readname not in self.read_name2read_i[-1]: # new read we haven't seen before
                 self.read_name2read_i[-1][readname] = read_i
                 self.read_i2read_name[-1][read_i] = readname
                 read_i += 1
-            bamfile_readnames_append(readname)
-            bamfile_data_append(numpy.array([seq_i_to_cache, read_i_to_cache, pair_i, alignedread.rlen, alignedread.qlen, alignedread.pos], dtype=int))
-        self.bamfile_data = numpy.array(self.bamfile_data, dtype=int)
-        self.quals = numpy.zeros((2, read_i, self.max_read_length), dtype=numpy.uint8)
+                # add to self.reads and self.quals and self.readlengths
+                readlengths.append(len(seq))
+                reads.append(array([base_alpha2int(x) for x in fromstring(seq, dtype=uint8)], dtype=uint8))
+                quals.append(fromstring(qual, dtype=uint8) - ascii_offset)
 
+            coverage[seq_i_to_cache] += len(seq)
+            bamfile_data[alignedread_i] = [seq_i_to_cache, read_i_to_cache, pair_i, len(seq), pos]
+                        
+        bamfile.close()
+
+        # self.readlengths = numpy.array(readlengths, dtype=numpy.uint16)
+        
         self.priors.append(numpy.zeros(seq_i, dtype = numpy.float))
         self.likelihoods = sparse.coo_matrix((seq_i, read_i), dtype = numpy.float)  # init all to zero.
         self.posteriors.append(sparse.lil_matrix((seq_i+1, read_i+1), dtype=numpy.float))
 
-        self.coverage = numpy.zeros_like(self.priors[-1])
-
-        # now second pass to populate (self.read_lengths,) XXself.readsXX, self.quals, self.coverage, self.bamfile_sequences
-        bamfile.close()
-        bamfile = pysam.Samfile(bam_filename, "rb")
-
-        # speed hacks:
-        getrname = bamfile.getrname  
-        ord_local = ord
-        # reads = self.reads
-        quals = self.quals
-        coverage = self.coverage
-        sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
-        read_name2read_i = self.read_name2read_i[-1]
-        bamfile_data = self.bamfile_data
-        self.bamfile_sequences = []  # list of numpy uint8 arrays
-        bamfile_sequences_append = self.bamfile_sequences.append
-        ascii_offset = BOWTIE_ASCII_OFFSET
-        # clustermark_pat_search = self.clustermark_pat.search
-
-        # slowish.  1m8s... now 48s... now 42s on slow iteration
-        # print >> sys.stderr, "***", ctime()
-        fromstring = numpy.fromstring
-        array = numpy.array
-        uint8 = numpy.uint8
-        asciibase2i_get = self.asciibase2i.get
-        base_alpha2int = _emirge.base_alpha2int
-
-
-        # SECOND PASS
-        # set here:
-        # self.quals
-        # self.bamfile_sequences
-        # coverage
-        for alignedread_i, alignedread in enumerate(bamfile):
-            seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
-            quals[pair_i, read_i, :rlen] = fromstring(alignedread.qual, dtype=uint8) - ascii_offset
-            bamfile_sequences_append(array([base_alpha2int(x) for x in fromstring(alignedread.seq, dtype=uint8)], dtype=uint8))
-            coverage[seq_i] += rlen
-        bamfile.close()
 
         self.probN = [None for x in range(max(self.sequence_name2sequence_i[-1].values())+1)]
         self.unmapped_bases = [None for x in self.probN]
         
-        # self.sequence_lengths = numpy.zeros(len(self.sequence_name2sequence_i[-1]), dtype=numpy.uint32)
-        # print >> sys.stderr, "***", ctime()
-
         self.sequence_name2fasta_name = {}
         for record in FastIterator(file(self.current_reference_fasta_filename)):
-            # refname = clustermark_pat_search(record.title.split()[0]).groups()[1]  # strip off beginning cluster marks
             refname = record.title.split()[0]
             self.sequence_name2fasta_name[refname] = record.title.split()[0]
             seq_i = self.sequence_name2sequence_i[-1].get(refname)
             if seq_i is not None:
                 self.probN[seq_i] = numpy.zeros((len(record.sequence), 5), dtype=numpy.float)   #ATCG[other] --> 01234
                 self.coverage[seq_i] = self.coverage[seq_i] / float(len(record.sequence))
-                # self.sequence_lengths[seq_i] = len(record.sequence)
 
         for d in [self.priors, self.posteriors,
                   self.sequence_name2sequence_i, self.sequence_i2sequence_name,
@@ -349,7 +329,7 @@ class EM(object):
         # initialize priors.  Here just adding a count for each read mapped to each reference sequence
         # also initialize Pr(N=n), which is the only other thing besides Pr(S) in the M step that depends on iteration t-1.
         # PRIOR
-        for (seq_i, read_i, pair_i, rlen, qlen, pos) in self.bamfile_data:
+        for (seq_i, read_i, pair_i, rlen, pos) in self.bamfile_data:
             self.priors[-1][seq_i] += 1
 
         nonzero_indices = numpy.nonzero(self.priors[-1])  # only divide cells with at least one count.  Set all others to Pr(S) = 0
@@ -818,7 +798,7 @@ class EM(object):
         if nice is not None:
             nice_command = "nice -n %d"%(nice)
         # these in theory could be used for single reads too.
-        shared_bowtie_params = "--solexa1.3-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 128"%(self.n_cpus, BOWTIE_l, BOWTIE_e)
+        shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 128"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
         
         minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
         maxins = self.insert_mean + 3*self.insert_sd
@@ -875,7 +855,6 @@ class EM(object):
         # for speed:
         probN = self.probN
         numpy_float = numpy.float
-        quals       = self.quals
         sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
         read_name2read_i         = self.read_name2read_i[-1]
         base2i_get = self.base2i.get
@@ -886,7 +865,8 @@ class EM(object):
         lik_col_readi = numpy.empty_like(lik_row_seqi)
         lik_data = numpy.empty(len(self.bamfile_data), dtype=numpy.float)
         bamfile_data = self.bamfile_data
-        bamfile_sequences = self.bamfile_sequences
+        reads = self.reads
+        quals = self.quals
         zeros = numpy.zeros
 
         # TODO: multiprocess -- worker pools would just return three arrays that get appended at end (extend instead of append) before coo matrix construction
@@ -894,23 +874,15 @@ class EM(object):
         # optional: bamfile_data, quals
         # required: base2i, probN
 
-        # lik_row_seqi, lik_col_readi, lik_data = _emirge.likelihood_loop(self.bamfile_data,
-        #                                                                 self.bamfile_sequences,
-        #                                                                 self.quals,
-        #                                                                 self.probN,
-        #                                                                 self.max_read_length)
-
-
-
-        # keep looping here in python so that we can use multiprocessing with an iterator (no cython looping).
+        # keep looping here in python so that we can (in the future) use multiprocessing with an iterator (no cython looping).
         calc_likelihood_cell = _emirge.calc_likelihood_cell
-        for alignedread_i, (seq_i, read_i, pair_i, rlen, qlen, pos) in enumerate(bamfile_data):
+        for alignedread_i, (seq_i, read_i, pair_i, rlen, pos) in enumerate(bamfile_data):
             lik_row_seqi[alignedread_i] = seq_i
             lik_col_readi[alignedread_i] = read_i
             lik_data[alignedread_i] = calc_likelihood_cell(seq_i, read_i, pair_i,
                                                            pos,
-                                                           bamfile_sequences[alignedread_i],
-                                                           quals[pair_i, read_i, :qlen],
+                                                           reads[read_i],
+                                                           quals[read_i],
                                                            probN[seq_i])
 
         # now actually construct sparse matrix.
@@ -979,11 +951,10 @@ class EM(object):
             posteriors = None
         priors     = self.priors[-2]          # and if no posteriors are present (or initial iter), falls back on priors from previous round
         base2i_get = self.base2i.get
-        asciibase2i_get = self.asciibase2i.get
         sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
         read_name2read_i = self.read_name2read_i[-1]
         bamfile_data = self.bamfile_data
-        bamfile_sequences = self.bamfile_sequences
+        reads = self.reads
         quals = self.quals
         np_int = numpy.int
 
@@ -991,13 +962,13 @@ class EM(object):
         # for alignedread_i, (seq_i, read_i, pair_i, rlen, qlen, pos) in enumerate(bamfile_data):
         calc_probN_read = _emirge.calc_probN_read
         for alignedread_i in range(bamfile_data.shape[0]):
-            seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
+            seq_i, read_i, pair_i, rlen, pos = bamfile_data[alignedread_i]
             calc_probN_read(initial_iteration,
                             seq_i, read_i, pos,
                             priors,
                             posteriors,
-                            bamfile_sequences[alignedread_i],
-                            quals[pair_i, read_i, :qlen],
+                            reads[read_i],
+                            quals[read_i],
                             probN[seq_i])
             
 
@@ -1064,7 +1035,7 @@ class EM(object):
         bamfile_data = self.bamfile_data
         reads = 0
         for alignedread_i, alignedread in enumerate(bamfile):
-            this_seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
+            this_seq_i, read_i, pair_i, rlen, pos = bamfile_data[alignedread_i]
             if this_seq_i != seq_i or posteriors[seq_i, read_i] < 0.5:
                 continue
             # means we have a read with more than 50% prob assigned to this sequence
@@ -1097,7 +1068,7 @@ class EM(object):
         bamfile_data = self.bamfile_data
         reads = 0
         for alignedread_i, alignedread in enumerate(bamfile):
-            this_seq_i, read_i, pair_i, rlen, qlen, pos = bamfile_data[alignedread_i]
+            this_seq_i, read_i, pair_i, rlen, pos = bamfile_data[alignedread_i]
             if this_seq_i != seq_i or posteriors[seq_i, read_i] < 0.5:
                 continue
             # means we have a read with more than 50% prob assigned to this sequence
@@ -1122,6 +1093,7 @@ class EM(object):
         PREFIX.quals.fasta
         
         """
+        raise NotImplementedError, "Broken with most recent revision of data structures (no more bamfile_readnames)"
         if output_prefix is None:
             output_prefix = os.path.join(em.iterdir, "%s"%seq_i)
         
@@ -1133,14 +1105,14 @@ class EM(object):
         of_fasta = file(of_fasta_name, 'w')
         bamfile_data = self.bamfile_data
         reads = 0
-        for alignedread_i, (this_seq_i, read_i, pair_i, rlen, qlen, pos) in enumerate(self.bamfile_data):
+        for alignedread_i, (this_seq_i, read_i, pair_i, rlen, pos) in enumerate(self.bamfile_data):
             if this_seq_i != seq_i or posteriors[seq_i, read_i] < 0.5:
                 continue
             # means we have a read with more than 50% prob assigned to this sequence
             header = "%s DIRECTION: fwd CHEM: unknown TEMPLATE: %s"%(bamfile_readnames[alignedread_i],
                                                                      bamfile_readnames[alignedread_i])
             # header = "%s"%(reads)
-            of_fasta.write(">%s\n%s\n"%(header, bamfile_sequences[alignedread_i, :rlen]))
+            of_fasta.write(">%s\n%s\n"%(header, self.reads[alignedread_i, :rlen]))
             #, alignedread.qual))
             reads += 1
         of_fasta.close()
@@ -1250,12 +1222,9 @@ def do_initial_mapping(working_dir, options):
     does the initial 1-reference-per-read bowtie mapping to initialize the algorithm
     OUT:  path to the bam file from this initial mapping
     """
-
     initial_mapping_dir = os.path.join(working_dir, "initial_mapping")
     if not os.path.exists(initial_mapping_dir):
         os.mkdir(initial_mapping_dir)
-    # Template:
-    # gzip -dc /work/csmiller/Singer/GSGA.Btrim60.PE.2.fastq.gz | bowtie --solexa1.3-quals -t -p 12 -n 3 -l 20 -e 300 --best --sam --chunkmbs 128 -1 /work/csmiller/Singer/GSGA.Btrim60.PE.1.fastq -2 - --minins 78 --maxins 336 ./bowtie_indices/SSURef_102_tax_silva.sorted.fixed.97 | samtools view -b -S -u -F 0x0004 - | samtools sort - GSGA.Btrim60.PE.sort >> & initial_mapping.log &
 
     minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length)
     maxins = options.insert_mean + 3*options.insert_stddev
@@ -1264,13 +1233,14 @@ def do_initial_mapping(working_dir, options):
     nicestring = ""
     if options.nice_mapping is not None:
         nicestring = "nice -n %d"%(options.nice_mapping)  # TODO: fix this so it isn't such a hack and will work in bash.  Need to rewrite all subprocess code, really (shell=False)
-    option_strings = [options.fastq_reads_2, nicestring, options.processors, BOWTIE_l, BOWTIE_e, options.fastq_reads_1, minins, maxins, options.bowtie_db, bampath_prefix]
+    reads_ascii_offset = {False: 64, True: 33}[options.phred33]
+    option_strings = [options.fastq_reads_2, nicestring, reads_ascii_offset, options.processors, BOWTIE_l, BOWTIE_e, options.fastq_reads_1, minins, maxins, options.bowtie_db, bampath_prefix]
     if options.fastq_reads_2.endswith(".gz"):
         option_strings = ["gzip -dc "] + option_strings
     else:
         option_strings = ["cat "] + option_strings
 
-    cmd = "%s %s | %s bowtie --solexa1.3-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 -1 %s -2 - --minins %s --maxins %s %s | samtools view -b -S -u -F 0x0004 - | samtools sort - %s "%tuple(option_strings)    
+    cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 -1 %s -2 - --minins %s --maxins %s %s | samtools view -b -S -u -F 0x0004 - | samtools sort - %s "%tuple(option_strings)    
     print "Performing initial mapping with command:\n%s"%cmd
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
     sys.stdout.flush()
@@ -1407,6 +1377,9 @@ def main(argv = sys.argv[1:]):
     group_opt.add_option("-e", "--save_every",
                       type="int", default=10,
                       help="""every SAVE_EVERY iterations, save the programs state.  This allows you to run further iterations later starting from these save points.  The program will always save its state after the final iteration.  (default=%default)""")
+    group_opt.add_option("--phred33",
+                         action="store_true", default=False,
+                         help="Illumina quality values in fastq files are the (fastq standard) ascii offset of Phred+33.  This is the new default for Illumina pipeline >= 1.9. DEFAULT is still to assume that quality scores are Phred+64")
 
     parser.add_option_group(group_opt)
     # # RESUME
@@ -1455,7 +1428,6 @@ def main(argv = sys.argv[1:]):
     if options.mapping is None:
         options.mapping = do_initial_mapping(working_dir, options)
 
-
     # finally, CREATE EM OBJECT
     em = EM(reads1_filepath = options.fastq_reads_1,
             reads2_filepath = options.fastq_reads_2,
@@ -1464,7 +1436,8 @@ def main(argv = sys.argv[1:]):
             max_read_length = options.max_read_length,
             cluster_thresh = options.join_threshold,
             n_cpus = options.processors,
-            cwd = working_dir)
+            cwd = working_dir,
+            reads_ascii_offset = {False: 64, True: 33}[options.phred33])
 
     #  if >= this percentage of bases are minor alleles, split candidate sequence
     em.snp_percentage_thresh = options.snp_fraction_thresh
