@@ -22,6 +22,7 @@ https://github.com/csmiller/EMIRGE
 
 from libc.stdlib cimport malloc, free, atoi
 from libc.math cimport M_E, log, pow as c_pow
+from cpython.tuple cimport PyTuple_GetItem
 import numpy as np
 cimport numpy as np
 import sys
@@ -169,5 +170,67 @@ def count_cigar_aln(char* query_seq, char* hit_seq,
 
     return aln_columns, matches
         
+def process_bamfile_predata(int seq_i, int read_i,
+                            list predata, tuple samfile_references,
+                            dict sequence_name2sequence_i, dict sequence_i2sequence_name,
+                            dict read_name2read_i, dict read_i2read_name,
+                            list reads, list quals, list readlengths,
+                            list coverage, int ascii_offset,
+                            np.ndarray[np.int_t, ndim=2] bamfile_data):
+    """
+    returns updated:
+    (seq_i, read_i)
+    """
     
-                                       
+    cdef int alignedread_i
+    cdef int pos
+    cdef int tid
+
+    cdef int seq_i_to_cache
+    cdef int pair_i
+    cdef int read_i_to_cache
+
+    for alignedread_i in range(len(predata)):
+        pos, tid, pair_i, qname, qual, seq = predata[alignedread_i]
+        # refname = PyTuple_GetItem(samfile_references, tid)  # Cannot convert 'PyObject *' to Python object
+        refname = samfile_references[tid]
+        seq_i_to_cache = sequence_name2sequence_i.get(refname, seq_i)
+        if refname not in sequence_name2sequence_i:  # new sequence we haven't seen before
+            sequence_name2sequence_i[refname] = seq_i
+            sequence_i2sequence_name[seq_i] = refname
+            coverage.append(0)
+            seq_i += 1
+        readname = "%s/%d"%(qname, pair_i+1)
+        read_i_to_cache = read_name2read_i.get(readname, read_i)
+        if readname not in read_name2read_i: # new read we haven't seen before
+            read_name2read_i[readname] = read_i
+            read_i2read_name[read_i] = readname
+            read_i += 1
+            # add to self.reads and self.quals and self.readlengths
+            readlengths.append(len(seq))
+            reads.append(seq_alpha2int(seq, len(seq)))
+            quals.append(quals_alpha2int(qual, len(qual), ascii_offset))
+            # reads.append(array([base_alpha2int(x) for x in fromstring(seq, dtype=uint8)], dtype=uint8))
+            # quals.append(np.fromstring(qual, dtype=np.uint8) - ascii_offset)
+
+        coverage[seq_i_to_cache] += len(seq)
+        bamfile_data[alignedread_i] = [seq_i_to_cache, read_i_to_cache, pair_i, len(seq), pos]
+    return seq_i, read_i
+
+cdef np.ndarray[np.uint8_t, ndim=1] seq_alpha2int(char* seq, int seqlen):
+    cdef int i
+    np_as_ints = np.empty(seqlen, dtype=np.uint8)
+    for i in range(seqlen):
+        np_as_ints[i] = base_alpha2int(seq[i])
+    return np_as_ints
+
+cdef np.ndarray[np.uint8_t, ndim=1] quals_alpha2int(char* qual, int quallen, int ascii_offset):
+    cdef int i
+    np_as_ints = np.empty(quallen, dtype=np.uint8)
+    for i in range(quallen):
+        np_as_ints[i] = qual[i] - ascii_offset
+    return np_as_ints
+
+    
+
+# 0.892026        2.18814 0.623135
