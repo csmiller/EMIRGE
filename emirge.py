@@ -252,30 +252,39 @@ class EM(object):
         #       self.readlengths
         #       self.quals
 
+        seq_i, read_i = _emirge.process_bamfile_predata(seq_i, read_i,
+                                                        predata, bamfile.references,
+                                                        self.sequence_name2sequence_i[-1], self.sequence_i2sequence_name[-1],
+                                                        self.read_name2read_i[-1], self.read_i2read_name[-1],
+                                                        self.reads, self.quals, self.readlengths,
+                                                        self.coverage, BOWTIE_ASCII_OFFSET,
+                                                        self.bamfile_data)
+
+
         #       samfile.getrname can be replaced with index to samfile.references (tuple) ?
         # could push this to multiprocessing.Pool or cython at this point, since disk access to bam file is already done.
-        for alignedread_i, (pos, tid, is_read2, qname, qual, seq) in enumerate(predata):
-            refname = getrname(tid)
-            seq_i_to_cache = self.sequence_name2sequence_i[-1].get(refname, seq_i)
-            if refname not in self.sequence_name2sequence_i[-1]:  # new sequence we haven't seen before
-                self.sequence_name2sequence_i[-1][refname] = seq_i
-                self.sequence_i2sequence_name[-1][seq_i] = refname
-                coverage.append(0)
-                seq_i += 1
-            pair_i = int(is_read2)
-            readname = "%s/%d"%(qname, pair_i+1)
-            read_i_to_cache = self.read_name2read_i[-1].get(readname, read_i)
-            if readname not in self.read_name2read_i[-1]: # new read we haven't seen before
-                self.read_name2read_i[-1][readname] = read_i
-                self.read_i2read_name[-1][read_i] = readname
-                read_i += 1
-                # add to self.reads and self.quals and self.readlengths
-                readlengths.append(len(seq))
-                reads.append(array([base_alpha2int(x) for x in fromstring(seq, dtype=uint8)], dtype=uint8))
-                quals.append(fromstring(qual, dtype=uint8) - ascii_offset)
+        # for alignedread_i, (pos, tid, is_read2, qname, qual, seq) in enumerate(predata):
+        #     refname = getrname(tid)
+        #     seq_i_to_cache = self.sequence_name2sequence_i[-1].get(refname, seq_i)
+        #     if refname not in self.sequence_name2sequence_i[-1]:  # new sequence we haven't seen before
+        #         self.sequence_name2sequence_i[-1][refname] = seq_i
+        #         self.sequence_i2sequence_name[-1][seq_i] = refname
+        #         coverage.append(0)
+        #         seq_i += 1
+        #     pair_i = int(is_read2)
+        #     readname = "%s/%d"%(qname, pair_i+1)
+        #     read_i_to_cache = self.read_name2read_i[-1].get(readname, read_i)
+        #     if readname not in self.read_name2read_i[-1]: # new read we haven't seen before
+        #         self.read_name2read_i[-1][readname] = read_i
+        #         self.read_i2read_name[-1][read_i] = readname
+        #         read_i += 1
+        #         # add to self.reads and self.quals and self.readlengths
+        #         readlengths.append(len(seq))
+        #         reads.append(array([base_alpha2int(x) for x in fromstring(seq, dtype=uint8)], dtype=uint8))
+        #         quals.append(fromstring(qual, dtype=uint8) - ascii_offset)
 
-            coverage[seq_i_to_cache] += len(seq)
-            bamfile_data[alignedread_i] = [seq_i_to_cache, read_i_to_cache, pair_i, len(seq), pos]
+        #     coverage[seq_i_to_cache] += len(seq)
+        #     bamfile_data[alignedread_i] = [seq_i_to_cache, read_i_to_cache, pair_i, len(seq), pos]
                         
         bamfile.close()
 
