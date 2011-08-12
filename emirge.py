@@ -488,13 +488,27 @@ class EM(object):
             sys.stderr.write("Writing consensus for iteration %d at %s...\n"%(self.iteration_i, ctime()))
             sys.stderr.write("\tsnp_minor_prob_thresh = %.3f\n"%(self.snp_minor_prob_thresh))
             sys.stderr.write("\tsnp_percentage_thresh = %.3f\n"%(self.snp_percentage_thresh))
+            t0 = time()
 
         splitcount = 0
         cullcount  = 0
         of = file(outputfilename, 'w')
+
+        times_split   = []              # DEBUG
+        times_posteriors   = []              # DEBUG        
+        seqs_to_process = len(self.probN) # DEBUG
         
         i2base = self.i2base
+        updated_seq_i = max(self.sequence_i2sequence_name[-1].keys()) + 1
+        rows_to_add = []                # these are for updating posteriors at end with new minor strains
+        cols_to_add = []
+        data_to_add = []
+
+        self.posteriors[-1] = self.posteriors[-1].tolil()  # just to make sure this is in row-access-friendly format
+
+        loop_t0 = time()
         for seq_i, probNarray in enumerate(self.probN):
+            seq_i_t0 = time()
             if probNarray is None: # means this sequence is no longer present in this iteration
                 continue          
             # check if coverage passes self.min_depth, if not don't write it (culling happens here)
@@ -513,20 +527,23 @@ class EM(object):
                 if float(num_mapped_indices) / float(probNarray.shape[0]) <= self.min_length_coverage:
                     cullcount += 1
                     continue
-            # passes coverage threshold
+
+            # passes coverage thresholds
             title = self.sequence_i2sequence_name[-1][seq_i]
             consensus = numpy.array([i2base.get(x, "N") for x in numpy.argsort(probNarray)[:,-1]])
 
             # check for minor allele consensus, SPLIT sequence into two candidate sequences if passes thresholds.
             minor_indices = numpy.argwhere((probNarray >= self.snp_minor_prob_thresh).sum(axis=1) >= 2)[:,0]
             if minor_indices.shape[0] / float(probNarray.shape[0]) >= self.snp_percentage_thresh:
+
                 splitcount += 1
                 if self._VERBOSE:
                     sys.stderr.write("splitting sequence %d at %s ..."%(seq_i, ctime()))
+                    t0_split = time()
                 minor_bases   = numpy.array([i2base.get(x, "N") for x in numpy.argsort(probNarray[minor_indices])[:,-2]]) # -2 gets second most probably base
                 minor_consensus = consensus.copy()               # get a copy of the consensus
                 minor_consensus[minor_indices] = minor_bases     # replace the bases that pass minor threshold
-                # now deal with naming.  Just carry over short name in bam file, stripped of cluster info.
+                # now deal with naming.
                 title_root = re.search(r'(.+)(_m(\d+))$', title)
                 if title_root is None: # no _m00 on this name 
                     title_root = title[:]
@@ -542,49 +559,82 @@ class EM(object):
                 major_fraction_avg = 1.-minor_fraction_avg # if there's >=3 alleles, major allele keeps prob of other minors)
                 old_prior = self.priors[-1][seq_i]
                 self.priors[-1][seq_i] = old_prior * major_fraction_avg
-                seq_i_minor = max(self.sequence_i2sequence_name[-1].keys()) + 1
+                seq_i_minor = updated_seq_i  # grow data structs by 1
+                updated_seq_i += 1
                 self.sequence_i2sequence_name[-1][seq_i_minor] = m_title
                 self.sequence_name2sequence_i[-1][m_title] = seq_i_minor
-                new_priors = numpy.zeros(seq_i_minor+1, dtype=self.priors[-1].dtype)
+                new_priors = numpy.zeros(seq_i_minor+1, dtype=self.priors[-1].dtype) # SLOW to reallocate every time? just keep of list to add at end?  pretty short since priors is only 1D...
                 new_priors[:-1] = self.priors[-1].copy()
                 new_priors[seq_i_minor] = old_prior * minor_fraction_avg
                 trash = self.priors.pop()
                 del trash
                 self.priors.append(new_priors)
 
+
+                # --- THIS WAS SLOW STEP ---
+                # keep track of all new minor data to add and add it
+                # once at end for ALL split sequences with one coo
+                # matrix construction, instead of each iteration.
+
+                t_posterior = time()
+
+                # new_read_probs, new_rows, new_cols = adjust_posteriors_for_split(AAAA, BBBB, CCCC) # TODO: could move to Cython
+
                 # updating posteriors. for each seq-read pair with prob > 0, split prob out to major and minor seq.
-                read_indices = numpy.nonzero(self.posteriors[-1][seq_i, :])[1]
-                new_read_probs  = self.posteriors[-1][seq_i, read_indices].toarray().flatten() * minor_fraction_avg  # already returns copy
-                # construct new_posteriors via coo, then convert to csr.
-                new_posteriors = self.posteriors[-1].tocoo()  # first make a copy in coo format
-                # then create new coo matrix with new shape, using same row, col, data as before.
-                # leaves an empty row as last row, and the matrix is then converted to lil for slicing further down.
-                new_posteriors = sparse.coo_matrix((new_posteriors.data, (new_posteriors.row, new_posteriors.col)),
-                                                   shape=(seq_i_minor+1, self.posteriors[-1].shape[1]),
-                                                   dtype=new_posteriors.dtype).tolil()
-                # adjust old read probs
-                new_posteriors[seq_i, read_indices] = new_posteriors[seq_i, read_indices] * major_fraction_avg
-                # add new read probs
-                new_posteriors[seq_i_minor, read_indices] = new_read_probs
-                trash = self.posteriors.pop()
-                del trash
-                self.posteriors.append(new_posteriors.tocsr())
+                new_cols = self.posteriors[-1].rows[seq_i] # col in coo format
+                new_read_probs  = [x * minor_fraction_avg for x in self.posteriors[-1].data[seq_i]]  # data in coo format
+                new_rows = [seq_i_minor for x in new_cols]  # row in coo format
+
+                # add new read probs to cache of new read probs to add at end of loop
+                rows_to_add.extend(new_rows)
+                cols_to_add.extend(new_cols)
+                data_to_add.extend(new_read_probs)
+
+                # adjust old read probs to reflect major strain
+                self.posteriors[-1].data[seq_i] = [x  * major_fraction_avg for x in self.posteriors[-1].data[seq_i]]
+                
+                times_posteriors.append(time() - t_posterior)
+                # --- END SLOW STEP --- 
+                
                 # adjust self.unmapped_bases (used in clustering).  For now give same pattern as parent
                 self.unmapped_bases.append(self.unmapped_bases[seq_i].copy())
 
+                # write out minor strain consensus
                 of.write(">%s\n"%(m_title))
                 of.write("%s\n"%("".join(minor_consensus)))
                 if self._VERBOSE:
-                    sys.stderr.write("Done.\n")
-
-            # now write major allele consensus, regardless of whether there was a minor allele consensus
+                    sys.stderr.write("DONE [%s].\n"%(timedelta(seconds = time()-t0_split)))
+                times_split.append(time()-seq_i_t0)
+                
+            # now write major strain consensus, regardless of whether there was a minor strain consensus
             of.write(">%s\n"%(title))
             of.write("%s\n"%("".join(consensus)))
 
+        # END LOOP
+        loop_t_total = time() - loop_t0
+        # update posteriors matrix with newly added minor sequences new_posteriors via coo, then convert to csr.
+        new_posteriors = self.posteriors[-1].tocoo()  # first make a copy in coo format
+        # then create new coo matrix with new shape, appending new row, col, data to old row, col, data
+
+        new_posteriors = sparse.coo_matrix((numpy.concatenate((new_posteriors.data, data_to_add)),
+                                           (numpy.concatenate((new_posteriors.row, rows_to_add)),
+                                            numpy.concatenate((new_posteriors.col, cols_to_add)))),
+                                           shape=(updated_seq_i, self.posteriors[-1].shape[1]),
+                                           dtype=new_posteriors.dtype).tocsr()
+
+        # finally, excange in this new matrix
+        trash = self.posteriors.pop()
+        del trash
+        self.posteriors.append(new_posteriors)
+
         if self._VERBOSE:
-            sys.stderr.write("\tSplit out %d new minor allele sequences.\n"%(splitcount))
+            total_time = time()-t0
+            sys.stderr.write("\tSplit out %d new minor strain sequences.\n"%(splitcount))
+            sys.stderr.write("\tAverage time for split sequence: [%.6f seconds]\n"%numpy.mean(times_split))
+            sys.stderr.write("\tAverage time for posterior update: [%.6f seconds]\n"%numpy.mean(times_posteriors))
+            sys.stderr.write("\tAverage time for non-split sequences: [%.6f seconds]\n"%((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
             sys.stderr.write("\tCulled %d sequences\n"%(cullcount))
-            sys.stderr.write("DONE Writing consensus for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            sys.stderr.write("DONE Writing consensus for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = total_time)))
 
         return
 
@@ -812,7 +862,16 @@ class EM(object):
         minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
         maxins = self.insert_mean + 3*self.insert_sd
         output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
-        bowtie_command = "%s | %s bowtie %s -1 %s -2 - --minins %d --maxins %d %s  | samtools view -b -S -u -F 0x0004 - | samtools sort - %s.sort.PE >> %s 2>&1"%(\
+        # bowtie_command = "%s | %s bowtie %s -1 %s -2 - --minins %d --maxins %d %s  | samtools view -b -S -u -F 0x0004 - | samtools sort - %s.sort.PE >> %s 2>&1"%(\
+        #     self.reads2_filepath,
+        #     nice_command,
+        #     shared_bowtie_params, self.reads1_filepath,
+        #     minins, maxins,
+        #     bowtie_index,
+        #     output_prefix,
+        #     bowtie_logfile)
+
+        bowtie_command = "%s | %s bowtie %s -1 %s -2 - --minins %d --maxins %d %s  | samtools view -b -S -F 0x0004 - -o %s.PE.bam >> %s 2>&1"%(\
             self.reads2_filepath,
             nice_command,
             shared_bowtie_params, self.reads1_filepath,
@@ -820,6 +879,7 @@ class EM(object):
             bowtie_index,
             output_prefix,
             bowtie_logfile)
+
 
         if self.reads2_filepath.endswith('.gz'):
             bowtie_command = "gzip -dc " + bowtie_command
@@ -835,12 +895,9 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
-            sys.stderr.write("\tRunning samtools to index bam file, and cleaning up\n")
 
-        # 3. clean up (compress and create sam file for grepping, remove index files)
-        check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
-        # commented out next because it is redundant
-        # check_call("samtools view -h  %s.sort.PE.bam | gzip -c -f > %s.sort.PE.matches.sam.gz"%(output_prefix, output_prefix), shell=True)
+        # 3. clean up
+        # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
         check_call("gzip -f %s"%(bowtie_logfile), shell=True)
 
         assert self.iterdir != '/'
@@ -848,8 +905,6 @@ class EM(object):
             assert(len(os.path.basename(bowtie_index)) >= 20)  # weak check that I'm not doing anything dumb.
             if os.path.basename(bowtie_index) in filename:
                 os.remove(os.path.join(self.iterdir, filename))
-        
-        
         return
     def calc_likelihoods(self):
         """
@@ -1217,7 +1272,7 @@ def do_iterations(em, max_iter, save_every):
 
     while em.iteration_i < max_iter:
         subdir = os.path.join(em.cwd, "iter.%02d"%(em.iteration_i))
-        em.do_iteration(os.path.join(subdir, "bowtie.iter.%02d.sort.PE.bam"%(em.iteration_i)),
+        em.do_iteration(os.path.join(subdir, "bowtie.iter.%02d.PE.bam"%(em.iteration_i)),
                         os.path.join(subdir, "iter.%02d.cons.fasta"%(em.iteration_i)))
         if em.iteration_i > 0 and (em.iteration_i % save_every == 0):
             filename = em.save_state()
@@ -1237,7 +1292,7 @@ def do_initial_mapping(working_dir, options):
 
     minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length)
     maxins = options.insert_mean + 3*options.insert_stddev
-    bampath_prefix = os.path.join(initial_mapping_dir, "initial_bowtie_mapping.sorted")
+    bampath_prefix = os.path.join(initial_mapping_dir, "initial_bowtie_mapping.PE")
 
     nicestring = ""
     if options.nice_mapping is not None:
@@ -1249,7 +1304,7 @@ def do_initial_mapping(working_dir, options):
     else:
         option_strings = ["cat "] + option_strings
 
-    cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 -1 %s -2 - --minins %s --maxins %s %s | samtools view -b -S -u -F 0x0004 - | samtools sort - %s "%tuple(option_strings)    
+    cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 -1 %s -2 - --minins %s --maxins %s %s | samtools view -b -S -u -F 0x0004 - -o %s.bam "%tuple(option_strings)    
     print "Performing initial mapping with command:\n%s"%cmd
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
     sys.stdout.flush()
