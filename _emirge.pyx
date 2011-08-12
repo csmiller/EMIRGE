@@ -231,6 +231,6 @@ cdef np.ndarray[np.uint8_t, ndim=1] quals_alpha2int(char* qual, int quallen, int
         np_as_ints[i] = qual[i] - ascii_offset
     return np_as_ints
 
-    
-
-# 0.892026        2.18814 0.623135
+# def adjust_posteriors_for_split(posteriors, int seq_i, double major_fraction_avg):
+#     raise NotImplementedError
+#     return minor_data, minor_row, minor_col
