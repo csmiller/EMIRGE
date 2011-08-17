@@ -27,6 +27,8 @@ import numpy as np
 cimport numpy as np
 import sys
 
+# from time import time  # DEBUG
+
 # for lookup table of qual values
 cdef extern from *:
     ctypedef double* static_const_double_ptr "static const double*"
@@ -82,6 +84,61 @@ cpdef double calc_likelihood_cell(unsigned int seq_i, unsigned int read_i, unsig
     # likelihood[seq_i, read_i] = e**(np_log(prob_b_i).sum())
     return c_pow(M_E, p)
 
+def _calc_likelihood(np.ndarray[np.int_t, ndim=2] bamfile_data,
+                     list reads,
+                     list quals,
+                     list probN,
+                     np.ndarray[np.uint_t, ndim=1] lik_row_seqi,
+                     np.ndarray[np.uint_t, ndim=1] lik_col_readi,
+                     np.ndarray[np.float_t, ndim=1] lik_data):
+    """
+    do looping here in Cython
+
+    return values are placed in the arrays passed as the last 3 args.
+    """
+    cdef int alignedread_i
+    cdef int seq_i
+    cdef int read_i
+    cdef int pair_i
+    cdef int rlen
+    cdef int pos
+
+    cdef double p
+    cdef double s
+
+    cdef int i
+    cdef int j
+
+    cdef np.ndarray[np.uint8_t, ndim=1] numeric_bases
+    cdef np.ndarray[np.uint8_t, ndim=1] qualints
+    cdef np.ndarray[np.float_t, ndim=2] probN_single  # an individual probN numpy matrix
+
+    for alignedread_i in range(bamfile_data.shape[0]):
+        seq_i, read_i, pair_i, rlen, pos = bamfile_data[alignedread_i]
+        lik_row_seqi[alignedread_i] = seq_i
+        lik_col_readi[alignedread_i] = read_i
+
+        numeric_bases = reads[read_i]
+        qualints      = quals[read_i]
+        probN_single  = probN[seq_i]
+
+        p = 0.0
+
+        for i in range(rlen):   # numeric_bases.shape[0]):
+            s = 0.0
+            for j in range(4):
+                if numeric_bases[i] == j:   # this is called base, set 1-P
+                    # s += (1. - error_p_i) * probN[pos + i, j]
+                    s += ( qual2one_minus_p[qualints[i]] * probN_single[pos + i, j] )    # lookup table
+                else:                       # this is not the called base, so set to P/3
+                    # s += (error_p_i / 3 ) * probN[pos + i, j]
+                    s += ( qual2p_div_3[qualints[i]] * probN_single[pos + i, j] )          # lookup table
+            p += log(s)
+
+        lik_data[alignedread_i] = c_pow(M_E, p)
+
+    return
+
 def calc_probN_read(bint initial_iteration,
                     unsigned int seq_i, unsigned int read_i,
                     unsigned int pos,
@@ -120,6 +177,70 @@ def calc_probN_read(bint initial_iteration,
             else:                       # this is not the called base, so add P/3 * weight
                 probN[pos + i, j] += qual2p_div_3[qualints[i]] * weight
 
+    return
+
+def _calc_probN(np.ndarray[np.int_t, ndim=2] bamfile_data,
+                bint initial_iteration,
+                np.ndarray[np.float_t, ndim=1] priors,
+                posteriors,  # pass as python object for now
+                list numeric_bases,
+                list qualints,
+                list probN):  # list of  probN numpy matrices
+    """
+    calculates effect of *all* reads on probN
+
+    entire loop over bamfile_data.
+    ON RETURN:  probN is modified for this iteration.
+
+    ## posteriors is a sparse matrix, so this presents a little bit of a tricky situation until
+    ## I can think about how to pass this.  Have to choose correct data struct, manip internals?
+    ## for now, just keep as python obj.
+    """
+    cdef int alignedread_i
+    cdef int seq_i
+    cdef int read_i
+    cdef int pair_i
+    cdef int rlen
+    cdef int pos
+
+    cdef int i
+    cdef int j
+    cdef double weight
+
+    cdef np.ndarray[np.uint8_t, ndim=1] numeric_bases_single # single numeric bases numpy array -- per read
+    cdef np.ndarray[np.uint8_t, ndim=1] qualints_single      # # single quals numpy array -- per read
+    cdef np.ndarray[np.float_t, ndim=2] probN_single  # an individual probN numpy matrix.
+
+    cdef int posteriors_shape_0 = 0
+    cdef int posteriors_shape_1 = 0
+    if posteriors is not None:
+        posteriors_shape_0 = posteriors.shape[0]
+        posteriors_shape_1 = posteriors.shape[1]
+    
+
+
+    for alignedread_i in range(bamfile_data.shape[0]):
+        seq_i, read_i, pair_i, rlen, pos = bamfile_data[alignedread_i]
+        # about 1/3 of time is spent doing this weight step
+        if initial_iteration:
+            weight = priors[seq_i]
+        else:
+            if seq_i < posteriors_shape_0 and read_i < posteriors_shape_1:
+                weight = posteriors[seq_i, read_i]
+            else:
+                weight = priors[seq_i]
+
+        numeric_bases_single = numeric_bases[read_i]
+        qualints_single      = qualints[read_i]
+        probN_single         = probN[seq_i]
+        
+        for i in range(numeric_bases_single.shape[0]): # for i in range(rlen)  # ????
+            s = 0.0
+            for j in range(4):
+                if numeric_bases_single[i] == j:   # this is called base, add (1-P) * weight
+                    probN_single[pos + i, j] += qual2one_minus_p[qualints_single[i]] * weight
+                else:                       # this is not the called base, so add P/3 * weight
+                    probN_single[pos + i, j] += qual2p_div_3[qualints_single[i]] * weight
     return
 
 
