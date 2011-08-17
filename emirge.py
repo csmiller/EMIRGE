@@ -37,6 +37,7 @@ from datetime import timedelta
 import gzip
 import cPickle
 import _emirge
+print >>  sys.stderr, "imported _emirge C functions from: %s"%(_emirge.__file__)
 
 BOWTIE_l = 20
 BOWTIE_e  = 300
@@ -563,7 +564,7 @@ class EM(object):
                 updated_seq_i += 1
                 self.sequence_i2sequence_name[-1][seq_i_minor] = m_title
                 self.sequence_name2sequence_i[-1][m_title] = seq_i_minor
-                new_priors = numpy.zeros(seq_i_minor+1, dtype=self.priors[-1].dtype) # SLOW to reallocate every time? just keep of list to add at end?  pretty short since priors is only 1D...
+                new_priors = numpy.zeros(seq_i_minor+1, dtype=self.priors[-1].dtype)
                 new_priors[:-1] = self.priors[-1].copy()
                 new_priors[seq_i_minor] = old_prior * minor_fraction_avg
                 trash = self.priors.pop()
@@ -939,15 +940,24 @@ class EM(object):
         # required: base2i, probN
 
         # keep looping here in python so that we can (in the future) use multiprocessing with an iterator (no cython looping).
-        calc_likelihood_cell = _emirge.calc_likelihood_cell
-        for alignedread_i, (seq_i, read_i, pair_i, rlen, pos) in enumerate(bamfile_data):
-            lik_row_seqi[alignedread_i] = seq_i
-            lik_col_readi[alignedread_i] = read_i
-            lik_data[alignedread_i] = calc_likelihood_cell(seq_i, read_i, pair_i,
-                                                           pos,
-                                                           reads[read_i],
-                                                           quals[read_i],
-                                                           probN[seq_i])
+        # calc_likelihood_cell = _emirge.calc_likelihood_cell
+        # for alignedread_i, (seq_i, read_i, pair_i, rlen, pos) in enumerate(bamfile_data):
+        #     lik_row_seqi[alignedread_i] = seq_i
+        #     lik_col_readi[alignedread_i] = read_i
+        #     lik_data[alignedread_i] = calc_likelihood_cell(seq_i, read_i, pair_i,
+        #                                                    pos,
+        #                                                    reads[read_i],
+        #                                                    quals[read_i],
+        #                                                    probN[seq_i])
+
+        # Move looping to cython for small speed gain if we don't multiprocess.
+        _emirge._calc_likelihood(bamfile_data,
+                                 reads,
+                                 quals,
+                                 probN,
+                                 lik_row_seqi,
+                                 lik_col_readi,
+                                 lik_data)
 
         # now actually construct sparse matrix.
         self.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), self.likelihoods.shape, dtype=self.likelihoods.dtype).tocsr()
@@ -1023,18 +1033,25 @@ class EM(object):
         np_int = numpy.int
 
         # could multithread this too.  self.probN is what is being written to.
-        # for alignedread_i, (seq_i, read_i, pair_i, rlen, qlen, pos) in enumerate(bamfile_data):
-        calc_probN_read = _emirge.calc_probN_read
-        for alignedread_i in range(bamfile_data.shape[0]):
-            seq_i, read_i, pair_i, rlen, pos = bamfile_data[alignedread_i]
-            calc_probN_read(initial_iteration,
-                            seq_i, read_i, pos,
+        # calc_probN_read = _emirge.calc_probN_read
+        # for alignedread_i in range(bamfile_data.shape[0]):
+        #     seq_i, read_i, pair_i, rlen, pos = bamfile_data[alignedread_i]
+        #     calc_probN_read(initial_iteration,
+        #                     seq_i, read_i, pos,
+        #                     priors,
+        #                     posteriors,
+        #                     reads[read_i],
+        #                     quals[read_i],
+        #                     probN[seq_i])
+
+        # here do looping in Cython (this loop is about 95% of the time in this method on test data):
+        _emirge._calc_probN(self.bamfile_data,
+                            initial_iteration,
                             priors,
                             posteriors,
-                            reads[read_i],
-                            quals[read_i],
-                            probN[seq_i])
-            
+                            self.reads,
+                            self.quals,
+                            self.probN)
 
         numpy_where = numpy.where
         numpy_nonzero = numpy.nonzero
