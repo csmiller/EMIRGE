@@ -99,7 +99,8 @@ class EM(object):
                  cwd = os.getcwd(), max_read_length = 76,
                  iterdir_prefix = "iter.", cluster_thresh = 0.97,
                  mapping_nice = None,
-                 reads_ascii_offset = 64):
+                 reads_ascii_offset = 64,
+                 expected_coverage_thresh = 20):
         """
 
         n_cpus is how many processors to use for multithreaded steps (currently only the bowtie mapping)
@@ -121,6 +122,8 @@ class EM(object):
         self.iterdir_prefix = iterdir_prefix
         self.cluster_thresh = cluster_thresh   # if two sequences evolve to be >= cluster_thresh identical (via usearch), then merge them. [0, 1.0]
         assert self.cluster_thresh >= 0 and self.cluster_thresh <= 1.0
+        self.expected_coverage_thresh = expected_coverage_thresh
+        
         # Single numpy arrays.  Has the shape: (numsequences x numreads)
         self.likelihoods = None      # = Pr(R_i|S_i), the likelihood of generating read R_i given sequence S_i
         # list of numpy arrays.  list index is iteration number.  Each numpy array has the shape: (numsequences,)
@@ -234,6 +237,14 @@ class EM(object):
         uint8 = numpy.uint8
         base_alpha2int = _emirge.base_alpha2int
 
+        # this is lame.  can do all of this in Cython. 0. no predata step  1. use stdout of bowtie to know length of samfile ahead of time (for bamfile_data).  2. Change ALL data structures to numpy arrays (reads, quals, readlengths), using arrays only for new entries before resizing old arrays.  Or just grow reads, quals, readlengths 1e6 at a time or something 3. Figure out if any Cython tricks with dictionaries.  
+        # >>> a = numpy.array([1., 2., 3.])
+        # >>> a.resize(4)
+        # >>> a
+        # array([ 1.,  2.,  3.,  0.])
+        
+
+        
         # this pass just to read from file, get disk access over with.  As little processing as possible.
         predata = [(alignedread.pos, alignedread.tid, alignedread.is_read2, alignedread.qname,
                     alignedread.qual, alignedread.seq) for alignedread in bamfile]
@@ -298,6 +309,7 @@ class EM(object):
 
         self.probN = [None for x in range(max(self.sequence_name2sequence_i[-1].values())+1)]
         self.unmapped_bases = [None for x in self.probN]
+        self.mean_read_length = numpy.mean(self.readlengths)
         
         self.sequence_name2fasta_name = {}
         for record in FastIterator(file(self.current_reference_fasta_filename)):
@@ -534,13 +546,28 @@ class EM(object):
             consensus = numpy.array([i2base.get(x, "N") for x in numpy.argsort(probNarray)[:,-1]])
 
             # check for minor allele consensus, SPLIT sequence into two candidate sequences if passes thresholds.
+            
             minor_indices = numpy.argwhere((probNarray >= self.snp_minor_prob_thresh).sum(axis=1) >= 2)[:,0]
-            if minor_indices.shape[0] / float(probNarray.shape[0]) >= self.snp_percentage_thresh:
-
+            if minor_indices.shape[0] > 0:
+                minor_fraction_avg = numpy.mean(probNarray[(minor_indices, numpy.argsort(probNarray[minor_indices])[:, -2])])
+            else:
+                minor_fraction_avg = 0.0
+            # NEW rule: only split sequence if *expected* coverage
+            # of newly split minor sequence (assuming uniform read
+            # coverage over reconstructed sequence) is > some
+            # threshold.  Here, expected coverage is calculated
+            # based on:
+            # Prior(seq_i) * number of reads * avg read length
+            expected_coverage_minor = ( self.priors[-1][seq_i] * minor_fraction_avg * len(self.reads) * self.mean_read_length ) / probNarray.shape[0]
+            expected_coverage_major = ( self.priors[-1][seq_i] * (1-minor_fraction_avg) * len(self.reads) * self.mean_read_length ) / probNarray.shape[0]
+            # print >> sys.stderr, "DEBUG: ", seq_i, expected_coverage_minor, expected_coverage_major, minor_indices.shape, self.priors[-1][seq_i] , minor_fraction_avg , len(self.reads) , self.mean_read_length , probNarray.shape[0]
+            
+            if minor_indices.shape[0] / float(probNarray.shape[0]) >= self.snp_percentage_thresh and \
+                   expected_coverage_minor >= self.expected_coverage_thresh:
                 splitcount += 1
                 if self._VERBOSE:
-                    sys.stderr.write("splitting sequence %d at %s ..."%(seq_i, ctime()))
                     t0_split = time()
+                major_fraction_avg = 1.-minor_fraction_avg # if there's >=3 alleles, major allele keeps prob of other minors)
                 minor_bases   = numpy.array([i2base.get(x, "N") for x in numpy.argsort(probNarray[minor_indices])[:,-2]]) # -2 gets second most probably base
                 minor_consensus = consensus.copy()               # get a copy of the consensus
                 minor_consensus[minor_indices] = minor_bases     # replace the bases that pass minor threshold
@@ -556,8 +583,6 @@ class EM(object):
 
                 # also split out Priors and Posteriors (which will be used in next round), split with average ratio of major to minor alleles.
                 # updating priors first:
-                minor_fraction_avg = numpy.average(probNarray[(minor_indices, numpy.argsort(probNarray[minor_indices])[:, -2])])
-                major_fraction_avg = 1.-minor_fraction_avg # if there's >=3 alleles, major allele keeps prob of other minors)
                 old_prior = self.priors[-1][seq_i]
                 self.priors[-1][seq_i] = old_prior * major_fraction_avg
                 seq_i_minor = updated_seq_i  # grow data structs by 1
@@ -604,7 +629,13 @@ class EM(object):
                 of.write(">%s\n"%(m_title))
                 of.write("%s\n"%("".join(minor_consensus)))
                 if self._VERBOSE:
-                    sys.stderr.write("DONE [%s].\n"%(timedelta(seconds = time()-t0_split)))
+                    # sys.stderr.write("splitting sequence %d (%s) to %d (%s) at %s [%s] ...\n"%(seq_i, title,
+                    #                                                                          seq_i_minor, m_title,
+                    #                                                                          ctime(), timedelta(seconds = time()-t0_split)))
+                    sys.stderr.write("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
+                                                                                   seq_i_minor, m_title))
+                                                                                   
+
                 times_split.append(time()-seq_i_t0)
                 
             # now write major strain consensus, regardless of whether there was a minor strain consensus
