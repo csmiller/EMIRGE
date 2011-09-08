@@ -885,39 +885,43 @@ class EM(object):
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         
         # 2. run bowtie
-        nice_command = ""
+        nicestring = ""
         if nice is not None:
-            nice_command = "nice -n %d"%(nice)
-        # these in theory could be used for single reads too.
+            nicestring = "nice -n %d"%(nice)
+            
+        if self.reads1_filepath.endswith(".gz"):
+            cat_cmd = "gzip -dc "
+        else:
+            cat_cmd = "cat "
+
+        # these are used for single reads too.
         shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 128"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
         
         minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
         maxins = self.insert_mean + 3*self.insert_sd
         output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
-        # bowtie_command = "%s | %s bowtie %s -1 %s -2 - --minins %d --maxins %d %s  | samtools view -b -S -u -F 0x0004 - | samtools sort - %s.sort.PE >> %s 2>&1"%(\
-        #     self.reads2_filepath,
-        #     nice_command,
-        #     shared_bowtie_params, self.reads1_filepath,
-        #     minins, maxins,
-        #     bowtie_index,
-        #     output_prefix,
-        #     bowtie_logfile)
 
-        bowtie_command = "%s | %s bowtie %s -1 %s -2 - --minins %d --maxins %d %s  | samtools view -b -S -F 0x0004 - -o %s.PE.bam >> %s 2>&1"%(\
-            self.reads2_filepath,
-            nice_command,
-            shared_bowtie_params, self.reads1_filepath,
-            minins, maxins,
-            bowtie_index,
-            output_prefix,
-            bowtie_logfile)
-
-
-        if self.reads2_filepath.endswith('.gz'):
-            bowtie_command = "gzip -dc " + bowtie_command
-        else:
-            bowtie_command = "cat " + bowtie_command
-            
+        if self.reads2_filepath is not None:
+            bowtie_command = "%s %s | %s bowtie %s --minins %d --maxins %d %s -1 - -2 %s | samtools view -b -S -F 0x0004 - -o %s.PE.bam >> %s 2>&1"%(\
+                cat_cmd,
+                self.reads1_filepath,
+                nicestring,
+                shared_bowtie_params, 
+                minins, maxins,
+                bowtie_index,
+                self.reads2_filepath,
+                output_prefix,
+                bowtie_logfile)
+        else: # single reads
+            bowtie_command = "%s %s | %s bowtie %s --minins %d --maxins %d %s - | samtools view -b -S -F 0x0004 - -o %s.PE.bam >> %s 2>&1"%(\
+                cat_cmd,
+                self.reads1_filepath,
+                nicestring,
+                shared_bowtie_params, 
+                minins, maxins,
+                bowtie_index,
+                output_prefix,
+                bowtie_logfile)
 
         if self._VERBOSE:
             sys.stderr.write("\tbowtie command:\n")
@@ -1346,13 +1350,22 @@ def do_initial_mapping(working_dir, options):
     if options.nice_mapping is not None:
         nicestring = "nice -n %d"%(options.nice_mapping)  # TODO: fix this so it isn't such a hack and will work in bash.  Need to rewrite all subprocess code, really (shell=False)
     reads_ascii_offset = {False: 64, True: 33}[options.phred33]
-    option_strings = [options.fastq_reads_2, nicestring, reads_ascii_offset, options.processors, BOWTIE_l, BOWTIE_e, options.fastq_reads_1, minins, maxins, options.bowtie_db, bampath_prefix]
-    if options.fastq_reads_2.endswith(".gz"):
-        option_strings = ["gzip -dc "] + option_strings
+    if options.fastq_reads_1.endswith(".gz"):
+        option_strings = ["gzip -dc "]
     else:
-        option_strings = ["cat "] + option_strings
+        option_strings = ["cat "]
+    # shared regardless of whether paired mapping or not
+    option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors, BOWTIE_l, BOWTIE_e])
 
-    cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 -1 %s -2 - --minins %s --maxins %s %s | samtools view -b -S -u -F 0x0004 - -o %s.bam "%tuple(option_strings)    
+    # PAIRED END MAPPING
+    if options.fastq_reads_2 is not None:
+        option_strings.extend([minins, maxins, options.bowtie_db, options.fastq_reads_2, bampath_prefix])
+        cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 --minins %s --maxins %s %s -1 - -2 %s | samtools view -b -S -u -F 0x0004 - -o %s.bam "%tuple(option_strings)    
+    # SINGLE END MAPPING
+    else:
+        option_strings.extend([options.bowtie_db, bampath_prefix])
+        cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128  %s - | samtools view -b -S -u -F 0x0004 - -o %s.bam "%tuple(option_strings)    
+
     print "Performing initial mapping with command:\n%s"%cmd
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
     sys.stdout.flush()
@@ -1435,27 +1448,27 @@ def main(argv = sys.argv[1:]):
     group_reqd = OptionGroup(parser, "Required flags",
                              "These flags are all required to run EMIRGE (and may be supplied in any order)")
 
-    group_reqd.add_option("-1", dest="fastq_reads_1", metavar="reads_1.fastq",
+    group_reqd.add_option("-1", dest="fastq_reads_1", metavar="reads_1.fastq[.gz]",
                       type="string",
-                      help="path to fastq file with \\1 (forward) reads from paired-end run.  Must be unzipped for mapper.  EMIRGE expects ASCII-ofset of 64 for quality scores.  Required.")
-    group_reqd.add_option("-2", dest="fastq_reads_2", metavar="reads_2.fastq[.gz]",
+                      help="path to fastq file with \\1 (forward) reads from paired-end run.  File may optionally be gzipped.  EMIRGE expects ASCII-offset of 64 for quality scores.  Required.")
+    group_reqd.add_option("-2", dest="fastq_reads_2", metavar="reads_2.fastq",
                       type="string",
-                      help="path to fastq file with \\2 (reverse) reads from paired-end run.  May be gzipped for mapper.  EMIRGE expects ASCII-ofset of 64 for quality scores.  Required.")
+                      help="path to fastq file with \\2 (reverse) reads from paired-end run.  Required for paired end reads.  If only single reads are available, omit this argument.  (NOTE that running EMIRGE with single reads is largely untested.  Please let me know how it works for you.)  File must be unzipped for mapper.  EMIRGE expects ASCII-offset of 64 for quality scores.")
     group_reqd.add_option("-f", "--fasta_db",
                       type="string",
                       help="path to fasta file of candidate SSU sequences")
     group_reqd.add_option("-b", "--bowtie_db",
                       type="string",
                       help="precomputed bowtie index of candidate SSU sequences (path to appropriate prefix; see --fasta_db)")
-    group_reqd.add_option("-i", "--insert_mean",
-                      type="int",
-                      help="insert size distribution mean.  Required.")
-    group_reqd.add_option("-s", "--insert_stddev",
-                      type="int",
-                      help="insert size distribution standard deviation.  Required.")
     group_reqd.add_option("-l", "--max_read_length",
                       type="int",
                       help="""length of longest read in input data.  Required.""")
+    group_reqd.add_option("-i", "--insert_mean",
+                      type="int", default=0,
+                      help="insert size distribution mean.  Required for paired end reads.")
+    group_reqd.add_option("-s", "--insert_stddev",
+                      type="int", default=0,
+                      help="insert size distribution standard deviation.  Required for paired end reads.")
     parser.add_option_group(group_reqd)
 
     # OPTIONAL
@@ -1524,7 +1537,7 @@ def main(argv = sys.argv[1:]):
     #     return # ends the program, as we resumed from previous run
 
     # below here, means that we are handling the NEW case (as opposed to resume)
-    if sum([int(x is None) for x in [options.fastq_reads_1, options.fastq_reads_2, options.insert_mean, options.insert_stddev, options.max_read_length]]):
+    if sum([int(x is None) for x in [options.fastq_reads_1, options.insert_mean, options.insert_stddev, options.max_read_length]]):
         parser.error("Some required arguments are missing (try --help)")
 
     if not os.path.exists(working_dir):
