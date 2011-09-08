@@ -15,7 +15,7 @@ setup(
     cmdclass = {'build_ext': build_ext},
     ext_modules = ext_modules,
 
-    scripts = ["emirge.py"],
+    scripts = ["emirge.py", "emirge_rename_fasta.py"],
 
     author="Christopher Miller",
     author_email="csmiller@gmail.com",
