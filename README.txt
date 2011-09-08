@@ -46,14 +46,14 @@ EMIRGE expects the following programs to be installed and available in your path
   -Cython
   -pysam
   -scipy / numpy
- -usearch (www.drive5.com/usearch/ -- tested with usearch version 4.0.38).
+ -usearch (www.drive5.com/usearch/ -- tested with usearch version 4.2.x; earlier versions are incompatible).
  -samtools (http://samtools.sourceforge.net/ -- tested with verison 0.1.7)
  -bowtie (http://bowtie-bio.sourceforge.net/index.shtml -- tested with version 0.12.5)
 
 INSTALLATION
 ------------------------------
 
-After installing the dependencies listed above, type the following to build emirge:
+After installing the dependencies listed above, type the following to build EMIRGE:
 
   $ python setup.py build
 
@@ -74,10 +74,10 @@ HELP
 
 At the moment, there is very little documentation aside from running:
 
-emirge --help
+emirge.py --help
 
-Once a run is completed, it is helpful to run emirge_rename_fasta.py
-on the final iterations directory, for example:
+Once an EMIRGE run is completed, run emirge_rename_fasta.py on the
+final iterations directory, for example:
 
 emirge_rename_fasta.py iter.40 > renamed.fasta
 
@@ -85,8 +85,17 @@ Also see:
 
 emirge_rename_fasta.py --help
 
-Please feel free to contact me (csmiller@berkeley.edu) with any problems,
-bug reports, or questions
+** A note about single-end sequencing:
+
+EMIRGE was designed for and tested on paired-end sequencing reads.
+However, you can now use EMIRGE on single-end reads as well: simply
+omit the -2 parameter.  Although I have done some basic testing on
+single-end reads, runs with single reads have NOT been as extensively
+tested as runs with paired reads.  Please let me know how it works for
+you if you try EMIRGE with single-end reads.
+
+Please feel free to contact me (csmiller@berkeley.edu) with any
+problems, bug reports, or questions
   
 CANDIDATE SSU DATABASE
 ------------------------------
