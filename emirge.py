@@ -37,7 +37,6 @@ from datetime import timedelta
 import gzip
 import cPickle
 import _emirge
-print >>  sys.stderr, "imported _emirge C functions from: %s"%(_emirge.__file__)
 
 BOWTIE_l = 20
 BOWTIE_e  = 300
@@ -1467,7 +1466,7 @@ def main(argv = sys.argv[1:]):
     """
     dependency_check()
 
-    parser = OptionParser("usage: %prog DIR <required_parameters> [options]\n\nEMIRGE attempts to reconstruct rRNA SSU genes from Illumina metagenomic data.\n DIR is the working directory to process data in.\nuse --help to see a list of required and optional arguments")
+    parser = OptionParser("usage: %prog DIR <required_parameters> [options]\n\nEMIRGE attempts to reconstruct rRNA SSU genes from Illumina metagenomic data.\n DIR is the working directory to process data in.\nuse --help to see a list of required and optional arguments\n\nAdditional information:\nhttps://groups.google.com/group/emirge-users\nhttps://github.com/csmiller/EMIRGE/wiki")
 
 
     # REQUIRED
@@ -1557,6 +1556,7 @@ def main(argv = sys.argv[1:]):
         
     working_dir = os.path.abspath(args[0])
 
+    sys.stdout.write("imported _emirge C functions from: %s"%(_emirge.__file__))
     sys.stdout.write("Command:\n")
     sys.stdout.write(' '.join([__file__]+argv))
     sys.stdout.write('\n\n')
