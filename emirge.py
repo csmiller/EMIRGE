@@ -92,6 +92,7 @@ class EM(object):
     
     clustermark_pat = re.compile(r'(\d+\|.?\|)?(.*)')  # cludgey code associated with this should go into a method: get_seq_i()
     DEFAULT_ERROR = 0.05
+
     def __init__(self, reads1_filepath, reads2_filepath,
                  insert_mean,
                  insert_sd,
@@ -516,8 +517,10 @@ class EM(object):
         rows_to_add = []                # these are for updating posteriors at end with new minor strains
         cols_to_add = []
         data_to_add = []
+        probNtoadd  = []  # for newly split out sequences
 
         self.posteriors[-1] = self.posteriors[-1].tolil()  # just to make sure this is in row-access-friendly format
+        
 
         loop_t0 = time()
         for seq_i, probNarray in enumerate(self.probN):
@@ -578,7 +581,7 @@ class EM(object):
                 else:
                     title_root = title_root.groups()[0]
                 # now check for any known name with same root and a _m on it.
-                previous_m_max = max([0] + [int(x) for x in re.findall(r'%s_m(\d+)'%title_root, " ".join(self.sequence_i2sequence_name[-1].values()))])
+                previous_m_max = max([0] + [int(x) for x in re.findall(r'%s_m(\d+)'%re.escape(title_root), " ".join(self.sequence_i2sequence_name[-1].values()))])
                 m_title = "%s_m%02d"%(title_root, previous_m_max+1)
 
                 # also split out Priors and Posteriors (which will be used in next round), split with average ratio of major to minor alleles.
@@ -589,6 +592,22 @@ class EM(object):
                 updated_seq_i += 1
                 self.sequence_i2sequence_name[-1][seq_i_minor] = m_title
                 self.sequence_name2sequence_i[-1][m_title] = seq_i_minor
+                # how I adjust probN here for newly split seq doesn't really matter,
+                # as it is re-calculated next iter.
+                # this only matters for probN.pkl.gz file left behind for this iteration.
+                # for now just set prob(major base) = 0 and redistribute prob to other bases for minor,
+                # and set prob(minor base) = 0 and redistribute prob to other bases for major
+                # MINOR
+                major_base_i = numpy.argsort(probNarray[minor_indices])[:, -1]
+                newprobNarray = probNarray.copy()
+                newprobNarray[(minor_indices, major_base_i)] = 0
+                newprobNarray = newprobNarray / numpy.sum(newprobNarray, axis=1).reshape(newprobNarray.shape[0], 1)
+                probNtoadd.append(newprobNarray)
+                # MAJOR
+                minor_base_i = numpy.argsort(probNarray[minor_indices])[:, -2]
+                probNarray[(minor_indices, minor_base_i)] = 0
+                probNarray = probNarray / numpy.sum(probNarray, axis=1).reshape(probNarray.shape[0], 1)
+
                 new_priors = numpy.zeros(seq_i_minor+1, dtype=self.priors[-1].dtype)
                 new_priors[:-1] = self.priors[-1].copy()
                 new_priors[seq_i_minor] = old_prior * minor_fraction_avg
@@ -629,9 +648,6 @@ class EM(object):
                 of.write(">%s\n"%(m_title))
                 of.write("%s\n"%("".join(minor_consensus)))
                 if self._VERBOSE:
-                    # sys.stderr.write("splitting sequence %d (%s) to %d (%s) at %s [%s] ...\n"%(seq_i, title,
-                    #                                                                          seq_i_minor, m_title,
-                    #                                                                          ctime(), timedelta(seconds = time()-t0_split)))
                     sys.stderr.write("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
                                                                                    seq_i_minor, m_title))
                                                                                    
@@ -654,10 +670,13 @@ class EM(object):
                                            shape=(updated_seq_i, self.posteriors[-1].shape[1]),
                                            dtype=new_posteriors.dtype).tocsr()
 
-        # finally, excange in this new matrix
+        # finally, exchange in this new matrix
         trash = self.posteriors.pop()
         del trash
         self.posteriors.append(new_posteriors)
+
+        # update probN array:
+        self.probN.extend(probNtoadd)
 
         if self._VERBOSE:
             total_time = time()-t0
@@ -773,15 +792,18 @@ class EM(object):
                                                                alnstring_pat.findall(row[7]))
                 ## print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
 
-                # DEBUG PRINT:
-                if self._VERBOSE and num_seqs < 50:
-                    print >> sys.stderr, "\t\t%s|%s vs %s|%s %.3f over %s aligned columns"%(member_seq_id, member_name, seed_seq_id, seed_name,
-                                                                    float(matches) / aln_columns, aln_columns)
                 # if alignment is less that 500 bases, or identity over those 500+ bases is not above thresh, then continue                
                 if (aln_columns < 500) or ((float(matches) / aln_columns) < self.cluster_thresh):
                     continue
+                    
+                # DEBUG PRINT:
+                if self._VERBOSE and num_seqs < 50:
+                    # print >> sys.stderr, row
+                    # print >> sys.stderr, "%s %s %s %s  --  %s, %s"%(member_seq_id, member_name, seed_seq_id, seed_name, float(matches), aln_columns)
+                    print >> sys.stderr, "\t\t%s|%s vs %s|%s %.3f over %s aligned columns"%(member_seq_id, member_name, seed_seq_id, seed_name,
+                                                                    float(matches) / aln_columns, aln_columns)
+                    
 
-                # OKAY TO MERGE AT THIS POINT
                 # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
                 percent_id = (float(matches) / aln_columns) * 100.
                 t0 = time()
@@ -811,6 +833,11 @@ class EM(object):
                 # these two lines remove the row from the linked list (or rather, make them empty rows), essentially setting all elements to 0
                 self.posteriors[-1].rows[remove_seq_id] = []  
                 self.posteriors[-1].data[remove_seq_id] = []
+
+                # set self.probN[removed] to be None -- note that this doesn't really matter, except for
+                # writing out probN.pkl.gz every iteration, as probN is recalculated from bam file
+                # with each iteration
+                self.probN[remove_seq_id] = None
 
                 already_removed.add(remove_seq_id)
                 nummerged += 1
@@ -913,12 +940,11 @@ class EM(object):
                 output_prefix,
                 bowtie_logfile)
         else: # single reads
-            bowtie_command = "%s %s | %s bowtie %s --minins %d --maxins %d %s - | samtools view -b -S -F 0x0004 - -o %s.PE.bam >> %s 2>&1"%(\
+            bowtie_command = "%s %s | %s bowtie %s %s - | samtools view -b -S -F 0x0004 - -o %s.PE.bam >> %s 2>&1"%(\
                 cat_cmd,
                 self.reads1_filepath,
                 nicestring,
                 shared_bowtie_params, 
-                minins, maxins,
                 bowtie_index,
                 output_prefix,
                 bowtie_logfile)
@@ -1446,14 +1472,11 @@ def main(argv = sys.argv[1:]):
 
     # REQUIRED
     group_reqd = OptionGroup(parser, "Required flags",
-                             "These flags are all required to run EMIRGE (and may be supplied in any order)")
+                             "These flags are all required to run EMIRGE, and may be supplied in any order.")
 
     group_reqd.add_option("-1", dest="fastq_reads_1", metavar="reads_1.fastq[.gz]",
                       type="string",
-                      help="path to fastq file with \\1 (forward) reads from paired-end run.  File may optionally be gzipped.  EMIRGE expects ASCII-offset of 64 for quality scores.  Required.")
-    group_reqd.add_option("-2", dest="fastq_reads_2", metavar="reads_2.fastq",
-                      type="string",
-                      help="path to fastq file with \\2 (reverse) reads from paired-end run.  Required for paired end reads.  If only single reads are available, omit this argument.  (NOTE that running EMIRGE with single reads is largely untested.  Please let me know how it works for you.)  File must be unzipped for mapper.  EMIRGE expects ASCII-offset of 64 for quality scores.")
+                      help="path to fastq file with \\1 (forward) reads from paired-end sequencing run, or all reads from single-end sequencing run.  File may optionally be gzipped.  EMIRGE expects ASCII-offset of 64 for quality scores.  (Note that running EMIRGE with single-end reads is largely untested.  Please let me know how it works for you.)")
     group_reqd.add_option("-f", "--fasta_db",
                       type="string",
                       help="path to fasta file of candidate SSU sequences")
@@ -1462,21 +1485,29 @@ def main(argv = sys.argv[1:]):
                       help="precomputed bowtie index of candidate SSU sequences (path to appropriate prefix; see --fasta_db)")
     group_reqd.add_option("-l", "--max_read_length",
                       type="int",
-                      help="""length of longest read in input data.  Required.""")
-    group_reqd.add_option("-i", "--insert_mean",
-                      type="int", default=0,
-                      help="insert size distribution mean.  Required for paired end reads.")
-    group_reqd.add_option("-s", "--insert_stddev",
-                      type="int", default=0,
-                      help="insert size distribution standard deviation.  Required for paired end reads.")
+                      help="""length of longest read in input data.""")
     parser.add_option_group(group_reqd)
+
+    # REQUIRED for paired end
+    group_reqd_PE = OptionGroup(parser, "Required flags for paired-end reads",
+                             "These flags are required to run EMIRGE when you have paired-end reads (the standard way of running EMIRGE), and may be supplied in any order.")
+    group_reqd_PE.add_option("-2", dest="fastq_reads_2", metavar="reads_2.fastq",
+                      type="string",
+                      help="path to fastq file with \\2 (reverse) reads from paired-end run.  File must be unzipped for mapper.  EMIRGE expects ASCII-offset of 64 for quality scores.")
+    group_reqd_PE.add_option("-i", "--insert_mean",
+                      type="int", default=0,
+                      help="insert size distribution mean.")
+    group_reqd_PE.add_option("-s", "--insert_stddev",
+                      type="int", default=0,
+                      help="insert size distribution standard deviation.")
+    parser.add_option_group(group_reqd_PE)
 
     # OPTIONAL
     group_opt = OptionGroup(parser, "Optional parameters",
                              "Defaults should normally be fine for these options in order to run EMIRGE")
     group_opt.add_option("-n", "--iterations",
                       type="int", default=40,
-                      help="""Number of iterations to perform.  (default=%default)""")
+                      help="""Number of iterations to perform.  It may be necessary to use more iterations for more complex samples (default=%default)""")
     group_opt.add_option("-a", "--processors",
                       type="int", default=1,
                       help="""Number of processors to use in the mapping steps.  You probably want to raise this if you have the processors. (default: %default)""")
