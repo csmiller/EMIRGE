@@ -94,9 +94,17 @@ single-end reads, runs with single reads have NOT been as extensively
 tested as runs with paired reads.  Please let me know how it works for
 you if you try EMIRGE with single-end reads.
 
-Please feel free to contact me (csmiller@berkeley.edu) with any
+There is a google group (similar to a mailing list) for asking questions
+about EMIRGE:
+https://groups.google.com/group/emirge-users
+
+Also, there is some additional information (including a Frequently
+Asked Questions section) on the github wiki:
+https://github.com/csmiller/EMIRGE/wiki
+
+Lastly, please feel free to contact me (csmiller@berkeley.edu) with any
 problems, bug reports, or questions
-  
+
 CANDIDATE SSU DATABASE
 ------------------------------
 
