@@ -37,6 +37,22 @@ from math import log, e
 import cPickle
 from gzip import GzipFile
 import numpy
+import re
+
+USAGE = \
+"""usage: %prog [options] <iter.DIR> > renamed.fasta
+
+%prog rewrites an emirge fasta file to include proper
+sequence names and prior probabilities (abundance estimates) in the
+record headers, and sorts the sequences from most to least abundant
+
+iter.DIR is one of the iteration directories created by emirge (for
+example: emirge_working_dir/iter.40).  If no iter.DIR is given,
+%prog assumes that iter.DIR is the current working
+directory.
+
+Note that, with default options, bases with no read support are
+labeled 'N', and terminal N's are trimmed"""
 
 # from emirge.py: self.DEFAULT_ERROR = 0.05
 DEFAULT_ERROR = 0.05
@@ -107,7 +123,7 @@ def main(argv = None):
     if argv is None:
         argv = sys.argv[1:]
 
-    parser = OptionParser("usage: %prog [options] <iter.DIR>  > renamed.fasta\n\nRewrites emirge fasta file to include proper sequence names and prior probabilities (abundance estimates) in record headers.\nIf no iter.DIR is given, assumes cwd.\nBases with no read support are labeled 'N', and terminal N's are trimmed")
+    parser = OptionParser(USAGE)
     parser.add_option('-p', '--prob_min',
                       type='float',
                       help='Only include sequences in output with prior probability above PROB_MIN (Default: include all sequences)')
@@ -125,8 +141,12 @@ def main(argv = None):
     elif len(args) == 1:
         wd = os.path.abspath(args[0])
     else:
-        parser.error("Found more than one argument on command line (expects only iter.DIR): %s"%(args))
-    assert os.path.exists(wd), "Directory not found: %s"%(wd)
+        parser.error("Found more than one argument on command line (expects only a single iter.DIR plus any options): %s"%(args))
+    if not os.path.exists(wd):
+        parser.error("Directory not found: %s"%(wd))
+    if re.match("iter.[0-9]+$", os.path.basename(wd)) is None:
+        parser.error("Directory %s is not a valid emirge iter.DIR (try --help for full usage)"%(wd))
+    
     rename(wd, options.prob_min, options.record_prefix, options.no_N)
     
 
