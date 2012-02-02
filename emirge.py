@@ -904,7 +904,7 @@ class EM(object):
         bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
         bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
         # 1. build index
-        cmd = "bowtie-build -o 3 %s %s >& %s"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
+        cmd = "bowtie-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
         if self._VERBOSE:
             sys.stderr.write("\tbowtie-build command:\n")
             sys.stderr.write("\t%s\n"%cmd)
