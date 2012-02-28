@@ -1454,8 +1454,8 @@ def dependency_check():
         print >> sys.stderr, "FATAL: usearch not found in path!"
         exit(0)
     major, minor, minor_minor = match.groups()
-    if major != working_maj or (major == working_maj and minor != working_minor):
-        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge.py has only been verified to run with version %s.%s.*\nuclust is a bit finicky from version to version, so please download that version."%(major, minor, minor_minor, working_maj, working_minor)
+    if major < working_maj or (major == working_maj and minor < working_minor):
+        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge.py works with version >=  %s.%s.*\nusearch has different command line arguments in previous versions that can cause problems."%(major, minor, minor_minor, working_maj, working_minor)
         exit(0)
     return 
     
