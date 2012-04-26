@@ -237,14 +237,6 @@ class EM(object):
         uint8 = numpy.uint8
         base_alpha2int = _emirge.base_alpha2int
 
-        # this is lame.  can do all of this in Cython. 0. no predata step  1. use stdout of bowtie to know length of samfile ahead of time (for bamfile_data).  2. Change ALL data structures to numpy arrays (reads, quals, readlengths), using arrays only for new entries before resizing old arrays.  Or just grow reads, quals, readlengths 1e6 at a time or something 3. Figure out if any Cython tricks with dictionaries.  
-        # >>> a = numpy.array([1., 2., 3.])
-        # >>> a.resize(4)
-        # >>> a
-        # array([ 1.,  2.,  3.,  0.])
-        
-
-        
         # this pass just to read from file, get disk access over with.  As little processing as possible.
         predata = [(alignedread.pos, alignedread.tid, alignedread.is_read2, alignedread.qname,
                     alignedread.qual, alignedread.seq) for alignedread in bamfile]
@@ -271,37 +263,9 @@ class EM(object):
                                                         self.reads, self.quals, self.readlengths,
                                                         self.coverage, BOWTIE_ASCII_OFFSET,
                                                         self.bamfile_data)
-
-
-        #       samfile.getrname can be replaced with index to samfile.references (tuple) ?
-        # could push this to multiprocessing.Pool or cython at this point, since disk access to bam file is already done.
-        # for alignedread_i, (pos, tid, is_read2, qname, qual, seq) in enumerate(predata):
-        #     refname = getrname(tid)
-        #     seq_i_to_cache = self.sequence_name2sequence_i[-1].get(refname, seq_i)
-        #     if refname not in self.sequence_name2sequence_i[-1]:  # new sequence we haven't seen before
-        #         self.sequence_name2sequence_i[-1][refname] = seq_i
-        #         self.sequence_i2sequence_name[-1][seq_i] = refname
-        #         coverage.append(0)
-        #         seq_i += 1
-        #     pair_i = int(is_read2)
-        #     readname = "%s/%d"%(qname, pair_i+1)
-        #     read_i_to_cache = self.read_name2read_i[-1].get(readname, read_i)
-        #     if readname not in self.read_name2read_i[-1]: # new read we haven't seen before
-        #         self.read_name2read_i[-1][readname] = read_i
-        #         self.read_i2read_name[-1][read_i] = readname
-        #         read_i += 1
-        #         # add to self.reads and self.quals and self.readlengths
-        #         readlengths.append(len(seq))
-        #         reads.append(array([base_alpha2int(x) for x in fromstring(seq, dtype=uint8)], dtype=uint8))
-        #         quals.append(fromstring(qual, dtype=uint8) - ascii_offset)
-
-        #     coverage[seq_i_to_cache] += len(seq)
-        #     bamfile_data[alignedread_i] = [seq_i_to_cache, read_i_to_cache, pair_i, len(seq), pos]
                         
         bamfile.close()
 
-        # self.readlengths = numpy.array(readlengths, dtype=numpy.uint16)
-        
         self.priors.append(numpy.zeros(seq_i, dtype = numpy.float))
         self.likelihoods = sparse.coo_matrix((seq_i, read_i), dtype = numpy.float)  # init all to zero.
         self.posteriors.append(sparse.lil_matrix((seq_i+1, read_i+1), dtype=numpy.float))
@@ -357,6 +321,10 @@ class EM(object):
         nonzero_indices = numpy.nonzero(self.priors[-1])  # only divide cells with at least one count.  Set all others to Pr(S) = 0
         self.priors[-1] = self.priors[-1][nonzero_indices] / self.priors[-1][nonzero_indices].sum()  # turn these into probabilities
         self.priors.append(self.priors[-1].copy())  # push this back to t-1 (index == -2)
+
+        # write initial priors as special case:
+        self.print_priors(os.path.join(self.cwd, "priors.initialized.txt"))
+
         if self._VERBOSE:
             sys.stderr.write("DONE with initialization at %s...\n"%(ctime()))
         return
@@ -466,7 +434,8 @@ class EM(object):
         """
         if ofname is not None:
             of = file(ofname, 'w')
-        of = file(os.path.join(self.iterdir, "priors.iter.%02d.txt"%(self.iteration_i)), 'w')
+        else:
+            of = file(os.path.join(self.iterdir, "priors.iter.%02d.txt"%(self.iteration_i)), 'w')
         for seq_i, prior in enumerate(self.priors[-1]):
             seqname = self.sequence_i2sequence_name[-1][seq_i]
             of.write("%d\t%s\t%f\n"%(seq_i, seqname, prior))
@@ -1151,14 +1120,6 @@ class EM(object):
             
         return
         
-
-    def update_prior(self):
-        """
-        Updates Pr(S) based on the calculated Pr(S|R) from previous M step.
-        """
-
-        return
-    
     def write_fastq_for_seq_i(self, seq_i, output_prefix = None):
         """
         for a specific seq_i, write the reads that most of their
@@ -1269,38 +1230,6 @@ class EM(object):
         """
 
         return False
-
-
-def test_initialize(n_cpus = 10, cwd = os.getcwd(),
-                    bam_ref   = '/work/csmiller/16S/emess/SSURef_102_tax_silva.sorted.fixed.97.fasta.sort.PE.bam',
-                    fasta_ref = '/work/csmiller/16S/emess/SSURef_102_tax_silva.sorted.fixed.97.fasta',
-                    mapping_nice = None):
-    """
-    This one used for 5WS data.
-
-    
-    """
-    # 
-    # bam_ref   = '/work/csmiller/16S/emess/SSURef_102_tax_silva.sorted.fixed.97.fasta.sort.PE.bam'
-    # fasta_ref = '/work/csmiller/16S/emess/SSURef_102_tax_silva.sorted.fixed.97.fasta'
-
-    # pe1_file = "/work/csmiller/min44/887.937.951.PE.1.fastq"
-    # pe2_file = "/work/csmiller/min44/887.937.951.PE.2.fastq.gz"
-
-    pe1_file = "/work/csmiller/Btrim60/951.Btrim60.PE.1.fastq"
-    pe2_file = "/work/csmiller/Btrim60/951.Btrim60.PE.2.fastq.gz"
-
-    em = EM(reads1_filepath = pe1_file,
-            reads2_filepath = pe2_file,
-            insert_mean = 194,
-            insert_sd   = 25,
-            n_cpus = n_cpus,
-            cwd = cwd,
-            mapping_nice = mapping_nice)
-    em.snp_percentage_thresh = 0.04
-    em.min_depth = 1
-    em.initialize_EM(bam_ref, fasta_ref)
-    return em
 
 def test_generic(cwd, bam_ref, fasta_ref, 
                  pe1_file, pe2_file,
@@ -1556,7 +1485,7 @@ def main(argv = sys.argv[1:]):
         
     working_dir = os.path.abspath(args[0])
 
-    sys.stdout.write("imported _emirge C functions from: %s"%(_emirge.__file__))
+    sys.stdout.write("imported _emirge C functions from: %s\n"%(_emirge.__file__))
     sys.stdout.write("Command:\n")
     sys.stdout.write(' '.join([__file__]+argv))
     sys.stdout.write('\n\n')
