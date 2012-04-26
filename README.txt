@@ -34,7 +34,7 @@ alignments internally, though in theory a different mapper could be
 used.
 
 EMIRGE was designed for Illumina reads in FASTQ format, from pipeline
-version >= 1.3 (ASCII-offset of qual vals == 64)
+version >= 1.3
 
 DEPENDENCIES
 ------------------------------
@@ -46,9 +46,9 @@ EMIRGE expects the following programs to be installed and available in your path
   -Cython
   -pysam
   -scipy / numpy
- -usearch (www.drive5.com/usearch/ -- tested with usearch version 4.2.x; earlier versions are incompatible).
- -samtools (http://samtools.sourceforge.net/ -- tested with verison 0.1.7)
- -bowtie (http://bowtie-bio.sourceforge.net/index.shtml -- tested with version 0.12.5)
+ -usearch (www.drive5.com/usearch/ -- tested with usearch version 5.2.32; versions earlier than 4.2.x are incompatible).
+ -samtools (http://samtools.sourceforge.net/ -- tested with verison 0.1.18)
+ -bowtie (http://bowtie-bio.sourceforge.net/index.shtml -- tested with version 0.12.7)
 
 INSTALLATION
 ------------------------------
@@ -109,7 +109,7 @@ CANDIDATE SSU DATABASE
 ------------------------------
 
 SSU_candidate_db.fasta.gz is included with this distribution.  This was
-made using Silva release 102 (http://www.arb-silva.de/).  Sequences
+made using Silva release SSURef_108_NR (http://www.arb-silva.de/).  Sequences
 were clustered using uclust at 97% sequence identity, short and long
 sequences were removed, and non-standard characters were changed to be
 within {ACTG} (using utils/fix_nonstandard_chars.py).
@@ -120,6 +120,4 @@ bowtie index, with something like:
   $ bowtie-build SSU_candidate_db.fasta SSU_candidate_db_btindex
 You might also consider changing the offrate (see
 http://bowtie-bio.sourceforge.net/manual.shtml)
-
-
 
