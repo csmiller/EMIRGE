@@ -7,7 +7,9 @@ from Cython.Distutils import build_ext
 from numpy import get_include
 numpy_include_dir = get_include()
 
-ext_modules = [Extension("_emirge", ["_emirge.pyx"], include_dirs=[numpy_include_dir])]
+ext_modules = [Extension("_emirge", ["_emirge.pyx"],
+                         include_dirs=[numpy_include_dir],
+                         extra_compile_args=["-O3"])]
 
 setup(
     name = '_emirge',
