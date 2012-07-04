@@ -30,7 +30,9 @@ from random import choice
 
 
 def main(inf = None, outf = None):
-    replace_dict = {"A": "A",	
+    replace_dict = {"-": "",
+                    ".": "",
+                    "A": "A",	
                     "C": "C",
                     "G": "G",
                     "T": "T",
