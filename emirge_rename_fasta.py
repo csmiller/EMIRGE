@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python2.6
 """
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
 Copyright (C) 2010 Christopher S. Miller  (csmiller@berkeley.edu)
@@ -103,8 +103,13 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False):
         record.id = "%s%d|%s"%(record_prefix, name2seq_i[name], name)
         if not no_N:
             record.seq = replace_with_Ns(probN, name2seq_i[name], record.seq)
+            if len(record.seq) == 0:
+                continue
         record.description = ""
-        sorted_records.append((float(name2prior[name]), record)) 
+        p = float(name2prior[name])
+        if p == 0:
+            continue
+        sorted_records.append((p, record)) 
 
     # normalize priors by length
     sum_lengths = sum(len(record.seq) for prior, record in sorted_records)
