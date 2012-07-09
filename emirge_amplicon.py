@@ -1385,7 +1385,7 @@ def main(argv = sys.argv[1:]):
     #                   help="""every SAVE_EVERY iterations, save the programs state.  This allows you to run further iterations later starting from these save points.  The program will always save its state after the final iteration.  (default=%default)""")
     group_opt.add_option("--phred33",
                          action="store_true", default=False,
-                         help="Illumina quality values in fastq files are the (fastq standard) ascii offset of Phred+33.  This is the new default for Illumina pipeline >= 1.9. DEFAULT is still to assume that quality scores are Phred+64")
+                         help="Illumina quality values in fastq files are the (fastq standard) ascii offset of Phred+33.  This is the new default for Illumina pipeline >= 1.8. DEFAULT is still to assume that quality scores are Phred+64")
 
     # --- HIDDEN --- for debugging or special use case
 
