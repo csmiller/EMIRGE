@@ -1394,11 +1394,11 @@ def dependency_check():
     # usearch
     working_maj = '4'
     working_minor = '2'
-    match = re.search(r'usearch v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
+    match = re.search(r'usearch(_[^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
     if match is None:
         print >> sys.stderr, "FATAL: usearch not found in path!"
         exit(0)
-    major, minor, minor_minor = match.groups()
+    binary_name, major, minor, minor_minor = match.groups()
     if major < working_maj or (major == working_maj and minor < working_minor):
         print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.*\nusearch has different command line arguments in previous versions that can cause problems."%(major, minor, minor_minor, working_maj, working_minor)
         exit(0)
