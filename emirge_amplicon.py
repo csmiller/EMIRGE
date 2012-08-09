@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 """
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
 Copyright (C) 2010-2012 Christopher S. Miller  (csmiller@berkeley.edu)
@@ -56,7 +56,7 @@ from time import ctime, time
 from datetime import timedelta
 import gzip
 import cPickle
-import _emirge_amplicon
+import _emirge_amplicon as _emirge
 # from ctrie import Trie
 # from pykseq import Kseq
 
@@ -706,10 +706,13 @@ class EM(object):
 
         return
 
-    def write_consensus_with_Ns(self, output_fastafilename):
+    def write_consensus_with_mask(self, output_fastafilename, mask):
         """
         write a consensus sequence to output_fastafilename for each
-        sequence in probN where unmapped bases are replaced with N
+        sequence in probN where unmapped bases are replaced with:
+          mask == "hard"  --> N
+          mask == "soft"  --> lowercase letters
+        this is useful prior to usearch clustering.
 
         OUT: number of sequences processed
         """
@@ -723,7 +726,12 @@ class EM(object):
             consensus = numpy.array([i2base_get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
             # now replace consensus bases with no read support with N
             unmapped_indices = numpy.where(self.unmapped_bases[seq_i] == 1)
-            consensus[unmapped_indices] = 'N'
+            if mask == "hard":
+                consensus[unmapped_indices] = 'N'
+            elif mask == "soft":
+                consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
+            else:
+                raise ValueError, "Invalid valud for mask: %s (choose one of {soft, hard}"%mask
             of.write(">%s\n"%(title))
             of.write("%s\n"%("".join(consensus)))
             n_seqs += 1
@@ -743,7 +751,7 @@ class EM(object):
 
     def cluster_sequences_usearch(self, fastafilename):
         """
-        uses Edgar's USEARCH to sort and then merge sequences above self.cluster_thresh %ID over the
+        uses Edgar's USEARCH to merge sequences above self.cluster_thresh %ID over the
         length of the shorter sequence
 
         "Search and clustering orders of magnitude faster than BLAST"
@@ -763,164 +771,162 @@ class EM(object):
 
         # get posteriors ready for slicing (just prior to this call, is csr matrix?):
         self.posteriors[-1] = self.posteriors[-1].tolil()
-            
-        # sort fasta sequences longest to shortest
+        
         # NOTE that this fasta file now contains N's where there are
         # no mapped bases, so that usearch with iddef 0 will not count
         # positions aligned to these bases in the identity calculation
         
         tmp_fastafilename = fastafilename + ".tmp.fasta"
-        num_seqs = self.write_consensus_with_Ns(tmp_fastafilename)
+        num_seqs = self.write_consensus_with_mask(tmp_fastafilename, mask="soft")
         tocleanup.append(tmp_fastafilename)
-        sorted_tmp_fastafilename = fastafilename + ".sorted.tmp.fasta"
-        check_call("usearch --sort %s --output %s"%(tmp_fastafilename, sorted_tmp_fastafilename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
-        tocleanup.append(sorted_tmp_fastafilename)
-        tmp_fastafile = pysam.Fastafile(sorted_tmp_fastafilename)
-        tocleanup.append("%s.fai"%(sorted_tmp_fastafilename))
+        tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
+        tocleanup.append("%s.fai"%(tmp_fastafilename))
         # do global alignments with USEARCH/UCLUST.
         # I don't use --cluster because it doesn't report alignments
         # usearch is fast but will sometimes miss things -- I've tried to tune params as best as I can.
         # and I use different parameters depending on how many input sequences there are
         # Also, I use a lower %ID thresh than specified for joining because I really calculate %ID over *mapped* sequence positions.
-        # iddef = 0 and N's for unmapped bases means %ID is only computed over mapped bases.
 
-        sens_string = "--maxaccepts 3 --maxrejects 128"
-        uclust_id = 0.9
+        sens_string = "--maxaccepts 8 --maxrejects 256"
+        uclust_id = 0.80
+        algorithm="-usearch_global"
         # uclust_id = self.cluster_thresh - 0.05
 
         # if em.iteration_i > 10:
         # num_seqs = len([x for x in self.probN if x is not None])
         assert num_seqs == len([x for x in self.probN if x is not None])
-        if num_seqs < 5000:
-            sens_string = "--maxaccepts 5 --maxrejects 128"    
-        if num_seqs < 2000:
-            sens_string = "--maxaccepts 8 --maxrejects 128"    
+        if num_seqs < 1000:
+            sens_string = "--maxaccepts 16 --maxrejects 256"    
+        if num_seqs < 500:
+            sens_string = "--maxaccepts 32 --maxrejects 256"    
         if num_seqs < 150:
-            # sens_string = "--band 128 -w 4 "  # slower, but more sensitive
-            sens_string = "--band 128 --nousort"  # slower, but more sensitive.  Ignores --maxaccepts and --maxrejects if --nousort is used.
-        # if really few seqs, then no use not doing smith-waterman alignments
+            algorithm="-search_global"
+            sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
+        # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
         if num_seqs < 50:
-            # sens_string = "--nofastalign" # *much* slower -- full smith-waterman
-            sens_string = "--band 128 --nousort"      # turn off u-sorting -- this is now a lot like blast.
-            uclust_id = 0.8
-            
-        cmd = "usearch --query %s --db %s --id %.3f --iddef 0 --uc %s.uc --maxaccepts 0 --maxrejects 0 --local --self %s"%\
-              (sorted_tmp_fastafilename, sorted_tmp_fastafilename,
+            algorithm="-search_global"
+            sens_string = "-fulldp"      
+
+        # there is a bug in usearch threads that I can't figure out (fails with many threads).  Currently limiting to max 6 threads
+        usearch_threads = min(6, self.n_cpus)
+        cmd = "usearch %s %s --db %s --id %.3f -quicksort -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
+              (algorithm,
+               tmp_fastafilename, tmp_fastafilename,
                uclust_id,
-               sorted_tmp_fastafilename, sens_string)
+               tmp_fastafilename,
+               usearch_threads,
+               sens_string)
 
         if self._VERBOSE:
             sys.stderr.write("usearch command was:\n%s\n"%(cmd))
         
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
-        # Tab-separated fields (0-based):
-        # 1=Type, 2=ClusterNr, 3=SeqLength or ClusterSize, 4=PctId, 5=Strand, 6=QueryStart, 7=SeedStart, 8=Alignment, 9=QueryLabel, 10=TargetLabel
-        tocleanup.append("%s.uc"%sorted_tmp_fastafilename)
+        tocleanup.append("%s.us.txt"%tmp_fastafilename)
         
         nummerged = 0
         alnstring_pat = re.compile(r'(\d*)([MDI])')
         already_removed = set()  # seq_ids
         # this is a bit slow and almost certainly could be sped up with algorithmic improvements.
         times = []  # DEBUG
-        for row in csv.reader(file("%s.uc"%sorted_tmp_fastafilename), delimiter='\t'):
-            if row[0] == "H":  # here's an alignment
-                t0 = time()
-                # member == query
-                member_name = self.clustermark_pat.search(row[8]).groups()[1]  # strip off beginning cluster marks
-                seed_name = self.clustermark_pat.search(row[9]).groups()[1]  # strip off beginning cluster marks
-                if member_name == seed_name:
-                    continue # new version of usearch doesn't officially support --self?
-                member_seq_id = self.sequence_name2sequence_i.get(member_name)
-                seed_seq_id = self.sequence_name2sequence_i.get(seed_name)
-                if member_seq_id in already_removed or seed_seq_id in already_removed:
-                    continue
-
-                # decide if these pass the cluster_thresh *over non-gapped, mapped columns*
-                member_fasta_seq = tmp_fastafile.fetch(member_name)
-                seed_fasta_seq   = tmp_fastafile.fetch(seed_name)
-                member_unmapped = self.unmapped_bases[member_seq_id]  # unmapped positions (default prob)
-                seed_unmapped = self.unmapped_bases[seed_seq_id]
-                member_start = int(row[5])
-                seed_start   = int(row[6])
-                
-                t0 = time()
-
-                aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name),
-                                                               tmp_fastafile.fetch(member_name),
-                                                               self.unmapped_bases[seed_seq_id],
-                                                               self.unmapped_bases[member_seq_id],
-                                                               seed_start,
-                                                               member_start,
-                                                               alnstring_pat.findall(row[7]))
-                ## print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
-
-                # if alignment is less than 1000 bases, or identity over those 500+ bases is not above thresh, then continue
-                seed_n_mapped_bases = self.unmapped_bases[seed_seq_id].shape[0] - self.unmapped_bases[seed_seq_id].sum()
-                member_n_mapped_bases = self.unmapped_bases[member_seq_id].shape[0] - self.unmapped_bases[member_seq_id].sum()
-
-                if (aln_columns < 500) \
-                       or ((float(matches) / aln_columns) < self.cluster_thresh):
-                       # or (float(aln_columns) / min(seed_n_mapped_bases, member_n_mapped_bases) < 0.9)
-                    continue
-
-                minimum_residence_time = -1  # how many iters does a newly split out seq have to be around before it's allowed to merge again.  -1 to turn this off.
-                member_first_appeared = self.split_seq_first_appeared.get(member_seq_id)
-                if member_first_appeared is not None and self.iteration_i - member_first_appeared <= minimum_residence_time:
-                    continue
-                seed_first_appeared = self.split_seq_first_appeared.get(seed_seq_id)
-                if seed_first_appeared is not None and self.iteration_i - seed_first_appeared <= minimum_residence_time:
-                    continue
-                    
-                if self._VERBOSE and num_seqs < 50:
-                    print >> sys.stderr, "\t\t%s|%s vs %s|%s %.3f over %s aligned columns (usearch %%ID: %s)"%(member_seq_id, member_name, seed_seq_id, seed_name, float(matches) / aln_columns, aln_columns, row[3])
-                
-                # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
-                percent_id = (float(matches) / aln_columns) * 100.
-                t0 = time()
-                if self.priors[-1][seed_seq_id] > self.priors[-1][member_seq_id]:
-                    keep_seq_id = seed_seq_id
-                    remove_seq_id = member_seq_id
-                    keep_name = seed_name
-                    remove_name = member_name
-                else:
-                    keep_seq_id = member_seq_id
-                    remove_seq_id = seed_seq_id
-                    keep_name   = member_name
-                    remove_name = seed_name
-
-                # merge priors (add remove_seq_id probs to keep_seq_id probs).
-                self.priors[-1][keep_seq_id] += self.priors[-1][remove_seq_id]
-                self.priors[-1][remove_seq_id] = 0.0
-
-                # now merge posteriors (all removed probs from remove_seq_id go to keep_seq_id).
-                # self.posteriors[-1] at this point is lil_matrix
-                # some manipulations of underlying sparse matrix data structures for efficiency here.
-                # 1st, do addition in csr format (fast), convert to lil format, and store result in temporary array.
-                new_row = (self.posteriors[-1].getrow(keep_seq_id).tocsr() + self.posteriors[-1].getrow(remove_seq_id).tocsr()).tolil() 
-                # then change linked lists directly in the posteriors data structure -- this is very fast
-                self.posteriors[-1].data[keep_seq_id] = new_row.data[0] 
-                self.posteriors[-1].rows[keep_seq_id] = new_row.rows[0] 
-                # these two lines remove the row from the linked list (or rather, make them empty rows), essentially setting all elements to 0
-                self.posteriors[-1].rows[remove_seq_id] = []  
-                self.posteriors[-1].data[remove_seq_id] = []
-
-                # set self.probN[removed] to be None -- note that this doesn't really matter, except for
-                # writing out probN.pkl.gz every iteration, as probN is recalculated from bam file
-                # with each iteration
-                self.probN[remove_seq_id] = None
-
-                already_removed.add(remove_seq_id)
-                nummerged += 1
-                if self._VERBOSE:
-                    times.append(time()-t0)
-                    sys.stderr.write("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns) in %.3f seconds\n"%\
-                                     (remove_seq_id, remove_name,
-                                      keep_seq_id,   keep_name,
-                                      percent_id, aln_columns, 
-                                      times[-1]))
-            else:  # not an alignment line in input .uc file
+        for row in csv.reader(file("%s.us.txt"%tmp_fastafilename), delimiter='\t'):
+            # each row an alignment in userout file
+            t0 = time()
+            # member == query
+            member_name = row[0]
+            seed_name = row[1]
+            if member_name == seed_name:
+                continue # usearch allows self-hits, which we don't care about
+            member_seq_id = self.sequence_name2sequence_i.get(member_name)
+            seed_seq_id = self.sequence_name2sequence_i.get(seed_name)
+            if member_seq_id in already_removed or seed_seq_id in already_removed:
                 continue
+
+            # decide if these pass the cluster_thresh *over non-gapped, mapped columns*
+            member_fasta_seq = tmp_fastafile.fetch(member_name)
+            seed_fasta_seq   = tmp_fastafile.fetch(seed_name)
+            member_unmapped = self.unmapped_bases[member_seq_id]  # unmapped positions (default prob)
+            seed_unmapped = self.unmapped_bases[seed_seq_id]
+            # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
+            #   0     1     2   3   4   5  6    7 
+            member_start = int(row[4]) - 1   # printed as 1-based by usearch now
+            seed_start   = int(row[6]) - 1
+
+            t0 = time()
+            # print >> sys.stderr, "DEBUG", alnstring_pat.findall(row[3])
+            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name),
+                                                           tmp_fastafile.fetch(member_name),
+                                                           self.unmapped_bases[seed_seq_id],
+                                                           self.unmapped_bases[member_seq_id],
+                                                           seed_start,
+                                                           member_start,
+                                                           alnstring_pat.findall(row[3]))
+            ## print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
+
+            # if alignment is less than 1000 bases, or identity over those 500+ bases is not above thresh, then continue
+            seed_n_mapped_bases = self.unmapped_bases[seed_seq_id].shape[0] - self.unmapped_bases[seed_seq_id].sum()
+            member_n_mapped_bases = self.unmapped_bases[member_seq_id].shape[0] - self.unmapped_bases[member_seq_id].sum()
+
+            if (aln_columns < 500) \
+                   or ((float(matches) / aln_columns) < self.cluster_thresh):
+                   # or (float(aln_columns) / min(seed_n_mapped_bases, member_n_mapped_bases) < 0.9)
+                continue
+
+            minimum_residence_time = -1  # how many iters does a newly split out seq have to be around before it's allowed to merge again.  -1 to turn this off.
+            member_first_appeared = self.split_seq_first_appeared.get(member_seq_id)
+            if member_first_appeared is not None and self.iteration_i - member_first_appeared <= minimum_residence_time:
+                continue
+            seed_first_appeared = self.split_seq_first_appeared.get(seed_seq_id)
+            if seed_first_appeared is not None and self.iteration_i - seed_first_appeared <= minimum_residence_time:
+                continue
+
+            if self._VERBOSE and num_seqs < 50:
+                print >> sys.stderr, "\t\t%s|%s vs %s|%s %.3f over %s aligned columns (usearch %%ID: %s)"%(member_seq_id, member_name, seed_seq_id, seed_name, float(matches) / aln_columns, aln_columns, row[2])
+
+            # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
+            percent_id = (float(matches) / aln_columns) * 100.
+            t0 = time()
+            if self.priors[-1][seed_seq_id] > self.priors[-1][member_seq_id]:
+                keep_seq_id = seed_seq_id
+                remove_seq_id = member_seq_id
+                keep_name = seed_name
+                remove_name = member_name
+            else:
+                keep_seq_id = member_seq_id
+                remove_seq_id = seed_seq_id
+                keep_name   = member_name
+                remove_name = seed_name
+
+            # merge priors (add remove_seq_id probs to keep_seq_id probs).
+            self.priors[-1][keep_seq_id] += self.priors[-1][remove_seq_id]
+            self.priors[-1][remove_seq_id] = 0.0
+
+            # now merge posteriors (all removed probs from remove_seq_id go to keep_seq_id).
+            # self.posteriors[-1] at this point is lil_matrix
+            # some manipulations of underlying sparse matrix data structures for efficiency here.
+            # 1st, do addition in csr format (fast), convert to lil format, and store result in temporary array.
+            new_row = (self.posteriors[-1].getrow(keep_seq_id).tocsr() + self.posteriors[-1].getrow(remove_seq_id).tocsr()).tolil() 
+            # then change linked lists directly in the posteriors data structure -- this is very fast
+            self.posteriors[-1].data[keep_seq_id] = new_row.data[0] 
+            self.posteriors[-1].rows[keep_seq_id] = new_row.rows[0] 
+            # these two lines remove the row from the linked list (or rather, make them empty rows), essentially setting all elements to 0
+            self.posteriors[-1].rows[remove_seq_id] = []  
+            self.posteriors[-1].data[remove_seq_id] = []
+
+            # set self.probN[removed] to be None -- note that this doesn't really matter, except for
+            # writing out probN.pkl.gz every iteration, as probN is recalculated from bam file
+            # with each iteration
+            self.probN[remove_seq_id] = None
+
+            already_removed.add(remove_seq_id)
+            nummerged += 1
+            if self._VERBOSE:
+                times.append(time()-t0)
+                sys.stderr.write("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns) in %.3f seconds\n"%\
+                                 (remove_seq_id, remove_name,
+                                  keep_seq_id,   keep_name,
+                                  percent_id, aln_columns, 
+                                  times[-1]))
 
         # if len(times) and self._VERBOSE:  # DEBUG
         #     sys.stderr.write("merges: %d\n"%(len(times)))
@@ -936,7 +942,7 @@ class EM(object):
         recordstrings=""
         num_seqs = 0
         for record in FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
-            seqname = self.clustermark_pat.search(record.title.split()[0]).groups()[1]  # strip off beginning cluster marks
+            seqname = record.title.split()[0]
             seq_id = self.sequence_name2sequence_i.get(seqname)
             if seq_id not in already_removed:
                 recordstrings += str(record)
@@ -946,7 +952,6 @@ class EM(object):
         outfile.close()
             
         # clean up.
-        check_call("sed -i 's/^>[0-9]\+|.\?|/>/g' %s"%(fastafilename), shell=True)  # remove cluster marks left by USEARCH (TODO: still needed?)
         for fn in tocleanup:
             os.remove(fn)
 
@@ -1289,23 +1294,29 @@ def resume(working_dir, options):
 def dependency_check():
     """
     check presense, versions of programs used in emirge
-    TODO: right now just checking uclust, as the command line params
+    TODO: right now just checking usearch, as the command line params
     and behavior are finicky and seem to change from version to
     version
     """
     # usearch
-    working_maj = '4'
-    working_minor = '2'
-    match = re.search(r'usearch v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
+    working_maj = 6
+    working_minor = 0
+    working_minor_minor = 203
+    match = re.search(r'usearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
     if match is None:
         print >> sys.stderr, "FATAL: usearch not found in path!"
         exit(0)
-    major, minor, minor_minor = match.groups()
-    if major < working_maj or (major == working_maj and minor < working_minor):
-        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.*\nusearch has different command line arguments in previous versions that can cause problems."%(major, minor, minor_minor, working_maj, working_minor)
+    binary_name, usearch_major, usearch_minor, usearch_minor_minor = match.groups()
+    usearch_major = int(usearch_major)
+    usearch_minor = int(usearch_minor)
+    usearch_minor_minor = int(usearch_minor_minor)
+    if usearch_major < working_maj or \
+       (usearch_major == working_maj and (usearch_minor < working_minor or \
+                                          (usearch_minor == working_minor and usearch_minor_minor < working_minor_minor))):
+        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nusearch has different command line arguments and minor bugs in previous versions that can cause problems."%(usearch_major, usearch_minor, usearch_minor_minor, working_maj, working_minor, working_minor_minor)
         exit(0)
     return 
-    
+   
 def main(argv = sys.argv[1:]):
     """
     command line interface to emirge
@@ -1514,7 +1525,7 @@ def main(argv = sys.argv[1:]):
     # em.min_depth = options.min_depth  # DEPRECIATED
     if options.nice_mapping is not None:
         em.mapping_nice = options.nice_mapping
-
+    
     if options.randomize_init_priors:
         print >> sys.stderr, "*"*60
         print >> sys.stderr, "DEBUG: initialized priors will be randomized for testing purposes"

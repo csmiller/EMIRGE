@@ -1,4 +1,4 @@
-#!/usr/bin/python2.6
+#!/usr/bin/python2
 """
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
 Copyright (C) 2010 Christopher S. Miller  (csmiller@berkeley.edu)
@@ -57,9 +57,9 @@ labeled 'N', and terminal N's are trimmed"""
 # from emirge.py: self.DEFAULT_ERROR = 0.05
 DEFAULT_ERROR = 0.05
 
-def replace_with_Ns(probN, seq_i, seq):
+def replace_with_Ns(probN, seq_i, seq, trim_N = True):
     """
-    IN:  probN matrix, seq_i for sequence, seq (BioPython Seq object) 
+    IN:  probN matrix, seq_i for sequence, seq (BioPython Seq object)
     OUT: returns the sequence where bases with no read support are replaced with "N", and terminal N's are trimmed
     """
     default_probN = 1.0 - DEFAULT_ERROR
@@ -69,15 +69,16 @@ def replace_with_Ns(probN, seq_i, seq):
     except:
         print >> sys.stderr, seq_i, len(probN)
         raise
-        
+
     indices = numpy.where(numpy.max(this_probN, axis=1) == default_probN)
     newseq = numpy.array(str(seq), dtype='c')
     newseq[indices] = 'N'
     newseq = ''.join(newseq)
-    newseq = newseq.strip("N")
+    if trim_N:
+        newseq = newseq.strip("N")
     return Seq.Seq(newseq)
 
-def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False):
+def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, no_trim_N = True):
     """
     wd is an iteration directory
     prob_min is minimum prior prob of a sequence to include in output.  If None, include all seqs.
@@ -102,14 +103,14 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False):
         name = record.description.split()[0]
         record.id = "%s%d|%s"%(record_prefix, name2seq_i[name], name)
         if not no_N:
-            record.seq = replace_with_Ns(probN, name2seq_i[name], record.seq)
+            record.seq = replace_with_Ns(probN, name2seq_i[name], record.seq, not no_trim_N)
             if len(record.seq) == 0:
                 continue
         record.description = ""
         p = float(name2prior[name])
         if p == 0:
             continue
-        sorted_records.append((p, record)) 
+        sorted_records.append((p, record))
 
     # normalize priors by length
     sum_lengths = sum(len(record.seq) for prior, record in sorted_records)
@@ -136,10 +137,13 @@ def main(argv = None):
                       type='string', default = '',
                       help='Add the specified prefix to each fasta record title')
     parser.add_option('-n', '--no_N',
-                      action="store_true", 
+                      action="store_true",
                       help="Don't change bases with no read support to N.  Caution: these bases are not supported by reads in the input data, but will usually be from a closely related sequence.")
+    parser.add_option('-t', '--no_trim_N',
+                      action="store_true",
+                      help="Don't trim off N bases with no read support from ends of sequences.  Ignored if --no_N is also passed")
 
-    
+
     (options, args) = parser.parse_args(argv)
     if len(args) == 0:
         wd = os.getcwd()
@@ -151,9 +155,9 @@ def main(argv = None):
         parser.error("Directory not found: %s"%(wd))
     if re.match("iter.[0-9]+$", os.path.basename(wd)) is None:
         parser.error("Directory %s is not a valid emirge iter.DIR (try --help for full usage)"%(wd))
-    
-    rename(wd, options.prob_min, options.record_prefix, options.no_N)
-    
+
+    rename(wd, options.prob_min, options.record_prefix, options.no_N, options.no_trim_N)
+
 
 
 if __name__ == '__main__':
