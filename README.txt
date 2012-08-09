@@ -58,7 +58,7 @@ EMIRGE expects the following programs to be installed and available in your path
   -Cython
   -pysam
   -scipy / numpy
- -usearch (www.drive5.com/usearch/ -- tested with usearch version 5.2.32; versions earlier than 4.2.x are incompatible).
+ -usearch (www.drive5.com/usearch/ -- tested with usearch version 6.0.203; versions earlier than this are incompatible).
  -samtools (http://samtools.sourceforge.net/ -- tested with verison 0.1.18)
  -bowtie (http://bowtie-bio.sourceforge.net/index.shtml -- tested with version 0.12.7 and 0.12.8)
 
