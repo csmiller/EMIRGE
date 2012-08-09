@@ -582,7 +582,7 @@ def process_bamfile(em, int ascii_offset):
     t_check = time()
     for alignedread in bamfile:
         tid_mapped[alignedread.tid] = 1
-    print >> sys.stderr, "DEBUG: first pass bamfile time: %s"%(timedelta(seconds = time()-t_check))
+    # print >> sys.stderr, "DEBUG: first pass bamfile time: %s"%(timedelta(seconds = time()-t_check))
 
     bamfile = pysam.Samfile(em.current_bam_filename, mode)  # reopen file to reset.  seek(0) has problems? 
 

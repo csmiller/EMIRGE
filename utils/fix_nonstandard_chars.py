@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 """
 USAGE: fix_nonstandard_chars.py < input.fasta > output.fasta
 

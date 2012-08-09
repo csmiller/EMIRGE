@@ -247,15 +247,18 @@ def _calc_probN(np.ndarray[np.int_t, ndim=2] bamfile_data,
 def count_cigar_aln(char* query_seq, char* hit_seq,
                     np.ndarray[np.uint8_t, ndim=1] query_unmapped_bases,
                     np.ndarray[np.uint8_t, ndim=1] hit_unmapped_bases,
+                    unsigned int query_i,  # query_start -- 0-based
+                    unsigned int hit_i,    # hit_start -- 0-based
                     alncode_list):
     """
-    alncode list comes from a cigar string (see call in emirge.py)
+    alncode list comes from a cigar string (see call in emirge_amplicon.py)
     
     returns number of aligned columns and number of matches in those aligned columns as tuple
+    only includes columns where both sequences have mapped bases
     """
 
-    cdef int query_i = 0
-    cdef int hit_i   = 0
+    # cdef unsigned int query_i = query_start  # 0   # for global alignment, this used to always be zero.
+    # cdef unsigned int hit_i   = hit_start    # 0
     cdef int matches = 0
     cdef int aln_columns    = 0
     cdef int count
@@ -290,7 +293,7 @@ def count_cigar_aln(char* query_seq, char* hit_seq,
             raise ValueError, "unknown alignment code: '%s'"%aln_code
 
     return aln_columns, matches
-        
+
 def process_bamfile_predata(int seq_i, int read_i,
                             list predata, tuple samfile_references,
                             dict sequence_name2sequence_i, dict sequence_i2sequence_name,
