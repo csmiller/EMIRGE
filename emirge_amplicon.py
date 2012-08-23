@@ -1,7 +1,7 @@
 #!/usr/bin/env python2
 """
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
-Copyright (C) 2010-2012 Christopher S. Miller  (csmiller@berkeley.edu)
+Copyright (C) 2010-2012 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

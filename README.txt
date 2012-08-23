@@ -1,5 +1,5 @@
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
-Copyright (C) 2010-2012 Christopher S. Miller  (csmiller@berkeley.edu)
+Copyright (C) 2010-2012 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -94,7 +94,7 @@ https://github.com/csmiller/EMIRGE/wiki
 
 Although I encourage use of the google group due to increased volume
 of support emails, please feel free to contact me directly
-(csmiller@berkeley.edu) with any problems, bug reports, or questions
+(christopher.s.miller@ucdenver.edu) with any problems, bug reports, or questions
 
 At the moment, there is no manual, though running the following is helpful:
 
