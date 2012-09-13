@@ -63,7 +63,7 @@ import _emirge_amplicon as _emirge
 BOWTIE_l = 20
 BOWTIE_e  = 300
 
-BOWTIE_ASCII_OFFSET = 33   # currently, bowtie writes quals with an ascii offset of 33 
+BOWTIE_ASCII_OFFSET = 33   # currently, bowtie writes quals with an ascii offset of 33
 
 
 class Record:
@@ -76,8 +76,8 @@ class Record:
     _colwidth = 60 # colwidth specifies the number of residues to put on each line when generating FASTA format.
     def __init__(self, title = "", sequence = ""):
         """
-        Create a new Record.  
-        
+        Create a new Record.
+
         """
         self.title = title
         self.sequence = sequence
@@ -111,7 +111,7 @@ class EM(object):
     base2i = {"A":0,"T":1,"C":2,"G":3}
     i2base = dict([(v,k) for k,v in base2i.iteritems()])
     # asciibase2i = {65:0,84:1,67:2,71:3}
-    
+
     clustermark_pat = re.compile(r'(\d+\|.?\|)?(.*)')  # cludgey code associated with this should go into a method: get_seq_i()
     DEFAULT_ERROR = 0.05
 
@@ -128,7 +128,7 @@ class EM(object):
         """
 
         n_cpus is how many processors to use for multithreaded steps (currently only the bowtie mapping)
-        mapping_nice is nice value to add to mapping program 
+        mapping_nice is nice value to add to mapping program
         """
         if reads2_filepath is not None:
             assert not reads2_filepath.endswith('.gz'), "Only read1 file is allowed to be gzipped"
@@ -147,7 +147,7 @@ class EM(object):
         self.cluster_thresh = cluster_thresh   # if two sequences evolve to be >= cluster_thresh identical (via usearch), then merge them. [0, 1.0]
         assert self.cluster_thresh >= 0 and self.cluster_thresh <= 1.0
         self.expected_coverage_thresh = expected_coverage_thresh
-        
+
         # Single numpy array.  Has the shape: (numsequences x numreads) [numreads can be numpairs]
         self.likelihoods = None      # = Pr(R_i|S_i), the likelihood of generating read R_i given sequence S_i
         # list of numpy arrays.  list index is iteration number.  Each numpy array has the shape: (numsequences,)
@@ -160,7 +160,7 @@ class EM(object):
         self.sequence_name2sequence_i = {}
         self.sequence_i2sequence_name = [] # list index is iteration number.
 
-        self.split_seq_first_appeared = {}  # seq_i --> iteration first seen.  Useful for keeping track of when a sequence first appeared, and not allowing merging of recently split out sequences 
+        self.split_seq_first_appeared = {}  # seq_i --> iteration first seen.  Useful for keeping track of when a sequence first appeared, and not allowing merging of recently split out sequences
 
         # similar to above except for reads -- depreciated
         # self.read_name2read_i = {}  # Trie()
@@ -181,7 +181,7 @@ class EM(object):
         self.snp_minor_prob_thresh = 0.10      # if prob(N) for minor allele base N is >= this threshold, call site a minor allele
         self.snp_percentage_thresh = 0.10      # if >= this percentage of bases are minor alleles (according to self.snp_minor_prob_thresh),
                                                # then split this sequence into two sequences.
-        
+
 
         # rewrite reads for index mapping, set self.n_reads
         self.temporary_files = [] # to remove at end of run
@@ -238,7 +238,7 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("Rewriting reads with indices in headers at %s...\n"%(ctime()))
             start_time = time()
-        
+
         tmp_n_reads_file_path = os.path.join(self.cwd, "emirge_tmp_n_reads.txt")
 
         for i in (1, 2):
@@ -248,10 +248,10 @@ class EM(object):
             new_reads_filepath = os.path.join(self.cwd, "emirge_tmp_reads_%s.fastq"%i)
             self.temporary_files.append(new_reads_filepath)
             setattr(self, "reads%s_filepath"%i, new_reads_filepath)
-            
+
             # first try awk, which is fast:
             try:
-                
+
                 cmd = """cat %s | awk 'BEGIN {i=0} {if ((NR-1)%%4==0) {print "@"i; i++} else print $0} END {print i > "%s"} ' > %s"""%(reads_filepath, tmp_n_reads_file_path, new_reads_filepath)
                 if reads_filepath.endswith('.gz'):
                     cmd = 'z' + cmd
@@ -278,18 +278,18 @@ class EM(object):
             #     else:
             #         outf_write("@%s\n%s\n+\n%s\n" % (i, t[1], t[2]))
             #         i += 1
-            
+
             # outf.close()
             # del ks
             # self.n_reads = i
-            
-        
+
+
 
         if self._VERBOSE:
             sys.stderr.write("DONE Rewriting reads with indexes in headers at %s [%s]...\n"%(ctime(), timedelta(seconds = time()-start_time)))
 
         return
-        
+
     def read_bam(self, bam_filename, reference_fasta_filename):
         """
         reads a bam file and...
@@ -321,8 +321,8 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("Reading bam file %s at %s...\n"%(bam_filename, ctime()))
             start_time = time()
-            
-        initial_iteration = self.iteration_i < 0  # this is initial iteration            
+
+        initial_iteration = self.iteration_i < 0  # this is initial iteration
         self.current_bam_filename = bam_filename
         self.current_reference_fasta_filename = reference_fasta_filename
         self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
@@ -334,7 +334,7 @@ class EM(object):
         _emirge.process_bamfile(self, BOWTIE_ASCII_OFFSET)
 
         self.n_sequences = len(self.sequence_name2sequence_i)
-                        
+
         t_check = time()
         self.priors.append(numpy.zeros(self.n_sequences, dtype = numpy.float))
         self.likelihoods = sparse.coo_matrix((self.n_sequences, self.n_reads), dtype = numpy.float) #  init all to zero.
@@ -367,7 +367,7 @@ class EM(object):
            - Initial guess of Pr(N=n) (necessary for likelihood in Pr(S|R) is also calculated simply, with the assumption
              of 1 read (the best again) mapped to exactly 1 sequence.  Thus Pr(N=n) only takes the base call errors
              into account.  This is actually not done here, but rather the first time self.calc_probN is called.
-        
+
            - bamfile for iteration 0 is assumed to have just one ("best") mapping per read.
            - there is no t-1 for t = 0, hence the need to set up Pr(S)
 
@@ -382,7 +382,7 @@ class EM(object):
 
         self.iteration_i = -1
         self.read_bam(bam_filename, reference_fasta_filename)
-        
+
         # initialize priors.  Here just adding a count for each read mapped to each reference sequence
         # since bowtie run with --best and reporting just 1 alignment at random, there is some stochasticity here.
         for (seq_i, read_i, pair_i, rlen, pos, is_reverse) in self.bamfile_data:
@@ -395,7 +395,7 @@ class EM(object):
 
         if randomize_priors:
             numpy.random.shuffle(self.priors[-1])
-        
+
         self.priors.append(self.priors[-1].copy())  # push this back to t-1 (index == -2)
 
         # write priors as special case:
@@ -444,7 +444,7 @@ class EM(object):
         check_call("gzip -f %s"%(pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
         if self._VERBOSE:
             sys.stderr.write("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-        
+
         # delete bamfile from previous round (keep -- and convert to
         # compressed bam -- initial iteration mapping in the
         # background)
@@ -470,8 +470,8 @@ class EM(object):
                 else:  # poll() returned something bad.
                     print >> sys.stderr, "WARNING: Failed to compress initial mapping bamfile %s.\nWARNING: Failure with exit code: %s.\nWARNING: File remains uncompressed: %s"%(poll, self.initial_bam_filename_to_remove)
                     self.initial_compress_process = None # don't bother in future
-                
-                    
+
+
 
         # now do a new mapping run for next iteration
         self.do_mapping(consensus_filename, nice = self.mapping_nice)
@@ -493,8 +493,8 @@ class EM(object):
             of.write("%d\t%s\t%.10f\n"%(seq_i, seqname, prior))
 
         of.close()
-             
-            
+
+
     def calc_priors(self):
         """
         calculates priors [ Pr(S) ] based on
@@ -504,7 +504,7 @@ class EM(object):
         # therefore, should be csc sparse type for efficient summing
         self.posteriors[-1] = self.posteriors[-1].tocsc()
         self.priors[-1] = numpy.asarray(self.posteriors[-1].sum(axis = 1)).flatten() / self.posteriors[-1].sum()
-        
+
         return
 
     def write_consensus(self, outputfilename):
@@ -530,9 +530,9 @@ class EM(object):
         of = file(outputfilename, 'w')
 
         times_split   = []              # DEBUG
-        times_posteriors   = []              # DEBUG        
+        times_posteriors   = []              # DEBUG
         seqs_to_process = len(self.probN) # DEBUG
-        
+
         i2base = self.i2base
         rows_to_add = []                # these are for updating posteriors at end with new minor strains
         cols_to_add = []
@@ -546,7 +546,7 @@ class EM(object):
             seq_i_t0 = time()
             if self.probN[seq_i] is None: # means this sequence is no longer present in this iteration or was culled in reset_probN
                 continue
-            # FOLLOWING CULLING RULES REMOVED in favor of length-coverage culling in reset_probN()  
+            # FOLLOWING CULLING RULES REMOVED in favor of length-coverage culling in reset_probN()
             # check if coverage passes self.min_depth, if not don't write it (culling happens here)
             # if self.min_depth is not None and self.coverage[seq_i] < self.min_depth: #  and self.iteration_i > 5:
             #     # could adjust priors and posteriors here, but because
@@ -555,8 +555,8 @@ class EM(object):
             #     # in reference file to map to), this seems
             #     # unneccesary.
 
-            #     # probNarray = None  # NOT PASSED BY REF, assignment is only local?  
-            #     self.probN[seq_i] = None 
+            #     # probNarray = None  # NOT PASSED BY REF, assignment is only local?
+            #     self.probN[seq_i] = None
             #     cullcount += 1
             #     continue # continue == don't write it to consensus.
 
@@ -595,7 +595,7 @@ class EM(object):
                 minor_consensus[minor_indices] = minor_bases     # replace the bases that pass minor threshold
                 # now deal with naming.
                 title_root = re.search(r'(.+)(_m(\d+))$', title)
-                if title_root is None: # no _m00 on this name 
+                if title_root is None: # no _m00 on this name
                     title_root = title[:]
                 else:
                     title_root = title_root.groups()[0]
@@ -626,7 +626,7 @@ class EM(object):
                 newprobNarray = newprobNarray / numpy.sum(newprobNarray, axis=1).reshape(newprobNarray.shape[0], 1)
                 probNtoadd.append(newprobNarray)
                 self.base_coverages.append(numpy.zeros_like(self.base_coverages[seq_i]))
-                
+
                 # MAJOR
                 minor_base_i = numpy.argsort(self.probN[seq_i][minor_indices])[:, -2]
                 self.probN[seq_i][(minor_indices, minor_base_i)] = 0
@@ -658,7 +658,7 @@ class EM(object):
                 # adjust old read probs to reflect major strain
                 self.posteriors[-1].data[seq_i] = [x  * major_fraction_avg for x in self.posteriors[-1].data[seq_i]]
                 times_posteriors.append(time() - t_posterior)
-                
+
                 # adjust self.unmapped_bases (used in clustering).  For now give same pattern as parent
                 self.unmapped_bases.append(self.unmapped_bases[seq_i].copy())
 
@@ -669,7 +669,7 @@ class EM(object):
                     sys.stderr.write("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
                                                                                    seq_i_minor, m_title))
                 times_split.append(time()-seq_i_t0)
-                
+
             # now write major strain consensus, regardless of whether there was a minor strain consensus
             of.write(">%s\n"%(title))
             of.write("%s\n"%("".join(consensus)))
@@ -737,13 +737,13 @@ class EM(object):
             n_seqs += 1
         of.close()
         return n_seqs
-    
+
     def cluster_sequences(self, fastafilename):
         """
         Right now, this simply calls cluster_sequences_usearch, which
         uses USEARCH.  Could swap in other functions here if there
         were faster or just alternative clustering methods to try out
-        
+
         called function should also adjust Pr(S) [prior] and Pr(S_t-1)
         [posteriors] as needed after merging.
         """
@@ -771,11 +771,11 @@ class EM(object):
 
         # get posteriors ready for slicing (just prior to this call, is csr matrix?):
         self.posteriors[-1] = self.posteriors[-1].tolil()
-        
+
         # NOTE that this fasta file now contains N's where there are
         # no mapped bases, so that usearch with iddef 0 will not count
         # positions aligned to these bases in the identity calculation
-        
+
         tmp_fastafilename = fastafilename + ".tmp.fasta"
         num_seqs = self.write_consensus_with_mask(tmp_fastafilename, mask="soft")
         tocleanup.append(tmp_fastafilename)
@@ -796,16 +796,16 @@ class EM(object):
         # num_seqs = len([x for x in self.probN if x is not None])
         assert num_seqs == len([x for x in self.probN if x is not None])
         if num_seqs < 1000:
-            sens_string = "--maxaccepts 16 --maxrejects 256"    
+            sens_string = "--maxaccepts 16 --maxrejects 256"
         if num_seqs < 500:
-            sens_string = "--maxaccepts 32 --maxrejects 256"    
+            sens_string = "--maxaccepts 32 --maxrejects 256"
         if num_seqs < 150:
             algorithm="-search_global"
             sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
         # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
         if num_seqs < 50:
             algorithm="-search_global"
-            sens_string = "-fulldp"      
+            sens_string = "-fulldp"
 
         # there is a bug in usearch threads that I can't figure out (fails with many threads).  Currently limiting to max 6 threads
         usearch_threads = min(6, self.n_cpus)
@@ -819,11 +819,11 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("usearch command was:\n%s\n"%(cmd))
-        
+
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
         tocleanup.append("%s.us.txt"%tmp_fastafilename)
-        
+
         nummerged = 0
         alnstring_pat = re.compile(r'(\d*)([MDI])')
         already_removed = set()  # seq_ids
@@ -848,7 +848,7 @@ class EM(object):
             member_unmapped = self.unmapped_bases[member_seq_id]  # unmapped positions (default prob)
             seed_unmapped = self.unmapped_bases[seed_seq_id]
             # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
-            #   0     1     2   3   4   5  6    7 
+            #   0     1     2   3   4   5  6    7
             member_start = int(row[4]) - 1   # printed as 1-based by usearch now
             seed_start   = int(row[6]) - 1
 
@@ -905,12 +905,12 @@ class EM(object):
             # self.posteriors[-1] at this point is lil_matrix
             # some manipulations of underlying sparse matrix data structures for efficiency here.
             # 1st, do addition in csr format (fast), convert to lil format, and store result in temporary array.
-            new_row = (self.posteriors[-1].getrow(keep_seq_id).tocsr() + self.posteriors[-1].getrow(remove_seq_id).tocsr()).tolil() 
+            new_row = (self.posteriors[-1].getrow(keep_seq_id).tocsr() + self.posteriors[-1].getrow(remove_seq_id).tocsr()).tolil()
             # then change linked lists directly in the posteriors data structure -- this is very fast
-            self.posteriors[-1].data[keep_seq_id] = new_row.data[0] 
-            self.posteriors[-1].rows[keep_seq_id] = new_row.rows[0] 
+            self.posteriors[-1].data[keep_seq_id] = new_row.data[0]
+            self.posteriors[-1].rows[keep_seq_id] = new_row.rows[0]
             # these two lines remove the row from the linked list (or rather, make them empty rows), essentially setting all elements to 0
-            self.posteriors[-1].rows[remove_seq_id] = []  
+            self.posteriors[-1].rows[remove_seq_id] = []
             self.posteriors[-1].data[remove_seq_id] = []
 
             # set self.probN[removed] to be None -- note that this doesn't really matter, except for
@@ -925,7 +925,7 @@ class EM(object):
                 sys.stderr.write("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns) in %.3f seconds\n"%\
                                  (remove_seq_id, remove_name,
                                   keep_seq_id,   keep_name,
-                                  percent_id, aln_columns, 
+                                  percent_id, aln_columns,
                                   times[-1]))
 
         # if len(times) and self._VERBOSE:  # DEBUG
@@ -950,7 +950,7 @@ class EM(object):
         outfile = file(fastafilename, 'w')
         outfile.write(recordstrings)
         outfile.close()
-            
+
         # clean up.
         for fn in tocleanup:
             os.remove(fn)
@@ -964,7 +964,7 @@ class EM(object):
 
     def do_mapping(self, full_fasta_path, nice = None):
         """
-        IN:  path of fasta file to map reads to 
+        IN:  path of fasta file to map reads to
         run external mapping program to produce bam file
         right now this is bowtie
 
@@ -997,12 +997,12 @@ class EM(object):
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         sys.stdout.flush()
         sys.stderr.flush()
-        
+
         # 2. run bowtie
         nicestring = ""
         if nice is not None:
             nicestring = "nice -n %d"%(nice)
-            
+
         if self.reads1_filepath.endswith(".gz"):
             cat_cmd = "gzip -dc "
         else:
@@ -1010,19 +1010,19 @@ class EM(object):
 
         # these are used for single reads too.
         shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 128"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
-        
+
         minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
         maxins = self.insert_mean + 3*self.insert_sd
         output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
         output_filename = "%s.PE.u.bam"%output_prefix
         samtools_cmd    = "samtools view -S -h -u -b -F 0x0004 -"  # -F instead of piping to awk?    |  awk '{if ($3!="*") print }'
-        
+
         if self.reads2_filepath is not None:
             bowtie_command = """%s %s | %s bowtie %s --minins %d --maxins %d %s -1 - -2 %s | %s > %s"""%(\
                 cat_cmd,
                 self.reads1_filepath,
                 nicestring,
-                shared_bowtie_params, 
+                shared_bowtie_params,
                 minins, maxins,
                 bowtie_index,
                 self.reads2_filepath,
@@ -1033,7 +1033,7 @@ class EM(object):
                 cat_cmd,
                 self.reads1_filepath,
                 nicestring,
-                shared_bowtie_params, 
+                shared_bowtie_params,
                 bowtie_index,
                 samtools_cmd,
                 output_filename)
@@ -1041,7 +1041,7 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("\tbowtie command:\n")
             sys.stderr.write("\t%s\n"%bowtie_command)
-        
+
         p = Popen(bowtie_command, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
         p.wait()
         stderr_string = p.stderr.read()
@@ -1072,7 +1072,7 @@ class EM(object):
 
         self.current_bam_filename = output_filename   # do this last.
 
-        return 
+        return
     def get_n_alignments_from_bowtie(self, stderr_string):
         """
         IN:  stderr output string from bowtie
@@ -1100,8 +1100,8 @@ class EM(object):
             print >> sys.stderr, stderr_string
             print >> sys.stderr, r
             raise
-            
-    
+
+
     def calc_likelihoods(self):
         """
         sets self.likelihoods  (seq_n x read_n) for this round
@@ -1139,7 +1139,7 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("\tDONE calculating Pr(N=n) for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
-            
+
         return
     def calc_posteriors(self):
         if self._VERBOSE:
@@ -1229,15 +1229,15 @@ def do_initial_mapping(em, working_dir, options):
     # shared regardless of whether paired mapping or not
     option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors, BOWTIE_l, BOWTIE_e])
     samtools_cmd    = "samtools view -S -h -u -b -F 0x0004 -"  # -F instead of piping to awk?    |  awk '{if ($3!="*") print }'
-    
+
     # PAIRED END MAPPING
     if options.fastq_reads_2 is not None:
         option_strings.extend([minins, maxins, options.bowtie_db, options.fastq_reads_2, samtools_cmd, bampath_prefix])
-        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 --minins %s --maxins %s %s -1 - -2 %s | %s > %s.u.bam """%tuple(option_strings)    
+        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 --minins %s --maxins %s %s -1 - -2 %s | %s > %s.u.bam """%tuple(option_strings)
     # SINGLE END MAPPING
     else:
         option_strings.extend([options.bowtie_db, samtools_cmd, bampath_prefix])
-        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128  %s - | %s > %s.u.bam """%tuple(option_strings)    
+        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128  %s - | %s > %s.u.bam """%tuple(option_strings)
 
     sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
     p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
@@ -1315,12 +1315,12 @@ def dependency_check():
                                           (usearch_minor == working_minor and usearch_minor_minor < working_minor_minor))):
         print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nusearch has different command line arguments and minor bugs in previous versions that can cause problems."%(usearch_major, usearch_minor, usearch_minor_minor, working_maj, working_minor, working_minor_minor)
         exit(0)
-    return 
-   
+    return
+
 def main(argv = sys.argv[1:]):
     """
     command line interface to emirge
-    
+
     """
     dependency_check()
 
@@ -1410,7 +1410,7 @@ def main(argv = sys.argv[1:]):
     # if this flag is set, then it is assumed that N reads in input
     # files are labeled with integer names from 0 to N-1, and the read
     # files will not be rewritten as a first step by emirge
-    group_opt.add_option("--no_rewrite_reads",   
+    group_opt.add_option("--no_rewrite_reads",
                          action="store_true", default=False,
                          help=SUPPRESS_HELP)
     # --- END HIDDEN ---
@@ -1440,7 +1440,7 @@ def main(argv = sys.argv[1:]):
         if filename_option is not None:
             if not os.path.exists(filename_option):
                 parser.error("file not found for --%s: %s"%(filename_option_string, filename_option))
-        
+
     working_dir = os.path.abspath(args[0])
 
     sys.stdout.write("imported _emirge C functions from: %s\n"%(_emirge.__file__))
@@ -1454,9 +1454,6 @@ def main(argv = sys.argv[1:]):
     # some more sanity checking of options/args
     # RESUME case
     if options.resume:
-        for o in ["insert_mean", "insert_stddev", "max_read_length"]:
-            if getattr(options, o) == 0:
-                parser.error("--%s is required, but is not specified (try --help)"%(o))
         if not os.path.exists(working_dir):
             parser.error("You specified --resume, but %s does not exist"%working_dir)
         # find last good directory
@@ -1474,12 +1471,15 @@ def main(argv = sys.argv[1:]):
                         continue
                     else:
                         pass # MARK -- need to finish
-                        
-                
+
+
     # NORMAL case
     else:
         # below here, means that we are handling the NEW case (as opposed to resume)
-        for o in ["fastq_reads_1", "insert_mean", "insert_stddev", "max_read_length"]:
+        required = ["fastq_reads_1", "fasta_db", "bowtie_db", "max_read_length"]
+        if options.fastq_reads_2 is not None:
+            required.extend([ "insert_mean", "insert_stddev"])
+        for o in required:
             if getattr(options, o) is None or getattr(options, o) == 0:
                 parser.error("--%s is required, but is not specified (try --help)"%(o))
 
@@ -1525,7 +1525,7 @@ def main(argv = sys.argv[1:]):
     # em.min_depth = options.min_depth  # DEPRECIATED
     if options.nice_mapping is not None:
         em.mapping_nice = options.nice_mapping
-    
+
     if options.randomize_init_priors:
         print >> sys.stderr, "*"*60
         print >> sys.stderr, "DEBUG: initialized priors will be randomized for testing purposes"
