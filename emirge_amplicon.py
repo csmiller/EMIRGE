@@ -450,7 +450,9 @@ class EM(object):
         # background)
         if self.iteration_i == 0 and self.current_bam_filename.endswith(".u.bam"):  # initial iteration
             renamed = self.current_bam_filename.rstrip(".u.bam") + ".bam"
-            self.initial_compress_process = Popen(["samtools", "view", "-h", "-b", self.current_bam_filename, "-o", renamed], stdout = sys.stdout, stderr = sys.stderr)  # child process runs in background
+            # self.initial_compress_process = Popen(["samtools", "view", "-h", "-b", self.current_bam_filename, "-o", renamed], stdout = sys.stdout, stderr = sys.stderr)  # child process runs in background
+            self.initial_compress_process = Popen("samtools view -h -b %s > %s"%(self.current_bam_filename, renamed), shell=True, stderr = sys.stderr)  # child process runs in background
+
             self.initial_bam_filename_to_remove = self.current_bam_filename
         if self.iteration_i >= 1:
             os.remove(self.current_bam_filename)
@@ -1190,7 +1192,8 @@ def do_iterations(em, max_iter, save_every):
     if os.path.exists(em.current_bam_filename) and em.current_bam_filename.endswith(".u.bam"):
         sys.stderr.write("Converting last mapping file (%s) to compressed bam at %s...\n"%(os.path.basename(em.current_bam_filename), ctime()))
         new_fn = em.current_bam_filename.rstrip(".u.sam")+".bam"
-        p = Popen(["samtools", "view", "-h", "-b", em.current_bam_filename, "-o", new_fn], stdout = sys.stdout, stderr = sys.stderr)
+        # p = Popen(["samtools", "view", "-h", "-b", em.current_bam_filename, "-o", new_fn], stdout = sys.stdout, stderr = sys.stderr)
+        p = Popen("samtools view -h -b %s > %s"%(em.current_bam_filename, new_fn), shell=True, stderr = sys.stderr)
         returncode = p.wait()
         if returncode == 0:
             sys.stderr.write("DONE Converting last mapping file (%s) to compressed bam at %s.\n"%(os.path.basename(em.current_bam_filename), ctime()))
