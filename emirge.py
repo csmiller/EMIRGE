@@ -1567,7 +1567,7 @@ def main(argv = sys.argv[1:]):
     #     return # ends the program, as we resumed from previous run
 
     # below here, means that we are handling the NEW case (as opposed to resume)
-    if sum([int(x is None) for x in [options.fastq_reads_1, options.insert_mean, options.insert_stddev, options.max_read_length]]):
+    if any((val is None) for val in [options.fastq_reads_1, options.insert_mean, options.insert_stddev, options.max_read_length]):
         parser.error("Some required arguments are missing (try --help)")
 
     if not os.path.exists(working_dir):
@@ -1581,6 +1581,11 @@ def main(argv = sys.argv[1:]):
 
     # DO INITIAL MAPPING if not provided with --mapping
     if options.mapping is None:
+        if options.bowtie_db is None:
+            if options.fasta_db:
+                parser.error("Bowtie DB is missing. You need to build it before calling emirge.py\nTry:\n\nbowtie-build %s Initial-SSU" % options.fasta_db)
+            else:
+                parser.error("Bowtie DB is missing. You need to build it before calling emirge.py\nTry:\n\nbowtie-build {Your SSUs} Initial-SSU")
         options.mapping = do_initial_mapping(working_dir, options)
 
     # finally, CREATE EM OBJECT
