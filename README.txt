@@ -41,12 +41,14 @@ There are two versions of EMIRGE:
 1. emirge.py -- this version was designed for metagenomic data
 2. emirge_amplicon.py -- this version was designed for rRNA amplicon data, and can handle up to a few million reads where the entire sequencing allocation is devoted to a single gene.  In theory it could also be used for RNASeq data where rRNA makes up a large percentage of the reads.  There is a publication that has been submitted describing this application of EMIRGE.
 
-CITATION
+CITATIONS
 ------------------------------
 
-If you use EMIRGE in your work, please cite:
+If you use EMIRGE in your work, please cite these manuscripts as appropriate.
 
-Miller, C.S., B. J. Baker, B. C. Thomas, S. W. Singer and J. F. Banfield (2011). "EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data." Genome Biology 12(5): R44.
+Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011) EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data. Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
+
+Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013) Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments. PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 
 DEPENDENCIES
 ------------------------------

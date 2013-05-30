@@ -29,7 +29,7 @@ setup(
                "emirge_rename_fasta.py"],
 
     author="Christopher Miller",
-    author_email="csmiller@gmail.com",
+    author_email="christopher.s.miller@ucdenver.edu",
     version="0.5.0",
     license="GPLv3",
 )

@@ -34,8 +34,15 @@ Additional information:
 https://groups.google.com/group/emirge-users
 https://github.com/csmiller/EMIRGE/wiki
 
-If you use EMIRGE in your work, please cite:
-Miller, C.S., B. J. Baker, B. C. Thomas, S. W. Singer and J. F. Banfield (2011). "EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data." Genome Biology 12(5): R44.
+If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+
+Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
+EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
+Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
+
+Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
+Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments.
+PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 """
 
 import sys
@@ -87,13 +94,14 @@ def FastIterator(filehandle, dummyParser = None, record = None):
          a record to use for yielding.  Otherwise create an empty one with standard init
 
     NOTE: this fasta iterator is fast, but it breaks if there are ">" characters in the title.
+          all characters are read as upper-case
     """
     if record is None:
         record = Record()
 
     for recordstring in re.split('\n>', filehandle.read()[1:]):
         record.title, record.sequence= recordstring.split('\n',1)
-        record.sequence = record.sequence.replace('\n','').replace(' ','')
+        record.sequence = record.sequence.replace('\n','').replace(' ','').upper()
         yield record
 
 class EM(object):
@@ -121,8 +129,8 @@ class EM(object):
         n_cpus is how many processors to use for multithreaded steps (currently only the bowtie mapping)
         mapping_nice is nice value to add to mapping program
         """
-        assert not reads1_filepath.endswith('.gz')
-        # assert reads2_filepath.endswith('.gz')
+        # assert not reads1_filepath.endswith('.gz')
+        assert not reads2_filepath.endswith('.gz'), "Read 2 file cannot be gzipped (see --help)"
         self.reads1_filepath = reads1_filepath
         self.reads2_filepath = reads2_filepath
         self.insert_mean = insert_mean
@@ -685,21 +693,30 @@ class EM(object):
         OUT: number of sequences processed
         """
         n_seqs = 0
+        # i2base = self.i2base
         i2base_get = self.i2base.get # for speed
         of = file(output_fastafilename, 'w')
+        # self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
+
         for seq_i in range(len(self.probN)):
             if self.probN[seq_i] is None:
                 continue
+
             title = self.sequence_i2sequence_name[-1][seq_i]
             consensus = numpy.array([i2base_get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
+            # consensus = numpy.array([i2base[x] for x in numpy.argsort(self.probN[seq_i])[:,-1]]) # -- crashing, think because some bases unmapped so argsort defaults to index 4 (unknown) if no bases mapped?
+            orig_bases = numpy.array(self.fastafile.fetch(self.sequence_name2fasta_name[self.sequence_i2sequence_name[-1][seq_i]]).lower(), dtype='c')
             # now replace consensus bases with no read support with N
-            unmapped_indices = numpy.where(self.unmapped_bases[seq_i] == 1)
+            # unmapped_indices = numpy.where(self.unmapped_bases[seq_i] == 1)
+            unmapped_indices = numpy.where(consensus == "N")
             if mask == "hard":
                 consensus[unmapped_indices] = 'N'
             elif mask == "soft":
-                consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
+                for unmapped_i in unmapped_indices[0]:
+                    consensus[unmapped_i] = orig_bases[unmapped_i] # return to original base if unmapped.
+                # consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
             else:
-                raise ValueError, "Invalid valud for mask: %s (choose one of {soft, hard}"%mask
+                raise ValueError, "Invalid value for mask: %s (choose one of {soft, hard}"%mask
             of.write(">%s\n"%(title))
             of.write("%s\n"%("".join(consensus)))
             n_seqs += 1
@@ -804,8 +821,8 @@ class EM(object):
                 continue
 
             # decide if these pass the cluster_thresh *over non-gapped, mapped columns*
-            member_fasta_seq = tmp_fastafile.fetch(member_name)
-            seed_fasta_seq   = tmp_fastafile.fetch(seed_name)
+            member_fasta_seq = tmp_fastafile.fetch(member_name).upper()
+            seed_fasta_seq   = tmp_fastafile.fetch(seed_name).upper()
             member_unmapped = self.unmapped_bases[member_seq_id]  # unmapped positions (default prob)
             seed_unmapped = self.unmapped_bases[seed_seq_id]
             # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
@@ -815,8 +832,8 @@ class EM(object):
 
             t0 = time()
             # print >> sys.stderr, "DEBUG", alnstring_pat.findall(row[3])
-            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name),
-                                                           tmp_fastafile.fetch(member_name),
+            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name).upper(),
+                                                           tmp_fastafile.fetch(member_name).upper(),
                                                            self.unmapped_bases[seed_seq_id].astype(numpy.uint8),
                                                            self.unmapped_bases[member_seq_id].astype(numpy.uint8),
                                                            seed_start,
@@ -1170,7 +1187,7 @@ class EM(object):
             self.unmapped_bases[seq_i][zero_indices[0]] = True
             if zero_indices[0].shape[0] > 0:  # there are bases without mappings.
                 fastaname = self.sequence_name2fasta_name[self.sequence_i2sequence_name[-1][seq_i]]
-                bases = numpy.array(self.fastafile.fetch(fastaname), dtype='c')[zero_indices[0]]
+                bases = numpy.array(self.fastafile.fetch(fastaname).upper(), dtype='c')[zero_indices[0]]
                 numeric_bases = [base2i_get(base, 4) for base in bases]
                 error_P = numpy.zeros(zero_indices[0].shape) + default_error
                 # add P/3 to all bases without mappings.
@@ -1243,7 +1260,7 @@ class EM(object):
             reads += 1
         of_sam.close()
         of_fasta = file('%s.ref.fasta'%(output_prefix), 'w')
-        fasta_seq   = self.fastafile.fetch(self.sequence_i2sequence_name[-1][seq_i])
+        fasta_seq   = self.fastafile.fetch(self.sequence_i2sequence_name[-1][seq_i]).upper()
         of_fasta.write("%s"%(str(Record(self.sequence_i2sequence_name[-1][seq_i], fasta_seq))))
         of_fasta.close()
         if self._VERBOSE:
@@ -1554,6 +1571,16 @@ def main(argv = sys.argv[1:]):
         parser.error("join_threshold must be between [0.95, 1.0].  You supplied %.3f"%options.join_threshold)
 
     working_dir = os.path.abspath(args[0])
+
+    sys.stdout.write("""If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+
+Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
+EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
+Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
+
+Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
+Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments.
+PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
     sys.stdout.write("imported _emirge C functions from: %s\n"%(_emirge.__file__))
     sys.stdout.write("Command:\n")

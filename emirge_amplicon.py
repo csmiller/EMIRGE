@@ -34,13 +34,15 @@ Additional information:
 https://groups.google.com/group/emirge-users
 https://github.com/csmiller/EMIRGE/wiki
 
-A manuscript describing the use of EMIRGE on amplicon data has been
-submitted.  For now, if you use this version of EMIRGE in your work,
-please cite:
-Miller, C.S., B. J. Baker, B. C. Thomas, S. W. Singer and
-J. F. Banfield (2011)."EMIRGE: reconstruction of full-length ribosomal
-genes from microbial community short read sequencing data." Genome
-Biology 12(5): R44.
+If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+
+Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
+EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
+Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
+
+Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
+Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments.
+PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 """
 
 import sys
@@ -1445,6 +1447,16 @@ def main(argv = sys.argv[1:]):
                 parser.error("file not found for --%s: %s"%(filename_option_string, filename_option))
 
     working_dir = os.path.abspath(args[0])
+
+    sys.stdout.write("""If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+
+Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
+EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
+Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
+
+Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
+Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments.
+PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
     sys.stdout.write("imported _emirge C functions from: %s\n"%(_emirge.__file__))
     sys.stdout.write("Command:\n")
