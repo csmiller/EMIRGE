@@ -219,6 +219,7 @@ class EM(object):
         initial_iteration = self.iteration_i < 0  # this is initial iteration
         self.current_bam_filename = bam_filename
         self.current_reference_fasta_filename = reference_fasta_filename
+        
         self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
 
         for d in [self.sequence_name2sequence_i, self.sequence_i2sequence_name,
@@ -584,6 +585,7 @@ class EM(object):
                 updated_seq_i += 1
                 self.sequence_i2sequence_name[-1][seq_i_minor] = m_title
                 self.sequence_name2sequence_i[-1][m_title] = seq_i_minor
+                self.sequence_name2fasta_name[m_title] = m_title  # need to depreciate this data structure...
                 # how I adjust probN here for newly split seq doesn't really matter,
                 # as it is re-calculated next iter.
                 # this only matters for probN.pkl.gz file left behind for this iteration.
@@ -682,12 +684,13 @@ class EM(object):
 
         return
 
-    def write_consensus_with_mask(self, output_fastafilename, mask):
+    def write_consensus_with_mask(self, reference_fastafilename, output_fastafilename, mask):
         """
         write a consensus sequence to output_fastafilename for each
         sequence in probN where unmapped bases are replaced with:
           mask == "hard"  --> N
           mask == "soft"  --> lowercase letters
+        If masking with soft bases, use reference_fastafilename for bases to use for unmapped bases.
         this is useful prior to usearch clustering.
 
         OUT: number of sequences processed
@@ -696,7 +699,7 @@ class EM(object):
         # i2base = self.i2base
         i2base_get = self.i2base.get # for speed
         of = file(output_fastafilename, 'w')
-        # self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
+        reference_fastafile = pysam.Fastafile(reference_fastafilename)
 
         for seq_i in range(len(self.probN)):
             if self.probN[seq_i] is None:
@@ -705,7 +708,7 @@ class EM(object):
             title = self.sequence_i2sequence_name[-1][seq_i]
             consensus = numpy.array([i2base_get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
             # consensus = numpy.array([i2base[x] for x in numpy.argsort(self.probN[seq_i])[:,-1]]) # -- crashing, think because some bases unmapped so argsort defaults to index 4 (unknown) if no bases mapped?
-            orig_bases = numpy.array(self.fastafile.fetch(self.sequence_name2fasta_name[self.sequence_i2sequence_name[-1][seq_i]]).lower(), dtype='c')
+            orig_bases = numpy.array(reference_fastafile.fetch(self.sequence_name2fasta_name[self.sequence_i2sequence_name[-1][seq_i]]).lower(), dtype='c')
             # now replace consensus bases with no read support with N
             # unmapped_indices = numpy.where(self.unmapped_bases[seq_i] == 1)
             unmapped_indices = numpy.where(consensus == "N")
@@ -756,7 +759,7 @@ class EM(object):
         self.posteriors[-1] = self.posteriors[-1].tolil()
 
         tmp_fastafilename = fastafilename + ".tmp.fasta"
-        num_seqs = self.write_consensus_with_mask(tmp_fastafilename, mask="soft")
+        num_seqs = self.write_consensus_with_mask(fastafilename, tmp_fastafilename, mask="soft")
         tocleanup.append(tmp_fastafilename)
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         tocleanup.append("%s.fai"%(tmp_fastafilename))
@@ -909,20 +912,20 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("Writing new fasta file for iteration %d at %s...\n"%(self.iteration_i, ctime()))
         tmp_fastafile.close()
+        tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
         recordstrings=""
         num_seqs = 0
         for record in FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
             seqname = record.title.split()[0]  # strip off beginning cluster marks
             seq_id = self.sequence_name2sequence_i[-1].get(seqname)
             if seq_id not in already_removed:
-                recordstrings += str(record)
+                recordstrings += str(record)  # could do a better job here of actually "merging" a new consensus, rather than just keeping one or the other.
                 num_seqs += 1
         outfile = file(fastafilename, 'w')
         outfile.write(recordstrings)
         outfile.close()
 
-        # DEBUG
-        for fn in tocleanup:
+        for fn in tocleanup:  # quite important, actually, to remove old fai index files.
             os.remove(fn)
 
         if self._VERBOSE:
@@ -1586,6 +1589,8 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     sys.stdout.write("Command:\n")
     sys.stdout.write(' '.join([__file__]+argv))
     sys.stdout.write('\n\n')
+    total_start_time = time()
+    sys.stdout.write("EMIRGE started at %s\n"%(ctime()))
     sys.stdout.flush()
 
     # first handle RESUME case
@@ -1633,6 +1638,8 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
     # BEGIN ITERATIONS
     do_iterations(em, max_iter = options.iterations, save_every = options.save_every)
+
+    sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"%(ctime(), timedelta(seconds = time()-total_start_time)))
 
     return
 

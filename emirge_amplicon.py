@@ -710,12 +710,13 @@ class EM(object):
 
         return
 
-    def write_consensus_with_mask(self, output_fastafilename, mask):
+    def write_consensus_with_mask(self, reference_fastafilename, output_fastafilename, mask):
         """
         write a consensus sequence to output_fastafilename for each
         sequence in probN where unmapped bases are replaced with:
           mask == "hard"  --> N
           mask == "soft"  --> lowercase letters
+        If masking with soft bases, use reference_fastafilename for bases to use for unmapped bases.
         this is useful prior to usearch clustering.
 
         OUT: number of sequences processed
@@ -723,17 +724,23 @@ class EM(object):
         n_seqs = 0
         i2base_get = self.i2base.get # for speed
         of = file(output_fastafilename, 'w')
+        reference_fastafile = pysam.Fastafile(reference_fastafilename)
+        
         for seq_i in range(len(self.probN)):
             if self.probN[seq_i] is None:
                 continue
             title = self.sequence_i2sequence_name[seq_i]
             consensus = numpy.array([i2base_get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
+            orig_bases = numpy.array(reference_fastafile.fetch(title).lower(), dtype='c')
             # now replace consensus bases with no read support with N
-            unmapped_indices = numpy.where(self.unmapped_bases[seq_i] == 1)
+            # unmapped_indices = numpy.where(self.unmapped_bases[seq_i] == 1)
+            unmapped_indices = numpy.where(consensus == "N")
             if mask == "hard":
                 consensus[unmapped_indices] = 'N'
             elif mask == "soft":
-                consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
+                for unmapped_i in unmapped_indices[0]:
+                    consensus[unmapped_i] = orig_bases[unmapped_i] # return to original base if unmapped / ambiguous
+                # consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
             else:
                 raise ValueError, "Invalid valud for mask: %s (choose one of {soft, hard}"%mask
             of.write(">%s\n"%(title))
@@ -781,7 +788,7 @@ class EM(object):
         # positions aligned to these bases in the identity calculation
 
         tmp_fastafilename = fastafilename + ".tmp.fasta"
-        num_seqs = self.write_consensus_with_mask(tmp_fastafilename, mask="soft")
+        num_seqs = self.write_consensus_with_mask(fastafilename, tmp_fastafilename, mask="soft")
         tocleanup.append(tmp_fastafilename)
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         tocleanup.append("%s.fai"%(tmp_fastafilename))
@@ -943,19 +950,20 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("Writing new fasta file for iteration %d at %s...\n"%(self.iteration_i, ctime()))
         tmp_fastafile.close()
+        tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
         recordstrings=""
         num_seqs = 0
         for record in FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
             seqname = record.title.split()[0]
             seq_id = self.sequence_name2sequence_i.get(seqname)
             if seq_id not in already_removed:
-                recordstrings += str(record)
+                recordstrings += str(record) # could do a better job here of actually "merging" a new consensus, rather than just keeping one or the other.
                 num_seqs += 1
         outfile = file(fastafilename, 'w')
         outfile.write(recordstrings)
         outfile.close()
 
-        # clean up.
+        # clean up.  quite important, actually, to remove old fai index files.
         for fn in tocleanup:
             os.remove(fn)
 
