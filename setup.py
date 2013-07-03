@@ -33,3 +33,8 @@ setup(
     version="0.5.0",
     license="GPLv3",
 )
+
+print ""
+print "NOTE:"
+print "To download a standard candidate SSU database to use with EMIRGE, run the script"
+print "python emirge_download_candidate_db.py"

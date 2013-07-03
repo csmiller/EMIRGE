@@ -130,17 +130,22 @@ EMIRGE output.  Dissecting a single example header:
 CANDIDATE SSU DATABASE
 ------------------------------
 
-SSU_candidate_db.fasta.gz is included with this distribution.  This was
-made using Silva release SSURef_108_NR (http://www.arb-silva.de/).  Sequences
-were clustered using uclust at 97% sequence identity, short and long
-sequences were removed, and non-standard characters were changed to be
-within {ACTG} (using utils/fix_nonstandard_chars.py).
+You can download a standard candidate SSU database by running the
+following command:
+python emirge_download_candidate_db.py
+
+This script is included with EMIRGE.  The current version of this
+database was made using Silva release SSURef_111_NR
+(http://www.arb-silva.de/).  Sequences were clustered using uclust at
+97% sequence identity, short and long sequences were removed, and
+non-standard characters were changed to be within {ACTG} (using
+utils/fix_nonstandard_chars.py).
 
 You can use any reference SSU database with emirge, though this one is
 recommended.  No matter your choice, you should run
 utils/fix_nonstandard_chars.py on your fasta file.  You will also need
 to first build a bowtie index, with something like:
-  $ bowtie-build SSU_candidate_db.fasta SSU_candidate_db_btindex
+$ bowtie-build SSU_candidate_db.fasta SSU_candidate_db_btindex
 You might also consider changing the offrate (see
 http://bowtie-bio.sourceforge.net/manual.shtml)
 
