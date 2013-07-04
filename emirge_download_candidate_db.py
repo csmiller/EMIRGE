@@ -12,7 +12,6 @@ md5sum      = '4f9a12fe76dd33cf8101ad66d079c63e'
 
 url = '%s/%s'%(urlbase, db_filename)
 
-local_file_time = None
 try:
     local_file_utc_timestamp = os.path.getmtime(os.path.join(os.getcwd(), db_filename))
 except OSError:  # no such file
