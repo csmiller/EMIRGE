@@ -34,7 +34,7 @@ Additional information:
 https://groups.google.com/group/emirge-users
 https://github.com/csmiller/EMIRGE/wiki
 
-If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
 EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
@@ -139,7 +139,8 @@ class EM(object):
         self.mapping_nice   = mapping_nice
         self.reads_ascii_offset = reads_ascii_offset
 
-        self.iteration_i = None    # keeps track of which iteration we are on.
+        self.iteration_i = None         # keeps track of which iteration we are on.
+        self.resume_i    = None         # special case for resuming iterations
         self.cwd = cwd
         self.max_read_length = max_read_length
         self.iterdir_prefix = iterdir_prefix
@@ -237,8 +238,8 @@ class EM(object):
             seq_i = 0
             read_i = 0
         else:
-            seq_i = max(self.sequence_i2sequence_name[-2].keys()) + 1
-            read_i = max(self.read_i2read_name[-2].keys()) + 1
+            seq_i = max(self.sequence_i2sequence_name[-2].keys()) + 1   
+            read_i = max([-1] + self.read_i2read_name[-2].keys()) + 1           # [-1] added for resume case
 
         # reset this every iteration
         self.coverage = [0]*seq_i
@@ -352,6 +353,68 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("DONE with initialization at %s...\n"%(ctime()))
         return
+    def resume(self, resume_from):
+        """
+        INPUT:   iteration number (integer) of previously completed EMIRGE iteration.
+                 Expects completed iteration directory to contain:
+                   probN.pkl.gz
+                 and PREVIOUS iteration directory to contain:
+                   priors.iter.NN.txt
+                   iter.NN.cons.fasta
+                   bowtie.iter.NN.PE.bam
+        ON EXIT: ready for do_iteration to be called with next iteration.
+        """
+        self.resume_i = resume_from
+        resume_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.resume_i))
+        previous_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.resume_i - 1))
+        if not os.path.exists(resume_iterdir):
+            raise OSError, "\n\nERROR: Cannot resume from non-existent directory %s"%(resume_iterdir)
+        if not os.path.exists(previous_iterdir):
+            raise OSError, "\n\nERROR: Resume requires the previous iteration directory (%02d) also be present."%(resume_iterdir - 1)
+        if not os.path.exists(os.path.join(resume_iterdir, "bowtie.iter.%02d.log.gz"%(self.resume_i))):
+            raise OSError, "\n\nERROR: directory %s appears to be an incomplete iteration (no bowtie log file).  You must resume from a *completed* iteration (perhaps try iteration %02d)."%(resume_iterdir, self.resume_i-1)
+        if self._VERBOSE:
+            sys.stderr.write("Resuming EMIRGE from iteration %02d at %s ...\nStarting from information in directory:\n%s\n"%(self.resume_i,
+                                                                                                                             ctime(),
+                                                                                                                             resume_iterdir))
+        # before calling read_bam in do_iteration, need to reset
+        # sequence_name2sequence_i, sequence_i2sequence_name, priors 
+        # from priors file (read_bam will add new entries for all otherwise)
+        # FROM PREVIOUS ITER
+
+        seq_i_seen = []
+        priors_seen = []
+
+        self.sequence_name2sequence_i = [{}, {}]
+        self.sequence_i2sequence_name = [{}, {}]
+        self.read_name2read_i         = [{}, {}]
+        self.read_i2read_name         = [{}, {}]
+        
+        with open(os.path.join(previous_iterdir, "priors.iter.%02d.txt"%(self.resume_i - 1))) as f:
+            for line in f:
+                seq_i, seq_name, prior = line.split()
+                seq_i = int(seq_i)
+                prior = float(prior)
+
+                for dict_i in [-1, -2]:
+                    self.sequence_name2sequence_i[dict_i][seq_name] = seq_i
+                    self.sequence_i2sequence_name[dict_i][seq_i]    = seq_name
+
+                seq_i_seen.append(seq_i)
+                priors_seen.append(prior)
+
+        self.priors = []
+        self.priors.append(numpy.zeros(max(seq_i_seen)+1, dtype=numpy.float))
+        self.priors[-1][seq_i_seen] = priors_seen
+        self.priors.append(self.priors[-1].copy())
+        # note that self.priors gets appended with empty priors list upon read_bam being called again in initial do_iteration call
+
+        # this is tricky.  We are actually wanting to re-calc likelihood and posteriors for CURRENT ITER based on priors from previous iter, but probN calced for this iter. Since do_iteration immediately increments, need to set this.
+        self.iteration_i = self.resume_i - 1 
+
+        if self._VERBOSE:
+            sys.stderr.write("DONE with resume initialization at %s...\n"%(ctime()))
+        return
 
     def save_state(self, filename = None):
         """
@@ -417,7 +480,13 @@ class EM(object):
             start_time = time()
 
         self.iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.iteration_i))
-        check_call("mkdir -p %s"%(self.iterdir), shell=True)
+        if not os.path.exists(self.iterdir):
+            os.mkdir(self.iterdir)
+        # remove any previous fai files in this directory (e.g. from previous run we are resuming from)
+        for filename in os.listdir(self.iterdir):
+            if filename.endswith('.fai'):
+                os.remove(os.path.join(self.iterdir, filename))
+        
         self.read_bam(bam_filename, reference_fasta_filename)  # initializes all data structures.
 
         # m-step
@@ -1120,8 +1189,10 @@ class EM(object):
     def calc_probN(self):
         """
         Pr(N=n)
-        If read or sequence is new this round (not seen at t-1), then there is no Pr(S|R) from previous round, so we substitute Pr(S), the unbiased prior
-        If initial iteration, all reads and seqs are new, so all calcs for Pr(N=n) use the prior as weighting factor instead of previous round's posterior.
+        If read or sequence is new this round (not seen at t-1), then there is no Pr(S|R) from previous round,
+        so we substitute Pr(S), the unbiased prior.
+        If initial iteration, all reads and seqs are new, so all calcs for Pr(N=n) use the prior as weighting
+        factor instead of previous round's posterior.
         """
         if self._VERBOSE:
             sys.stderr.write("\tCalculating Pr(N=n) for iteration %d at %s...\n"%(self.iteration_i, ctime()))
@@ -1132,11 +1203,12 @@ class EM(object):
 
         # for speed:
         probN = self.probN
-        if not initial_iteration:
+        if initial_iteration or (self.resume_i is not None and self.iteration_i == self.resume_i):
+            posteriors = None
+        else:
             self.posteriors[-2] = self.posteriors[-2].tolil()
             posteriors = self.posteriors[-2]  # this depends on PREVIOUS iteration's posteriors (seq_n x read_n)
-        else:
-            posteriors = None
+
         priors     = self.priors[-2]          # and if no posteriors are present (or initial iter), falls back on priors from previous round
         base2i_get = self.base2i.get
         sequence_name2sequence_i = self.sequence_name2sequence_i[-1]
@@ -1158,14 +1230,21 @@ class EM(object):
         #                     quals[read_i],
         #                     probN[seq_i])
 
-        # here do looping in Cython (this loop is about 95% of the time in this method on test data):
-        _emirge._calc_probN(self.bamfile_data,
-                            initial_iteration,
-                            priors,
-                            posteriors,
-                            self.reads,
-                            self.quals,
-                            self.probN)
+        if self.resume_i is not None and (self.iteration_i == self.resume_i):  # we have just resumed a run
+            pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
+            sys.stderr.write("\tLoading probN for resume case from %s\n"%pickled_filename)
+            check_call("gzip -d -c %s > %s"%(pickled_filename+'.gz', pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
+            self.probN = cPickle.load(open(pickled_filename))     # and need to use already-calculated probN
+            os.remove(pickled_filename) # git rid of decompressed file
+        else:
+            # here do looping in Cython (this loop is about 95% of the time in this method on test data):
+            _emirge._calc_probN(self.bamfile_data,
+                                initial_iteration,
+                                priors,
+                                posteriors,
+                                self.reads,
+                                self.quals,
+                                self.probN)
 
         numpy_where = numpy.where
         numpy_nonzero = numpy.nonzero
@@ -1365,7 +1444,7 @@ def do_iterations(em, max_iter, save_every):
         subdir = os.path.join(em.cwd, "iter.%02d"%(em.iteration_i))
         em.do_iteration(os.path.join(subdir, "bowtie.iter.%02d.PE.bam"%(em.iteration_i)),
                         os.path.join(subdir, "iter.%02d.cons.fasta"%(em.iteration_i)))
-        if em.iteration_i > 0 and (em.iteration_i % save_every == 0):
+        if save_every is not None and em.iteration_i > 0 and (em.iteration_i % save_every == 0):
             filename = em.save_state()
             os.system("bzip2 -f %s &"%(filename))
     return
@@ -1411,47 +1490,6 @@ def do_initial_mapping(working_dir, options):
     sys.stderr.flush()
 
     return bampath_prefix+".bam"
-
-def resume(working_dir, options):
-    """
-    resume from a previous run.
-
-    Takes the emirge working dir, and an OptionParser options object
-    """
-    raise NotImplementedError, "This option is currently broken, and will be fixed in a later version."
-    em = EM("", "", 0, 0)  # reads1_filepath, reads2_filepath, insert_mean, insert_sd
-    data_path = os.path.join(working_dir, "iter.%02d"%(options.resume_from), 'em.%02i.data.pkl.bz2'%(options.resume_from))
-    sys.stdout.write("Loading saved state from %s...\n"%data_path)
-    em.load_state(data_path)
-    sys.stdout.write("Done.\n")
-
-    # if the current working dir has been copied or moved, the old state will no longer be valid,
-    # so need to set this again:
-    em.cwd = working_dir
-
-    # secretly (not advertised) options allowed to change in a resume
-    if options.fastq_reads_1 is not None:
-        em.reads1_filepath = os.path.abspath(options.fastq_reads_1)
-    if options.fastq_reads_2 is not None:
-        em.reads2_filepath = os.path.abspath(options.fastq_reads_2)
-
-    # now process any *relevant* options:
-    # this is broken right now because it just reverts all to defaults.
-    # if options.processors is not None:
-    #     em.n_cpus = options.processors
-    # if options.snp_fraction_thresh is not None:
-    #     em.snp_percentage_thresh = options.snp_fraction_thresh
-    # if options.variant_fraction_thresh is not None:
-    #     em.snp_minor_prob_thresh = options.variant_fraction_thresh
-    # if options.join_threshold is not None:
-    #     em.cluster_thresh = options.join_threshold
-    # if options.min_depth is not None:
-    #     em.min_depth = options.min_depth
-    # if options.nice_mapping is not None:
-    #     em.mapping_nice = options.nice_mapping
-
-    do_iterations(em, max_iter = options.iterations, save_every = options.save_every)
-    return
 
 def dependency_check():
     """
@@ -1548,22 +1586,21 @@ def main(argv = sys.argv[1:]):
     group_opt.add_option("--nice_mapping",
                       type="int",
                       help="""If set, during mapping phase, the mapper will be "niced" by the Linux kernel with this value (default: no nice)""")
-    group_opt.add_option("-e", "--save_every",
-                      type="int", default=10,
-                      help="""every SAVE_EVERY iterations, save the programs state.  This allows you to run further iterations later starting from these save points.  The program will always save its state after the final iteration.  (default=%default)""")
     group_opt.add_option("--phred33",
                          action="store_true", default=False,
                          help="Illumina quality values in fastq files are the (fastq standard) ascii offset of Phred+33.  This is the new default for Illumina pipeline >= 1.8. DEFAULT is still to assume that quality scores are Phred+64")
+    group_opt.add_option("-e", "--save_every",
+                      type="int", default=None,
+                      help="""every SAVE_EVERY iterations, save some information about the program's state.  This is solely for debugging information, and is NOT required to resume a run (see --resume_from below).  (default=%default)""")
 
     parser.add_option_group(group_opt)
     # # RESUME
-    # group_resume = OptionGroup(parser, "Resuming iterations",
-    #                          "These options allow you to resume iterations from a previous saved state.  Other options set on the command line are ignored")
-    #                            # With --resume_from, all optional flags except --mapping are also allowed.  You'll likely want to set --iterations as well.  If you do set other options, they overwrite the defaults otherwise saved in the iteration being resumed from")
-    # group_resume.add_option("-r", "--resume_from",
-    #                         type="int",
-    #                         help="Resume iterations from saved state in iteration specified.  Requires that a em data pickle was saved with the --save_every flag for that iteration (em.N.data.pkl.bz2)")
-    # parser.add_option_group(group_resume)
+    group_resume = OptionGroup(parser, "Resuming iterations",
+                               "These options allow you to resume iterations from a previously completed EMIRGE iteration.  This requires that directories for the iteration to resume from and the previous iteration both be present.  It is STRONGLY recommended that other options set on the command line be identical to the original run.  Note that EMIRGE does not check this for you!")
+    group_resume.add_option("-r", "--resume_from",
+                            type="int",
+                            help="Resume iterations from COMPLETED iteration specified.  Requires that the iteration and previous iteration fully completed, i.e. a priors file, bam file, and fasta file are all present in the iteration directory.")
+    parser.add_option_group(group_resume)
 
     # ACTUALLY PARSE ARGS
     (options, args) = parser.parse_args(argv)
@@ -1575,7 +1612,7 @@ def main(argv = sys.argv[1:]):
 
     working_dir = os.path.abspath(args[0])
 
-    sys.stdout.write("""If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+    sys.stdout.write("""If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
 EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
@@ -1593,12 +1630,6 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     sys.stdout.write("EMIRGE started at %s\n"%(ctime()))
     sys.stdout.flush()
 
-    # first handle RESUME case
-    # if options.resume_from is not None:
-    #     resume(working_dir, options)
-    #     return # ends the program, as we resumed from previous run
-
-    # below here, means that we are handling the NEW case (as opposed to resume)
     if sum([int(x is None) for x in [options.fastq_reads_1, options.insert_mean, options.insert_stddev, options.max_read_length]]):
         parser.error("Some required arguments are missing (try --help)")
 
@@ -1612,7 +1643,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             setattr(options, o, os.path.abspath(current_o_value))
 
     # DO INITIAL MAPPING if not provided with --mapping
-    if options.mapping is None:
+    if options.mapping is None and options.resume_from is None:
         options.mapping = do_initial_mapping(working_dir, options)
 
     # finally, CREATE EM OBJECT
@@ -1634,7 +1665,12 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     if options.nice_mapping is not None:
         em.mapping_nice = options.nice_mapping
 
-    em.initialize_EM(options.mapping, options.fasta_db)
+    if options.resume_from is None:                             # new EMIRGE run
+        em.initialize_EM(options.mapping, options.fasta_db)
+    else:                                                       # resumed EMIRGE run
+        if options.resume_from < 1:
+            parser.error("--resume_from must be >= 1")
+        em.resume(options.resume_from)                          # This **assumes** that cmd line args are the same!
 
     # BEGIN ITERATIONS
     do_iterations(em, max_iter = options.iterations, save_every = options.save_every)

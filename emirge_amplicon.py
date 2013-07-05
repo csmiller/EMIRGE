@@ -34,7 +34,7 @@ Additional information:
 https://groups.google.com/group/emirge-users
 https://github.com/csmiller/EMIRGE/wiki
 
-If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
 EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
@@ -1456,7 +1456,7 @@ def main(argv = sys.argv[1:]):
 
     working_dir = os.path.abspath(args[0])
 
-    sys.stdout.write("""If you use EMIRGE in your work, please cite these manuscripts as appropriate.
+    sys.stdout.write("""If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
 EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.

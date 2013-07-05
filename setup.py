@@ -1,4 +1,9 @@
-# typical compilation: python setup.py build_ext --inplace
+# typical compilation (perhaps as root or sudo, see README.txt):
+# python setup.py build
+# python setup.py install
+
+# To build in current working directory:
+# python setup.py build_ext --inplace
 
 from distutils.core import setup
 from distutils.extension import Extension
