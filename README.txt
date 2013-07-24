@@ -39,7 +39,7 @@ version >= 1.3
 There are two versions of EMIRGE:
 
 1. emirge.py -- this version was designed for metagenomic data
-2. emirge_amplicon.py -- this version was designed for rRNA amplicon data, and can handle up to a few million reads where the entire sequencing allocation is devoted to a single gene.  In theory it could also be used for RNASeq data where rRNA makes up a large percentage of the reads.  There is a publication that has been submitted describing this application of EMIRGE.
+2. emirge_amplicon.py -- this version was designed for PCR amplicon data, and can handle up to a few million reads where the entire sequencing allocation is devoted to a single gene.  In theory it could also be used for RNASeq data where rRNA makes up a large percentage of the reads.
 
 CITATIONS
 ------------------------------
