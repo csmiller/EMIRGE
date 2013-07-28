@@ -132,8 +132,6 @@ class EM(object):
         n_cpus is how many processors to use for multithreaded steps (currently only the bowtie mapping)
         mapping_nice is nice value to add to mapping program
         """
-        if reads2_filepath is not None:
-            assert not reads2_filepath.endswith('.gz'), "Only read1 file is allowed to be gzipped"
         self.reads1_filepath = reads1_filepath
         self.reads2_filepath = reads2_filepath
         self.insert_mean = insert_mean
