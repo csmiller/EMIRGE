@@ -1501,10 +1501,22 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         # below here, means that we are handling the NEW case (as opposed to resume)
         required = ["fastq_reads_1", "fasta_db", "bowtie_db", "max_read_length"]
         if options.fastq_reads_2 is not None:
+            if  options.fastq_reads_2.endswith('.gz'):
+                parser.error("Read 2 file cannot be gzipped (see --help)")
             required.extend([ "insert_mean", "insert_stddev"])
+
         for o in required:
             if getattr(options, o) is None or getattr(options, o) == 0:
-                parser.error("--%s is required, but is not specified (try --help)"%(o))
+                if o == 'bowtie_db':
+                    if options.fasta_db:
+                        parser.error("Bowtie index is missing (--bowtie_db). You need to build it before running EMIRGE\nTry:\n\nbowtie-build %s bowtie_prefix" % options.fasta_db)
+                    else:
+                        parser.error("Bowtie index is missing (--bowtie_db). You need to build it before running EMIRGE\nTry:\n\nbowtie-build candidate_db.fasta bowtie_prefix")
+                elif o == 'fasta_db':
+                    parser.error("Fasta file for candidate database is missing. Specify --fasta_db. (try --help for more information)")
+                else:
+                    parser.error("--%s is required, but is not specified (try --help)"%(o))
+
 
         if not os.path.exists(working_dir):
             os.mkdir(working_dir)

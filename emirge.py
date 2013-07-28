@@ -129,8 +129,6 @@ class EM(object):
         n_cpus is how many processors to use for multithreaded steps (currently only the bowtie mapping)
         mapping_nice is nice value to add to mapping program
         """
-        # assert not reads1_filepath.endswith('.gz')
-        assert not reads2_filepath.endswith('.gz'), "Read 2 file cannot be gzipped (see --help)"
         self.reads1_filepath = reads1_filepath
         self.reads2_filepath = reads2_filepath
         self.insert_mean = insert_mean
@@ -1630,8 +1628,22 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     sys.stdout.write("EMIRGE started at %s\n"%(ctime()))
     sys.stdout.flush()
 
-    if sum([int(x is None) for x in [options.fastq_reads_1, options.insert_mean, options.insert_stddev, options.max_read_length]]):
+    if options.bowtie_db is None:
+        if options.fasta_db:
+            parser.error("Bowtie index is missing (--bowtie_db). You need to build it before running EMIRGE\nTry:\n\nbowtie-build %s bowtie_prefix" % options.fasta_db)
+        else:
+            parser.error("Bowtie index is missing (--bowtie_db). You need to build it before running EMIRGE\nTry:\n\nbowtie-build candidate_db.fasta bowtie_prefix")
+    if options.fasta_db is None:
+        parser.error("Fasta file for candidate database is missing. Specify --fasta_db. (try --help for more information)")
+
+    if any((val is None) for val in [options.fastq_reads_1, options.max_read_length]): 
         parser.error("Some required arguments are missing (try --help)")
+
+    if options.fastq_reads_2 is not None and any((val is 0) for val in [options.insert_mean, options.insert_stddev]): 
+        parser.error("Some required arguments for paired-end mode are missing (try --help)")
+
+    if options.fastq_reads_2 is not None and options.fastq_reads_2.endswith('.gz'):
+        parser.error("Read 2 file cannot be gzipped (see --help)")
 
     if not os.path.exists(working_dir):
         os.mkdir(working_dir)
