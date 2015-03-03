@@ -1019,7 +1019,7 @@ class EM(object):
             cat_cmd = "cat "
 
         # these are used for single reads too.
-        shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 128"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
+        shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 512"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
 
         minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
         maxins = self.insert_mean + 3*self.insert_sd
@@ -1244,11 +1244,11 @@ def do_initial_mapping(em, working_dir, options):
     # PAIRED END MAPPING
     if options.fastq_reads_2 is not None:
         option_strings.extend([minins, maxins, options.bowtie_db, options.fastq_reads_2, samtools_cmd, bampath_prefix])
-        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 --minins %s --maxins %s %s -1 - -2 %s | %s > %s.u.bam """%tuple(option_strings)
+        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 512 --minins %s --maxins %s %s -1 - -2 %s | %s > %s.u.bam """%tuple(option_strings)
     # SINGLE END MAPPING
     else:
         option_strings.extend([options.bowtie_db, samtools_cmd, bampath_prefix])
-        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128  %s - | %s > %s.u.bam """%tuple(option_strings)
+        cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 512  %s - | %s > %s.u.bam """%tuple(option_strings)
 
     sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
     p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
