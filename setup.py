@@ -1,45 +1,108 @@
-# typical compilation (perhaps as root or sudo, see README.txt):
-# python setup.py build
-# python setup.py install
+#!/usr/bin/env python
 
-# To build in current working directory:
-# python setup.py build_ext --inplace
+try:
+    from setuptools import setup
+except ImportError:
+    from distutils.core import setup
 
-from distutils.core import setup
 from distutils.extension import Extension
-from Cython.Distutils import build_ext
 
-from numpy import get_include
-numpy_include_dir = get_include()
 
-ext_modules = [Extension("pykseq", ["./pykseq/pykseq.pyx"], libraries=["z"],
-                         include_dirs=['./pykseq'],
-                         library_dirs=['./pykseq']),
-               Extension("_emirge", ["_emirge.pyx"],
-                         include_dirs=[numpy_include_dir],
-                         extra_compile_args=["-O3"]),
-               Extension("_emirge_amplicon", ["_emirge_amplicon.pyx"],
-                         include_dirs=[numpy_include_dir, './pykseq'],
-                         libraries=["z"], library_dirs = ['./pykseq'],
-                         extra_compile_args=["-O3"])]
+# class to evaluate a list lazily (to defer numpy/cython)
+class lazy_eval_list(list):
+    def __init__(self, callback):
+        self._list, self.callback = None, callback
+
+    def c_list(self):
+        if self._list is None:
+            self._list = self.callback()
+        return self._list
+
+    def __iter__(self):
+        for e in self.c_list():
+            yield e
+
+    def __getitem__(self, ii):
+        return self.c_list()[ii]
+
+    def __len__(self):
+        return len(self.c_list())
+
+
+def extensions():
+    from Cython.Build import cythonize
+    from numpy import get_include
+    numpy_include_dir = get_include()
+    ext_modules = [
+        Extension("pykseq", ["pykseq/*.pyx"],
+                  libraries=["z"],
+                  include_dirs=['pykseq/'],
+                  library_dirs=['pykseq/']),
+        Extension("_emirge", ["_emirge.pyx"],
+                  include_dirs=[numpy_include_dir],
+                  extra_compile_args=["-O3"]),
+        Extension("_emirge_amplicon", ["_emirge_amplicon.pyx"],
+                  libraries=["z"],
+                  include_dirs=[numpy_include_dir, './pykseq'],
+                  library_dirs=['./pykseq'],
+                  extra_compile_args=["-O3"])
+    ]
+    return cythonize(ext_modules)
 
 setup(
-    name = 'EMIRGE',
-    description = 'EMIRGE reconstructs full length sequences from short sequencing reads',
-    cmdclass = {'build_ext': build_ext},
-    ext_modules = ext_modules,
+    name='EMIRGE',
+    version="0.5.1",
+    description="EMIRGE reconstructs full length sequences from short sequencing reads",
+    long_description="""
+    EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes
+            from the Environment
 
-    scripts = ["emirge.py",
-               "emirge_amplicon.py",
-               "emirge_rename_fasta.py"],
+    EMIRGE reconstructs full length ribosomal genes from short read
+    sequencing data.  In the process, it also provides estimates of the
+    sequences' abundances.
 
+    EMIRGE uses a modification of the EM algorithm to iterate between
+    estimating the expected value of the abundance of all SSU sequences
+    present in a sample and estimating the probabilities for each read
+    that a specific sequence generated that read.  At the end of each
+    iteration, those probabilities are used to re-calculate (correct) a
+    consensus sequence for each reference SSU sequence, and the mapping is
+    repeated, followed by the estimations of probabilities.  The
+    iterations should usually stop when the reference sequences no longer
+    change from one iteration to the next.  Practically, 40-80 iterations is
+    usually sufficient for many samples.  Right now EMIRGE uses Bowtie
+    alignments internally, though in theory a different mapper could be
+    used.
+
+    EMIRGE was designed for Illumina reads in FASTQ format, from pipeline
+    version >= 1.3
+
+    """,
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Environment :: Console",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
+        "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+        "Operating System :: POSIX",
+        "Programming Language :: Cython",
+        "Programming Language :: Python :: 2.7",
+        "Topic :: Scientific/Engineering :: Bio-Informatics",
+    ],
     author="Christopher Miller",
     author_email="christopher.s.miller@ucdenver.edu",
-    version="0.5.0",
-    license="GPLv3",
+    url="https://github.com/csmiller/EMIRGE",
+    scripts=["emirge.py",
+             "emirge_amplicon.py",
+             "emirge_rename_fasta.py"],
+    ext_modules=lazy_eval_list(extensions),
+    license="GPLv3+",
+    keywords=["rRNA", "EM"],
+    install_requires=["Cython", "numpy", "pysam", "scipy"],
+    setup_requires=["Cython", "numpy"]
 )
 
 print ""
 print "NOTE:"
-print "To download a standard candidate SSU database to use with EMIRGE, run the script"
+print "To download a standard candidate SSU database to use with EMIRGE, run"
 print "python emirge_download_candidate_db.py"

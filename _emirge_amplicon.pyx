@@ -35,7 +35,7 @@ from time import ctime, time
 from datetime import timedelta
 import pysam
 # cimport ctrie
-cimport pykseq
+from pykseq cimport pykseq
 
 # for lookup table of qual values
 cdef extern from *:

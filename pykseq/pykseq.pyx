@@ -10,18 +10,16 @@ csmiller@gmail.com
 
 """
 
-import sys
-cimport kseq
-from libc.stdio cimport FILE, fopen, fclose, fread, const_char
-from zlib cimport gzFile, gzopen, gzclose, gzrewind
 
 cdef class Kseq:
     def __cinit__(self, char *filename):
         self._c_file = gzopen(filename, 'r')
         self.seq = kseq.kseq_init(self._c_file); # initialize seq
+
     def __dealloc__(self):
         if self._c_file is not NULL:
             gzclose(self._c_file)
+
     def read_sequence(self):
         """
         read a single sequence and return a tuple:
@@ -35,6 +33,7 @@ cdef class Kseq:
             raise ValueError, "Kseq raised exception for read  %s"%(self.seq.name.s)
         else:
             return (self.seq.name.s, self.seq.seq.s)
+
     cdef kseq.kseq_t* c_read_sequence(self):
         """
         read a single sequence, and return pointer to active kseq or null if no more seqs to read.
@@ -78,9 +77,11 @@ cdef class Kseq:
         """
         self.rewind()
         l = []
-        while (kseq.kseq_read(self.seq) >= 0):  # returns length, so as long as >= 0, we're still getting seqs
+        while (kseq.kseq_read(self.seq) >= 0):
+            # returns length, so as long as >= 0, we're still getting seqs
             l.append((self.seq.name.s, self.seq.seq.s))
         return l
+
     def get_name_length_tuples(self):
         """
         returns all sequences as a list of tuples:
@@ -88,9 +89,11 @@ cdef class Kseq:
         """
         self.rewind()
         l = []
-        while (kseq.kseq_read(self.seq) >= 0):  # returns length, so as long as >= 0, we're still getting seqs
+        while (kseq.kseq_read(self.seq) >= 0):
+            # returns length, so as long as >= 0, we're still getting seqs
             l.append((self.seq.name.s, self.seq.seq.l))
         return l
+
     cpdef rewind(self):
         gzrewind(self._c_file)
         kseq.kseq_rewind(self.seq)
