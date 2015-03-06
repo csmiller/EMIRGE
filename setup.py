@@ -98,7 +98,7 @@ setup(
     ext_modules=lazy_eval_list(extensions),
     license="GPLv3+",
     keywords=["rRNA", "EM"],
-    install_requires=["Cython", "numpy", "pysam", "scipy"],
+    install_requires=["Cython", "numpy", "pysam", "scipy", "biopython"],
     setup_requires=["Cython", "numpy"]
 )
 
