@@ -1021,7 +1021,8 @@ class EM(object):
         # these are used for single reads too.
         shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 512"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
 
-        minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
+        # minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length) # this was to keep "dovetailing" (overlapping reads that extend past each other) reads from mapping, but causes problems with modern overlapped reads common on MiSeq, etc.  Goal was to keep adapter sequence bases out of EMIRGE's view.
+        minins = max((self.insert_mean - 3*self.insert_sd), 0) # Puts burden on user to make sure there are no adapter sequences in input reads. 
         maxins = self.insert_mean + 3*self.insert_sd
         output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
         output_filename = "%s.PE.u.bam"%output_prefix
@@ -1225,7 +1226,8 @@ def do_initial_mapping(em, working_dir, options):
     if not os.path.exists(initial_mapping_dir):
         os.mkdir(initial_mapping_dir)
 
-    minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length)
+    # minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length) # see comments above.  This assumes there might be adapter sequence in dovetailed reads
+    minins = max((options.insert_mean - 3*options.insert_stddev), 0) # Puts burden on user to make sure there are no adapter sequences in input reads. 
     maxins = options.insert_mean + 3*options.insert_stddev
     bampath_prefix = os.path.join(initial_mapping_dir, "initial_bowtie_mapping.PE")
 
