@@ -59,6 +59,11 @@ from datetime import timedelta
 import gzip
 import cPickle
 import _emirge_amplicon as _emirge
+from Bio import SeqIO, Seq
+from gzip import GzipFile
+import biom
+#from emirge_rename_fasta import rename, replace_with_Ns
+
 # from ctrie import Trie
 # from pykseq import Kseq
 
@@ -120,6 +125,8 @@ class EM(object):
     def __init__(self, reads1_filepath, reads2_filepath,
                  insert_mean,
                  insert_sd,
+                 output_files_prefix,
+                 cov_thresh,
                  n_cpus = 1,
                  cwd = os.getcwd(), max_read_length = 76,
                  iterdir_prefix = "iter.", cluster_thresh = 0.97,
@@ -136,6 +143,7 @@ class EM(object):
         self.reads2_filepath = reads2_filepath
         self.insert_mean = insert_mean
         self.insert_sd = insert_sd
+        self.output_files_prefix = output_files_prefix  #add output_files_prefix to init args where output_files_prefix = options.output_files_prefix
         self.n_cpus = n_cpus
         self.mapping_nice   = mapping_nice
         self.reads_ascii_offset = reads_ascii_offset
@@ -182,6 +190,13 @@ class EM(object):
         self.snp_percentage_thresh = 0.10      # if >= this percentage of bases are minor alleles (according to self.snp_minor_prob_thresh),
                                                # then split this sequence into two sequences.
 
+
+        self.cov_thresh = cov_thresh #add to init args where cov_thresh=options.min_coverage_threshold
+
+        if self.reads2_filepath == None:
+            self.paired_end = False
+        else:
+            self.paired_end = True
 
         # rewrite reads for index mapping, set self.n_reads
         self.temporary_files = [] # to remove at end of run
@@ -432,6 +447,7 @@ class EM(object):
         # now write a new fasta file.  Cull sequences below self.min_depth
         consensus_filename = os.path.join(self.iterdir, "iter.%02d.cons.fasta"%(self.iteration_i))
         self.write_consensus(consensus_filename)    # culls and splits
+        #if self.iteration_i == self.max_iterations:
         self.cluster_sequences(consensus_filename)  # merges sequences that have evolved to be the same (USEARCH)
 
         # leave a few things around for later.  Note that print_priors also leaves sequence_name2sequence_i mapping, basically.
@@ -774,7 +790,8 @@ class EM(object):
         """
         if self._VERBOSE:
             sys.stderr.write("Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            sys.stderr.write("\tcluster threshold = %.3f\n"%(self.cluster_thresh))
+            #sys.stderr.write("\tcluster threshold = %.3f\n"%(self.cluster_thresh))
+            sys.stderr.write("cluster threshold = 100.00%")  # Hard threshold in place for EMIRGE2.  cluster_thresh from -j flag is now applied only in post-processing steps
             start_time = time()
         tocleanup = []                  # list of temporary files to remove after done
 
@@ -796,10 +813,15 @@ class EM(object):
         # and I use different parameters depending on how many input sequences there are
         # Also, I use a lower %ID thresh than specified for joining because I really calculate %ID over *mapped* sequence positions.
 
+        #sens_string = "--maxaccepts 8 --maxrejects 256"
+        #if self.iteration_i == self.max_iterations:
+        #        uclust_id=0.80
+        #else:
+        #        uclust_id=1.0
         sens_string = "--maxaccepts 8 --maxrejects 256"
         uclust_id = 0.80
         algorithm="-usearch_global"
-        # uclust_id = self.cluster_thresh - 0.05
+
 
         # if em.iteration_i > 10:
         # num_seqs = len([x for x in self.probN if x is not None])
@@ -877,7 +899,8 @@ class EM(object):
             member_n_mapped_bases = self.unmapped_bases[member_seq_id].shape[0] - self.unmapped_bases[member_seq_id].sum()
 
             if (aln_columns < 500) \
-                   or ((float(matches) / aln_columns) < self.cluster_thresh):
+                   or ((float(matches) / aln_columns) < 1.0):  # Fixed merging threshold for EMIRGE2.  During iterations only merge seqs that are 100% identical. Rest are cleaned up in post-processing steps.
+                    #or ((float(matches) / aln_columns) < self.cluster_thresh):
                    # or (float(aln_columns) / min(seed_n_mapped_bases, member_n_mapped_bases) < 0.9)
                 continue
 
@@ -1057,6 +1080,8 @@ class EM(object):
         p.wait()
         stderr_string = p.stderr.read()
         self.n_alignments = self.get_n_alignments_from_bowtie(stderr_string)
+        self.fragments_mapped = self.get_frags_mapped(stderr_string)
+
         # re-print this to stdout, since we stole it from bowtie
         sys.stdout.write(stderr_string)
         sys.stdout.flush()
@@ -1112,6 +1137,15 @@ class EM(object):
             print >> sys.stderr, r
             raise
 
+    def get_frags_mapped(self,stderr_string):
+        try:
+            r = re.findall(r'reported alignment: ([0-9]+)', stderr_string)
+            return int(r[0])
+        except IndexError:
+            print >> sys.stderr, "OOPS, we didn't get number of reads from bowtie:"
+            print >> sys.stderr, stderr_string
+            print >> sys.stderr, r
+            raise
 
     def calc_likelihoods(self):
         """
@@ -1129,6 +1163,7 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("DONE Calculating likelihood for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
         return
+
     def calc_probN(self):
         """
         Pr(N=n)
@@ -1171,6 +1206,110 @@ class EM(object):
 
         return False
 
+    def calc_cutoff_threshold(self): #done at the end of the final iteration
+        """
+        calculate the minimum abundance that will represent average coverage specified in cov_thresh (default will be 20X)
+        this value is used in post-processing steps to filter final EMIRGE fasta file
+        """
+        self.final_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.max_iterations))
+        bam_filename = [fn for fn in os.listdir(self.final_iterdir) if fn.endswith('.bam') and fn.startswith("bowtie.iter.%02d"%self.max_iterations)]
+        assert len(bam_filename) == 1, "ERROR: more than one valid bam file found in %s"%(self.final_iterdir)
+        bam_filename = os.path.join(self.final_iterdir, bam_filename[0])
+        bamfile = pysam.Samfile(bam_filename, "rb")
+        self.avg_emirge_seq_length = numpy.mean(bamfile.lengths)
+        read_lengths = []
+        seen = set()
+        limit = 100000
+        for alignedread in bamfile:
+            if len(read_lengths) >= limit:
+                break
+        unique_str = alignedread.qname+'_'+str(int(alignedread.is_read1))
+        if unique_str not in seen:
+            read_lengths.append(alignedread.alen)
+            seen.add(unique_str)
+
+        self.avg_read_length = numpy.mean(read_lengths)
+        sys.stderr.write("Average read length is %.4d\n"%self.avg_read_length)
+        sys.stderr.write("Average EMIRGE sequence length is %.5d\n"%self.avg_emirge_seq_length)
+        sys.stderr.write("Fragments mapped = %.9d\n"%self.fragments_mapped)
+        self.prob_min = (self.avg_emirge_seq_length*float(self.cov_thresh)) / (self.fragments_mapped*((int(self.paired_end)+1)*self.avg_read_length))
+        return
+
+    def rename(self, output_file_handle,no_N = False, no_trim_N = True, filter_N=False):  # need to import this and next function rather than copy them in, in meantime, it works.
+        """
+        Adapted from emirge_prep_qiime_input.py
+        """
+        record_prefix = self.output_files_prefix+'_'
+    # if prob_min is None:
+        #    prob_min = -1
+        current_iter = int(self.max_iterations)
+        prior_file = file(os.path.join(self.final_iterdir, 'priors.iter.%02d.txt'%current_iter))
+        probN_filename = os.path.join(self.final_iterdir, 'probN.pkl.gz')
+        probN = cPickle.load(GzipFile(probN_filename))
+
+        sys.stderr.write (self.final_iterdir)
+
+        name2seq_i = {}
+        name2prior = {}
+        name2normed_prior = {}  # normed by length of sequences
+        for line in prior_file:
+            atoms = line.split()
+            name2seq_i[atoms[1]] = int(atoms[0])
+            name2prior[atoms[1]] = atoms[2]
+
+        sorted_records = []
+        for record in SeqIO.parse(file(os.path.join(self.final_iterdir, "iter.%02d.cons.fasta"%current_iter)), "fasta"):
+            name = record.description.split()[0]
+            record.id = "%s%d|%s"%(record_prefix, name2seq_i[name], name)
+            if not no_N:
+                record.seq = self.replace_with_Ns(probN, name2seq_i[name], record.seq, not no_trim_N)
+                if filter_N and 'N' in record.seq:
+                    continue
+                if len(record.seq) == 0:
+                    continue
+            record.description = ""
+            p = float(name2prior[name])
+            if p == 0:
+                continue
+            sorted_records.append((p, record))
+
+        # normalize priors by length
+        sum_lengths = sum(len(record.seq) for prior, record in sorted_records)
+        normed_priors = [prior/ len(record.seq) for prior, record in sorted_records]
+        sum_norm = float(sum(normed_priors))
+        normed_priors = [x/sum_norm for x in normed_priors]
+        for i, (prior, record) in enumerate(sorted_records):
+            record.description = "Prior=%06f Length=%d NormPrior=%06f"%(prior, len(record.seq), normed_priors[i])
+
+        for prior, record in sorted(sorted_records, reverse=True):
+            if prior < -1:
+                break
+            output_file_handle.write(record.format('fasta'))
+        return
+
+    def replace_with_Ns(self, probN, seq_i, seq, trim_N = True):
+        """
+        IN:  probN matrix, seq_i for sequence, seq (BioPython Seq object)
+        OUT: returns the sequence where bases with no read support are replaced with "N", and terminal N's are trimmed
+        """
+        DEFAULT_ERROR = 0.05
+        default_probN = 1.0 - DEFAULT_ERROR
+
+        try:
+            this_probN = probN[seq_i]
+        except:
+            print >> sys.stderr, seq_i, len(probN)
+            raise
+
+        indices = numpy.where(numpy.max(this_probN, axis=1) == default_probN)
+        newseq = numpy.array(str(seq), dtype='c')
+        newseq[indices] = 'N'
+        newseq = ''.join(newseq)
+        if trim_N:
+            newseq = newseq.strip("N")
+        return Seq.Seq(newseq)
+
+
 def do_iterations(em, max_iter, save_every):
     """
     an EM object is passed in, so that one could in theory start from a saved state
@@ -1192,7 +1331,9 @@ def do_iterations(em, max_iter, save_every):
         # if em.iteration_i > 0 and (em.iteration_i % save_every == 0):
         #     filename = em.save_state()
         #     os.system("bzip2 -f %s &"%(filename))
-
+    if em.iteration_i == max_iter:
+        #post_process(em)
+        em.calc_cutoff_threshold()
     # clean up any global temporary files, i.e. rewritten reads files
     for filename in em.temporary_files:
         os.remove(filename)
@@ -1304,6 +1445,69 @@ def resume(working_dir, options):
     do_iterations(em, max_iter = options.iterations, save_every = options.save_every)
     return
 
+
+def post_process(self,working_dir):
+    """ Do all the postprocessing for the EMIRGE run, producing a fasta file of all EMIRGE sequences produced that meet the estimated abundance threshold to achieve an
+    estimated average coverage of 20X (default) or other user specified value.  Also produces a raw file of all EMIRGE sequences produced, but not recommended to be used
+    in later analyses.  Final clustering is performed at 97% ID (default) but can be changed with the '-j' flag.
+    """
+
+    #first need to do rename(em) with no probmin - keeping all sequences for clustering and writing out the raw output file
+    nomin_fasta_filename = os.path.join(working_dir, self.output_files_prefix+"_nomin_iter."'%02d'%self.max_iterations +".RAW.fasta")
+    if os.path.exists(nomin_fasta_filename):
+        sys.stderr.write("WARNING: overwriting file %s\n" %nomin_fasta_filename)
+    nomin_file_handle = open(nomin_fasta_filename, 'w')
+    self.rename(nomin_file_handle,no_N = False, no_trim_N = True,filter_N=False)
+
+    #next need to cluster using usearch at the user specified threshold, default =0.97
+    centroids=os.path.join(working_dir,"centroids.tmp")
+    uc=os.path.join(working_dir,"uc.tmp")
+    cmd = "usearch --cluster_smallmem %s -usersort -id %.2f -centroids %s -uc %s "%(nomin_fasta_filename,self.cluster_thresh,centroids,uc)
+    if self._VERBOSE:
+            sys.stderr.write("usearch command was:\n%s\n"%(cmd))
+
+    check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+
+    #now meging cluster abundances and writing out the fasta file with merged abundancance over cutoff
+    sys.stderr.write("Minimum abundance for estimated %.2dX coverage is %.6f\n"%(self.cov_thresh,self.prob_min))
+    clustered_fasta=os.path.join(working_dir,self.output_files_prefix+"_iter."'%02d'%self.max_iterations+"_"'%.6f'%self.prob_min+".fasta")
+    outfile=open(clustered_fasta,'w')
+    size_pattern = re.compile(r'NormPrior=([0-9\.]+)')
+    cluster_sizes = {}
+    for line in open(uc,'r'):
+        atoms = line.strip().split('\t')
+        if atoms[0] == 'S':  # seed
+            # get seed size, add to current cluster size
+            cluster_sizes[atoms[8]] = cluster_sizes.get(atoms[8], 0) + float(size_pattern.search(atoms[8]).groups()[0])
+        elif atoms[0] == 'H':  # hit
+            # get hit size, add to current cluster size
+            cluster_sizes[atoms[9]] = cluster_sizes.get(atoms[9], 0) + float(size_pattern.search(atoms[8]).groups()[0])
+        elif atoms[0] == 'C':
+            break
+        else:
+            raise ValueError, "Unknown code in uc file: %s"%atoms[0]
+
+    repl_pattern = re.compile(r'NormPrior=([0-9\.]+)')
+    good_ids={}
+    for line in open(centroids,'r'):
+        if line.startswith('>'):
+            ID=line.strip().split(">")[1]
+            if cluster_sizes[ID] >= self.prob_min:
+                good_ids[ID]=((repl_pattern.sub('comb_abund=%f'%cluster_sizes[ID], line)))  # collect IDs of those sequences whose combined cluster abundance is over the calculated 20X threshold from calc_cutoff
+
+    for record in SeqIO.parse(open(centroids,'r'),'fasta'):
+        if record.description in good_ids:
+            atoms=good_ids[record.description].strip(">").split(" ")
+            record.id=atoms[0]
+            record.description=" ".join(atoms[1:])
+            SeqIO.write(record,outfile,'fasta')
+
+    outfile.close()
+    os.remove(centroids)
+    os.remove(uc)
+    return
+
+
 def dependency_check():
     """
     check presense, versions of programs used in emirge
@@ -1355,6 +1559,9 @@ def main(argv = sys.argv[1:]):
     group_reqd.add_option("-l", "--max_read_length",
                       type="int", default=0,
                       help="""length of longest read in input data.""")
+    group_reqd.add_option("-o","--output_files_prefix",
+                        type="string", default="EMIRGE",
+                        help="prefix to be used for final output fasta file and EMIRGE sequences reconstructed")
     parser.add_option_group(group_reqd)
 
     # REQUIRED for paired end
@@ -1392,6 +1599,7 @@ def main(argv = sys.argv[1:]):
     group_opt.add_option("-j", "--join_threshold",
                       type="float", default="0.97",
                       help="If two candidate sequences share >= this fractional identity over their bases with mapped reads, then merge the two sequences into one for the next iteration.  (default: %default; valid range: [0.95, 1.0] ) ")
+
     # DEPRECIATED
     # group_opt.add_option("-c", "--min_depth",
     #                   type="float",
@@ -1410,6 +1618,10 @@ def main(argv = sys.argv[1:]):
     group_opt.add_option("--phred33",
                          action="store_true", default=False,
                          help="Illumina quality values in fastq files are the (fastq standard) ascii offset of Phred+33.  This is the new default for Illumina pipeline >= 1.8. DEFAULT is still to assume that quality scores are Phred+64")
+
+    group_opt.add_option('-t', '--min_coverage_threshold',
+                           type='int', default='20',
+                           help="Expected minimum depth coverage.  Sequences are only included in output FASTA files if their expected coverage is greater than this value (calculated based on EMIRGE-estimated abundance and total number of reads mapped).  Default: %default")
 
     # --- HIDDEN --- for debugging or special use case
 
@@ -1536,6 +1748,8 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             reads2_filepath = options.fastq_reads_2,
             insert_mean = options.insert_mean,
             insert_sd   = options.insert_stddev,
+            output_files_prefix=options.output_files_prefix,
+            cov_thresh=options.min_coverage_threshold,
             max_read_length = options.max_read_length,
             cluster_thresh = options.join_threshold,
             n_cpus = options.processors,
@@ -1568,6 +1782,9 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
     # BEGIN ITERATIONS
     do_iterations(em, max_iter = options.iterations, save_every = None)
+
+    # WRITE THE OUTPUT FASTA FILES- renames and writes raw file and file with only seqs having estimated coverage over specified threshold (default=20X)
+    post_process(em,working_dir)
 
     sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"%(ctime(), timedelta(seconds = time()-total_start_time)))
 
