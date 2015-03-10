@@ -142,7 +142,7 @@ class EM(object):
         self.cwd = cwd
         self.max_read_length = max_read_length
         self.iterdir_prefix = iterdir_prefix
-        self.cluster_thresh = cluster_thresh   # if two sequences evolve to be >= cluster_thresh identical (via usearch), then merge them. [0, 1.0]
+        self.cluster_thresh = cluster_thresh   # if two sequences evolve to be >= cluster_thresh identical (via vsearch), then merge them. [0, 1.0]
         assert self.cluster_thresh >= 0 and self.cluster_thresh <= 1.0
         self.expected_coverage_thresh = expected_coverage_thresh
 
@@ -758,7 +758,7 @@ class EM(object):
           mask == "hard"  --> N
           mask == "soft"  --> lowercase letters
         If masking with soft bases, use reference_fastafilename for bases to use for unmapped bases.
-        this is useful prior to usearch clustering.
+        this is useful prior to vsearch clustering.
 
         OUT: number of sequences processed
         """
@@ -815,7 +815,6 @@ class EM(object):
 
         also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after merging.
 
-        only supports usearch version > 6, as the command line substantially changed in this version.
         """
         if self._VERBOSE:
             sys.stderr.write("Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
@@ -832,7 +831,7 @@ class EM(object):
         tocleanup.append("%s.fai"%(tmp_fastafilename))
         # do global alignments with USEARCH/UCLUST.
         # I don't use --cluster because it doesn't report alignments
-        # usearch is fast but will sometimes miss things -- I've tried to tune params as best as I can.
+        # vsearch is fast but will sometimes miss things -- I've tried to tune params as best as I can.
         # Also, I use a lower %ID thresh than specified for joining because I really calculate %ID over *mapped* sequence positions.
 
         sens_string = "--maxaccepts 8 --maxrejects 256"
@@ -848,25 +847,25 @@ class EM(object):
         if num_seqs < 500:
             sens_string = "--maxaccepts 32 --maxrejects 256"
         if num_seqs < 150:
-            algorithm="-search_global"
+            algorithm="-usearch_global"
             sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
         # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
         if num_seqs < 50:
-            algorithm="-search_global"
+            algorithm="-usearch_global"
             sens_string = "-fulldp"
 
-        # there is a bug in usearch threads that I can't figure out (fails with many threads).  Currently limiting to max 6 threads
-        usearch_threads = min(6, self.n_cpus)
-        cmd = "usearch %s %s --db %s --id %.3f -quicksort -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
+        # there is a bug in vsearch threads that I can't figure out (fails with many threads).  Currently limiting to max 6 threads
+        vsearch_threads = min(6, self.n_cpus)
+        cmd = "vsearch %s %s --db %s --id %.3f -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
               (algorithm,
                tmp_fastafilename, tmp_fastafilename,
                uclust_id,
                tmp_fastafilename,
-               usearch_threads,
+               vsearch_threads,
                sens_string)
 
         if self._VERBOSE:
-            sys.stderr.write("usearch command was:\n%s\n"%(cmd))
+            sys.stderr.write("vsearch command was:\n%s\n"%(cmd))
 
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
@@ -884,7 +883,7 @@ class EM(object):
             member_name = row[0]
             seed_name = row[1]
             if member_name == seed_name:
-                continue # usearch allows self-hits, which we don't care about
+                continue # vsearch allows self-hits, which we don't care about
             member_seq_id = self.sequence_name2sequence_i[-1].get(member_name)
             seed_seq_id = self.sequence_name2sequence_i[-1].get(seed_name)
             if member_seq_id in already_removed or seed_seq_id in already_removed:
@@ -897,7 +896,7 @@ class EM(object):
             seed_unmapped = self.unmapped_bases[seed_seq_id]
             # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
             #   0     1     2   3   4   5  6    7
-            member_start = int(row[4]) - 1   # printed as 1-based by usearch now
+            member_start = int(row[4]) - 1   # printed as 1-based by vsearch now
             seed_start   = int(row[6]) - 1
 
             t0 = time()
@@ -1492,26 +1491,26 @@ def do_initial_mapping(working_dir, options):
 def dependency_check():
     """
     check presense, versions of programs used in emirge
-    TODO: right now just checking usearch, as the command line params
+    TODO: right now just checking vsearch, as the command line params
     and behavior are finicky and seem to change from version to
     version
     """
-    # usearch
-    working_maj = 6
-    working_minor = 0
-    working_minor_minor = 203
-    match = re.search(r'usearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
+    # vsearch
+    working_maj = 1
+    working_minor = 1
+    working_minor_minor = 0
+    match = re.search(r'vsearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("vsearch --version", shell=True, stdout=PIPE).stdout.read())
     if match is None:
-        print >> sys.stderr, "FATAL: usearch not found in path!"
+        print >> sys.stderr, "FATAL: vsearch not found in path!"
         exit(0)
-    binary_name, usearch_major, usearch_minor, usearch_minor_minor = match.groups()
-    usearch_major = int(usearch_major)
-    usearch_minor = int(usearch_minor)
-    usearch_minor_minor = int(usearch_minor_minor)
-    if usearch_major < working_maj or \
-       (usearch_major == working_maj and (usearch_minor < working_minor or \
-                                          (usearch_minor == working_minor and usearch_minor_minor < working_minor_minor))):
-        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nusearch has different command line arguments and minor bugs in previous versions that can cause problems."%(usearch_major, usearch_minor, usearch_minor_minor, working_maj, working_minor, working_minor_minor)
+    binary_name, vsearch_major, vsearch_minor, vsearch_minor_minor = match.groups()
+    vsearch_major = int(vsearch_major)
+    vsearch_minor = int(vsearch_minor)
+    vsearch_minor_minor = int(vsearch_minor_minor)
+    if vsearch_major < working_maj or \
+       (vsearch_major == working_maj and (vsearch_minor < working_minor or \
+                                          (vsearch_minor == working_minor and vsearch_minor_minor < working_minor_minor))):
+        print >> sys.stderr, "FATAL: vsearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nvsearch has different command line arguments and minor bugs in previous versions that can cause problems."%(vsearch_major, vsearch_minor, vsearch_minor_minor, working_maj, working_minor, working_minor_minor)
         exit(0)
     return
 
