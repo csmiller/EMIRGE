@@ -58,14 +58,9 @@ from time import ctime, time
 from datetime import timedelta
 import gzip
 import cPickle
-import _emirge_amplicon as _emirge
+import Emirge.amplicon as _emirge
 from Bio import SeqIO, Seq
 from gzip import GzipFile
-import biom
-#from emirge_rename_fasta import rename, replace_with_Ns
-
-# from ctrie import Trie
-# from pykseq import Kseq
 
 BOWTIE_l = 20
 BOWTIE_e  = 300

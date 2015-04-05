@@ -7,6 +7,14 @@ except ImportError:
 
 from distutils.extension import Extension
 
+#def clean_cython(mod):
+#    torm = [ modname[:-3] + ext
+#             for modname in ext.sources
+#             for ext in ('c','cpp','so')
+#             if modname.endswith('.pyx') ]
+#    for f in torm:
+#        if os.path.exists(f):
+#            os.unlink(f)
 
 # class to evaluate a list lazily (to defer numpy/cython)
 class lazy_eval_list(list):
@@ -34,24 +42,25 @@ def extensions():
     from numpy import get_include
     numpy_include_dir = get_include()
     ext_modules = [
-        Extension("pykseq", ["pykseq/*.pyx"],
-                  libraries=["z"],
-                  include_dirs=['pykseq/'],
-                  library_dirs=['pykseq/']),
-        Extension("_emirge", ["_emirge.pyx"],
-                  include_dirs=[numpy_include_dir],
-                  extra_compile_args=["-O3"]),
-        Extension("_emirge_amplicon", ["_emirge_amplicon.pyx"],
-                  libraries=["z"],
-                  include_dirs=[numpy_include_dir, './pykseq'],
-                  library_dirs=['./pykseq'],
-                  extra_compile_args=["-O3"])
+        Extension("*", ["Emirge/*.pyx"],
+                  include_dirs=[numpy_include_dir, "Emirge/"],
+                  )
+#        Extension("emirge.pykseq", ["emirge/pykseq.pyx"],
+#                  include_dirs=['./emirge/']),
+#        Extension("_emirge", ["_emirge.pyx"],
+#                  include_dirs=[numpy_include_dir],
+#                  extra_compile_args=["-O3"]),
+#        Extension("_emirge_amplicon", ["_emirge_amplicon.pyx"],
+#                  libraries=["z"],
+#                  include_dirs=[numpy_include_dir, './pykseq'],
+#                  library_dirs=['./pykseq'],
+#                  extra_compile_args=["-O3"])
     ]
     return cythonize(ext_modules)
 
 setup(
     name='EMIRGE',
-    version="0.5.1",
+    version="0.6.1",
     description="EMIRGE reconstructs full length sequences from short sequencing reads",
     long_description="""
     EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes
@@ -106,3 +115,5 @@ print ""
 print "NOTE:"
 print "To download a standard candidate SSU database to use with EMIRGE, run"
 print "python emirge_download_candidate_db.py"
+
+

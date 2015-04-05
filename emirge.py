@@ -59,7 +59,7 @@ from time import ctime, time
 from datetime import timedelta
 import gzip
 import cPickle
-import _emirge
+import Emirge.common as _emirge
 
 BOWTIE_l = 20
 BOWTIE_e  = 300

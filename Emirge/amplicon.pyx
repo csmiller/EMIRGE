@@ -35,12 +35,14 @@ from time import ctime, time
 from datetime import timedelta
 import pysam
 # cimport ctrie
-from pykseq cimport pykseq
+cimport pykseq
+
 
 # for lookup table of qual values
 cdef extern from *:
     ctypedef double* static_const_double_ptr "static const double*"
-cdef extern from "_emirge_C.h":
+    
+cdef extern from "tables.h":
     static_const_double_ptr qual2one_minus_p   # lookup tables to avoid too many double calcs.
     static_const_double_ptr qual2p_div_3
 
