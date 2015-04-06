@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 
+import sys
+
 try:
     from setuptools import setup
 except ImportError:
-    from distutils.core import setup
+    sys.exit("EMIRGE requires \"setuptools\" for installation.")
 
 from distutils.extension import Extension
 
