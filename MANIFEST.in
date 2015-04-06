@@ -1,1 +1,2 @@
 include Emirge/kseq.h
+include LICENSE.txt
