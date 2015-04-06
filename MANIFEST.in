@@ -1,2 +1,3 @@
 include Emirge/kseq.h
+include Emirge/tables.h
 include LICENSE.txt
