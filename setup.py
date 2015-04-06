@@ -24,9 +24,7 @@ import shutil
 import pkg_resources
 from os.path import join as pjoin
 
-
-version = '0.6.2a5'
-
+version = '0.6.2a7'
 
 try:
     from Cython.Distutils import build_ext as _build_ext
@@ -46,6 +44,7 @@ class build_ext(_build_ext):
 
 class CheckingBuildExt(build_ext):
     """Subclass build_ext to get clearer report if Cython is necessary."""
+
     def check_cython_extensions(self, extensions):
         for ext in extensions:
             for src in ext.sources:
@@ -115,7 +114,7 @@ class CleanCommand(Command):
         self._clean_trees = []
         self._clean_exclude = []
 
-        for root, dirs, files in list(os.walk('rlpy')):
+        for root, dirs, files in list(os.walk('Emirge')):
             for f in files:
                 if f in self._clean_exclude:
                     continue
@@ -148,23 +147,15 @@ class CleanCommand(Command):
 
 cmdclass = {'clean': CleanCommand,
             'build': build,
-            'sdist': CheckSDist}
-
+            'sdist': CheckSDist,
+            'build_ext': CheckingBuildExt,
+            }
 
 if cython:
-    suffix = '.pyx'
-    cmdclass['build_ext'] = CheckingBuildExt
     cmdclass['cython'] = CythonCommand
 else:
-    suffix = '.c'
     cmdclass['build_src'] = DummyBuildSrc
-    cmdclass['build_ext'] = CheckingBuildExt
 
-
-# only use Cython if explicitly told
-USE_CYTHON = os.getenv('USE_CYTHON', False)
-# always cythonize if C-files are not present
-USE_CYTHON = not os.path.exists("Emirge/amplicon.c") or USE_CYTHON
 
 extensions = [
     Extension("Emirge.pykseq", ["Emirge/pykseq.pyx"],
@@ -194,11 +185,13 @@ def no_cythonize(extensions, **_ignore):
         extension.sources[:] = sources
     return extensions
 
-if cython:
+
+if cython and os.path.exists("Emirge/amplicon.pyx"):
     from Cython.Build import cythonize
     extensions = cythonize(extensions)
 else:
     extensions = no_cythonize(extensions)
+
 
 setup(
     name='EMIRGE',
