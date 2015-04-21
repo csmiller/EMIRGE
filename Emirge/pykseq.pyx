@@ -1,3 +1,5 @@
+# distutils: libraries = z
+
 """
 For wrapping Heng Li's kseq.h FASTA/FASTQ parser.
 
