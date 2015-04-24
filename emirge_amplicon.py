@@ -61,6 +61,10 @@ import cPickle
 import Emirge.amplicon as _emirge
 from Bio import SeqIO, Seq
 from gzip import GzipFile
+import multiprocessing
+from emirge_rename_fasta import rename, replace_with_Ns
+from Emirge.pykseq import Kseq
+
 
 BOWTIE_l = 20
 BOWTIE_e  = 300
@@ -829,14 +833,12 @@ class EM(object):
             algorithm="-search_global"
             sens_string = "-fulldp"
 
-        # there is a bug in usearch threads that I can't figure out (fails with many threads).  Currently limiting to max 6 threads
-        vsearch_threads = min(6, self.n_cpus)
         cmd = "vsearch %s %s --db %s --id %.3f -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
               (algorithm,
                tmp_fastafilename, tmp_fastafilename,
                uclust_id,
                tmp_fastafilename,
-               vsearch_threads,
+               self.n_cpus,
                sens_string)
 
         if self._VERBOSE:
@@ -1197,108 +1199,24 @@ class EM(object):
 
         return False
 
-    def calc_cutoff_threshold(self): #done at the end of the final iteration
+    def calc_cutoff_threshold(self, max_reads_to_sample = 100000): #done at the end of the final iteration
         """
         calculate the minimum abundance that will represent average coverage specified in cov_thresh (default will be 20X)
         this value is used in post-processing steps to filter final EMIRGE fasta file
         """
         self.final_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.max_iterations))
-        bam_filename = [fn for fn in os.listdir(self.final_iterdir) if fn.endswith('.bam') and fn.startswith("bowtie.iter.%02d"%self.max_iterations)]
+        bam_filename = [fn for fn in (self.final_iterdir) if fn.endswith('.bam') and fn.startswith("bowtie.iter.%02d"%self.max_iterations)]
         assert len(bam_filename) == 1, "ERROR: more than one valid bam file found in %s"%(self.final_iterdir)
         bam_filename = os.path.join(self.final_iterdir, bam_filename[0])
         bamfile = pysam.Samfile(bam_filename, "rb")
         self.avg_emirge_seq_length = numpy.mean(bamfile.lengths)
-        read_lengths = []
-        seen = set()
-        limit = 100000
-        for alignedread in bamfile:
-            if len(read_lengths) >= limit:
-                break
-        unique_str = alignedread.qname+'_'+str(int(alignedread.is_read1))
-        if unique_str not in seen:
-            read_lengths.append(alignedread.alen)
-            seen.add(unique_str)
+        # self.mean_read_length = numpy.mean(self.readlengths)
 
-        self.avg_read_length = numpy.mean(read_lengths)
-        sys.stderr.write("Average read length is %.4d\n"%self.avg_read_length)
+        sys.stderr.write("Average read length is %.4d\n"%self.mean_read_length)
         sys.stderr.write("Average EMIRGE sequence length is %.5d\n"%self.avg_emirge_seq_length)
         sys.stderr.write("Fragments mapped = %.9d\n"%self.fragments_mapped)
-        self.prob_min = (self.avg_emirge_seq_length*float(self.cov_thresh)) / (self.fragments_mapped*((int(self.paired_end)+1)*self.avg_read_length))
+        self.prob_min = (self.avg_emirge_seq_length*float(self.cov_thresh)) / (self.fragments_mapped*((int(self.paired_end)+1)*self.mean_read_length))
         return
-
-    def rename(self, output_file_handle,no_N = False, no_trim_N = True, filter_N=False):  # need to import this and next function rather than copy them in, in meantime, it works.
-        """
-        Adapted from emirge_prep_qiime_input.py
-        """
-        record_prefix = self.output_files_prefix+'_'
-    # if prob_min is None:
-        #    prob_min = -1
-        current_iter = int(self.max_iterations)
-        prior_file = file(os.path.join(self.final_iterdir, 'priors.iter.%02d.txt'%current_iter))
-        probN_filename = os.path.join(self.final_iterdir, 'probN.pkl.gz')
-        probN = cPickle.load(GzipFile(probN_filename))
-
-        sys.stderr.write (self.final_iterdir)
-
-        name2seq_i = {}
-        name2prior = {}
-        name2normed_prior = {}  # normed by length of sequences
-        for line in prior_file:
-            atoms = line.split()
-            name2seq_i[atoms[1]] = int(atoms[0])
-            name2prior[atoms[1]] = atoms[2]
-
-        sorted_records = []
-        for record in SeqIO.parse(file(os.path.join(self.final_iterdir, "iter.%02d.cons.fasta"%current_iter)), "fasta"):
-            name = record.description.split()[0]
-            record.id = "%s%d|%s"%(record_prefix, name2seq_i[name], name)
-            if not no_N:
-                record.seq = self.replace_with_Ns(probN, name2seq_i[name], record.seq, not no_trim_N)
-                if filter_N and 'N' in record.seq:
-                    continue
-                if len(record.seq) == 0:
-                    continue
-            record.description = ""
-            p = float(name2prior[name])
-            if p == 0:
-                continue
-            sorted_records.append((p, record))
-
-        # normalize priors by length
-        sum_lengths = sum(len(record.seq) for prior, record in sorted_records)
-        normed_priors = [prior/ len(record.seq) for prior, record in sorted_records]
-        sum_norm = float(sum(normed_priors))
-        normed_priors = [x/sum_norm for x in normed_priors]
-        for i, (prior, record) in enumerate(sorted_records):
-            record.description = "Prior=%06f Length=%d NormPrior=%06f"%(prior, len(record.seq), normed_priors[i])
-
-        for prior, record in sorted(sorted_records, reverse=True):
-            if prior < -1:
-                break
-            output_file_handle.write(record.format('fasta'))
-        return
-
-    def replace_with_Ns(self, probN, seq_i, seq, trim_N = True):
-        """
-        IN:  probN matrix, seq_i for sequence, seq (BioPython Seq object)
-        OUT: returns the sequence where bases with no read support are replaced with "N", and terminal N's are trimmed
-        """
-        DEFAULT_ERROR = 0.05
-        default_probN = 1.0 - DEFAULT_ERROR
-
-        try:
-            this_probN = probN[seq_i]
-        except:
-            print >> sys.stderr, seq_i, len(probN)
-            raise
-
-        indices = numpy.where(numpy.max(this_probN, axis=1) == default_probN)
-        newseq = numpy.array(str(seq), dtype='c')
-        newseq[indices] = 'N'
-        newseq = ''.join(newseq)
-        if trim_N:
-            newseq = newseq.strip("N")
-        return Seq.Seq(newseq)
 
 
 def do_iterations(em, max_iter, save_every):
@@ -1322,9 +1240,8 @@ def do_iterations(em, max_iter, save_every):
         # if em.iteration_i > 0 and (em.iteration_i % save_every == 0):
         #     filename = em.save_state()
         #     os.system("bzip2 -f %s &"%(filename))
-    if em.iteration_i == max_iter:
-        #post_process(em)
-        em.calc_cutoff_threshold()
+
+    em.calc_cutoff_threshold()
     # clean up any global temporary files, i.e. rewritten reads files
     for filename in em.temporary_files:
         os.remove(filename)
@@ -1345,7 +1262,84 @@ def do_iterations(em, max_iter, save_every):
 
     return
 
+def do_premapping(pre_mapping_dir,options):
+    """
+    Do only if metagenomic reads
+    IN: the metagenomic reads
+    OUT: a new set of reads to be used in the iterations
+    """
+
+    if not os.path.exists(pre_mapping_dir):
+        os.mkdir(pre_mapping_dir)
+
+    nicestring = ""
+    if options.nice_mapping is not None:
+        nicestring = "nice -n %d"%(options.nice_mapping)  # TODO: fix this so it isn't such a hack and will work in non-bash shells.  Need to rewrite all subprocess code, really (s$
+
+    reads_ascii_offset = {False: 64, True: 33}[options.phred33]
+
+    premapSam = os.path.join(pre_mapping_dir, "bowtie_pre_mapping.PE.sam")
+    premap_reads_1=os.path.join(pre_mapping_dir, "pre_mapped_reads.1.fastq")
+    premap_reads_2=os.path.join(pre_mapping_dir, "pre_mapped_reads.2.fastq")
+
+    if options.fastq_reads_1.endswith(".gz"):
+        option_strings = ["gzip -dc "]
+    else:
+        option_strings = ["cat "]
+
+
+    # premapping done as single reads regardless of whether paired mapping or not  CAN'T DEAL W/GZIPPED READ 2 HERE
+    if options.fastq_reads_2 is not None:
+        option_strings.extend([options.fastq_reads_1,options.fastq_reads_2,nicestring, reads_ascii_offset, options.processors,options.bowtie2_db,premapSam])
+        cmd = """%s %s %s | %s bowtie2 --very-sensitive-local --phred%d -t -p %s -k1 -x %s --no-unal -S %s -U - """ %tuple(option_strings)
+       
+    sys.stderr.write("Performing pre mapping with command:\n%s\n"%cmd)
+    p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
+    p.wait()
+    stderr_string = p.stderr.read()
+    sys.stdout.write(stderr_string)
+    sys.stdout.flush()
+
+    # remove call to script later and replace with commented block, using this to get around pykseq problem:
+    #cmd="""/home/anarrowe/workspace/test_parse_sam.py %s %s %s"""%(pre_mapping_dir,options.fastq_reads_1,options.fastq_reads_2)
+    #check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+
+    # get IDs of mapped reads    
+    sam=pysam.AlignmentFile(premapSam,'r')
+    keepers=set()
+    for read in sam.fetch():
+            keepers.add(read.query_name)
+
+    ## use IDs to create new fastq files of reads where at least one of the pair mapped in the premapping step
+    r1_in=(options.fastq_reads_1)
+    r2_in=(options.fastq_reads_2)
+    p1_out=open(premap_reads_1,'w')
+    p2_out=open(premap_reads_2,'w')
+
+    # this code from fastq_pull_sequence:
+    for infile, outfile in [(r1_in, p1_out), (r2_in, p2_out)]:
+        ks = Kseq(infile)
+        keptseqs = 0
+        total_seqs = 0
+        while 1:
+            t = ks.read_sequence_and_quals()  # (name, sequence, qualstring)
+            if t is None:
+                break
+
+            # get name up to first whitespace, check if in file
+            if t[0].split()[0] in keepers:
+                outfile.write("@%s\n%s\n+\n%s\n" % (t[0], t[1], t[2]))
+                keptseqs += 1
+            total_seqs += 1  
+
+    sys.stderr.write("Total records read: %s\n"%(total_seqs))
+    sys.stderr.write("Total premapped records written: %s\n"%(keptseqs))
+    
+    return
+
+
 def do_initial_mapping(em, working_dir, options):
+    
     """
     IN:  takes the em object, working directory and an OptionParser options object
 
@@ -1437,33 +1431,36 @@ def resume(working_dir, options):
     return
 
 
-def post_process(self,working_dir):
+def post_process(em,working_dir):
     """ Do all the postprocessing for the EMIRGE run, producing a fasta file of all EMIRGE sequences produced that meet the estimated abundance threshold to achieve an
     estimated average coverage of 20X (default) or other user specified value.  Also produces a raw file of all EMIRGE sequences produced, but not recommended to be used
-    in later analyses.  Final clustering is performed at 97% ID (default) but can be changed with the '-j' flag.
+    in later analyses.  Final clustering is performed at 97% ID (default) but can be changed with the '-j' flag. 
     """
 
     #first need to do rename(em) with no probmin - keeping all sequences for clustering and writing out the raw output file
-    nomin_fasta_filename = os.path.join(working_dir, self.output_files_prefix+"_nomin_iter."'%02d'%self.max_iterations +".RAW.fasta")
+    nomin_fasta_filename = os.path.join(working_dir, em.output_files_prefix+"_nomin_iter."'%02d'%em.max_iterations +".RAW.fasta")
     if os.path.exists(nomin_fasta_filename):
         sys.stderr.write("WARNING: overwriting file %s\n" %nomin_fasta_filename)
-    nomin_file_handle = open(nomin_fasta_filename, 'w')
-    self.rename(nomin_file_handle,no_N = False, no_trim_N = True,filter_N=False)
+    #nomin_file_handle = open(nomin_fasta_filename, 'w')
+    rename(em.final_iterdir,nomin_fasta_filename,  em.output_files_prefix, prob_min=None,no_N = False, no_trim_N = True)
 
-    #next need to cluster using usearch at the user specified threshold, default =0.97
+    
+    #next need to cluster using vsearch at the user specified threshold, default =0.97
     centroids=os.path.join(working_dir,"centroids.tmp")
     uc=os.path.join(working_dir,"uc.tmp")
-    cmd = "usearch --cluster_smallmem %s -usersort -id %.2f -centroids %s -uc %s "%(nomin_fasta_filename,self.cluster_thresh,centroids,uc)
-    if self._VERBOSE:
-            sys.stderr.write("usearch command was:\n%s\n"%(cmd))
+    cmd = "vsearch --cluster_smallmem %s -usersort -notrunclabels -id %.2f -centroids %s -uc %s "%(nomin_fasta_filename,em.cluster_thresh,centroids,uc)
+    if em._VERBOSE:
+            sys.stderr.write("vsearch command was:\n%s\n"%(cmd))
 
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+    
 
     #now meging cluster abundances and writing out the fasta file with merged abundancance over cutoff
-    sys.stderr.write("Minimum abundance for estimated %.2dX coverage is %.6f\n"%(self.cov_thresh,self.prob_min))
-    clustered_fasta=os.path.join(working_dir,self.output_files_prefix+"_iter."'%02d'%self.max_iterations+"_"'%.6f'%self.prob_min+".fasta")
+    sys.stderr.write("Minimum abundance for estimated %.2dX coverage is %.6f\n"%(em.cov_thresh,em.prob_min))
+    clustered_fasta=os.path.join(working_dir,em.output_files_prefix+"_iter."'%02d'%em.max_iterations+"_"'%.6f'%em.prob_min+".fasta")
     outfile=open(clustered_fasta,'w')
     size_pattern = re.compile(r'NormPrior=([0-9\.]+)')
+
     cluster_sizes = {}
     for line in open(uc,'r'):
         atoms = line.strip().split('\t')
@@ -1478,14 +1475,15 @@ def post_process(self,working_dir):
         else:
             raise ValueError, "Unknown code in uc file: %s"%atoms[0]
 
-    repl_pattern = re.compile(r'NormPrior=([0-9\.]+)')
+
     good_ids={}
     for line in open(centroids,'r'):
         if line.startswith('>'):
             ID=line.strip().split(">")[1]
-            if cluster_sizes[ID] >= self.prob_min:
-                good_ids[ID]=((repl_pattern.sub('comb_abund=%f'%cluster_sizes[ID], line)))  # collect IDs of those sequences whose combined cluster abundance is over the calculated 20X threshold from calc_cutoff
+            if cluster_sizes[ID] >= em.prob_min:
+                good_ids[ID]=((size_pattern.sub('comb_abund=%f'%cluster_sizes[ID], line)))  # collect IDs of those sequences whose combined cluster abundance is over the calculated$
 
+    # header should be just containing comb_abund.  As it stands, haven't replaced/removed Prior=
     for record in SeqIO.parse(open(centroids,'r'),'fasta'):
         if record.description in good_ids:
             atoms=good_ids[record.description].strip(">").split(" ")
@@ -1552,7 +1550,10 @@ def main(argv = sys.argv[1:]):
                       help="""length of longest read in input data.""")
     group_reqd.add_option("-o","--output_files_prefix",
                         type="string", default="EMIRGE",
-                        help="prefix to be used for final output fasta file and EMIRGE sequences reconstructed")
+                        help="prefix to be used for final output fasta file and EMIRGE sequences reconstructed") 
+    group_reqd.add_option("-B", "--bowtie2_db",
+                      type="string",
+                      help="precomputed bowtie2 index of candidate SSU sequences (path to appropriate prefix; see --fasta_db)")
     parser.add_option_group(group_reqd)
 
     # REQUIRED for paired end
@@ -1576,8 +1577,8 @@ def main(argv = sys.argv[1:]):
                       type="int", default=40,
                       help="""Number of iterations to perform.  It may be necessary to use more iterations for more complex samples (default=%default)""")
     group_opt.add_option("-a", "--processors",
-                      type="int", default=1,
-                      help="""Number of processors to use in the mapping steps.  You probably want to raise this if you have the processors. (default: %default)""")
+                      type="int", default=multiprocessing.cpu_count(),
+                      help="""Number of processors to use in the mapping steps.  You probably want to raise this if you have the processors. (default: use all available processors)""")
     group_opt.add_option("-m", "--mapping",
                          type="string",
                          help="path to precomputed initial mapping (bam file).  If not provided, an initial mapping will be run for you.")
@@ -1590,6 +1591,11 @@ def main(argv = sys.argv[1:]):
     group_opt.add_option("-j", "--join_threshold",
                       type="float", default="0.97",
                       help="If two candidate sequences share >= this fractional identity over their bases with mapped reads, then merge the two sequences into one for the next iteration.  (default: %default; valid range: [0.95, 1.0] ) ")
+    group_opt.add_option("--meta", action="store_true",default="False",
+                        help="If input reads are metagenomic, specify --meta to do a pre-mapping step.")
+    group_opt.add_option("--debug",
+                        action="store_true",default=False,
+                        help="temporary flag to debug premapping step, skips bowtie mapping")
 
     # DEPRECIATED
     # group_opt.add_option("-c", "--min_depth",
@@ -1719,9 +1725,8 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
                     parser.error("Fasta file for candidate database is missing. Specify --fasta_db. (try --help for more information)")
                 else:
                     parser.error("--%s is required, but is not specified (try --help)"%(o))
-
-
-        if not os.path.exists(working_dir):
+	
+	if not os.path.exists(working_dir):
             os.mkdir(working_dir)
         else:
             if len(os.listdir(working_dir)) > 1:   # allow 1 file in case log file is redirected here.
@@ -1733,6 +1738,16 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         current_o_value = getattr(options, o)
         if current_o_value is not None:
             setattr(options, o, os.path.abspath(current_o_value))
+
+
+    # IF METAGENOMIC, DO PRE-MAPPING
+    if options.meta==True:
+        #do the premapping and then feed those saved reads in as reads1_filepath and reads2_filepath
+        pre_mapping_dir = os.path.join(working_dir, "pre_mapping")
+        do_premapping(pre_mapping_dir,options)
+        options.fastq_reads_1=os.path.join(pre_mapping_dir, "pre_mapped_reads.1.fastq")
+        options.fastq_reads_2=os.path.join(pre_mapping_dir, "pre_mapped_reads.2.fastq")
+
 
     # finally, CREATE EM OBJECT
     em = EM(reads1_filepath = options.fastq_reads_1,
@@ -1777,6 +1792,9 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     # WRITE THE OUTPUT FASTA FILES- renames and writes raw file and file with only seqs having estimated coverage over specified threshold (default=20X)
     post_process(em,working_dir)
 
+    # print some info to user about final files produced, brief description, filename
+    # TODO
+    
     sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"%(ctime(), timedelta(seconds = time()-total_start_time)))
 
     return

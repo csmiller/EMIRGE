@@ -78,18 +78,18 @@ def replace_with_Ns(probN, seq_i, seq, trim_N = True):
         newseq = newseq.strip("N")
     return Seq.Seq(newseq)
 
-def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, no_trim_N = True):
+def rename(wd = os.getcwd(), output_file="renamed.fasta",  record_prefix = '', prob_min = None, no_N = False, no_trim_N = True):
     """
     wd is an iteration directory
     prob_min is minimum prior prob of a sequence to include in output.  If None, include all seqs.
     """
+    
     if prob_min is None:
         prob_min = -1
     current_iter = int(wd.split('.')[-1])
     prior_file = file(os.path.join(wd, 'priors.iter.%02d.txt'%current_iter))
     probN_filename = os.path.join(wd, 'probN.pkl.gz')
     probN = cPickle.load(GzipFile(probN_filename))
-
     name2seq_i = {}
     name2prior = {}
     name2normed_prior = {}  # normed by length of sequences
@@ -120,10 +120,16 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, 
     for i, (prior, record) in enumerate(sorted_records):
         record.description = "Prior=%06f Length=%d NormPrior=%06f"%(prior, len(record.seq), normed_priors[i])
 
+    renamed_fasta_file = open(output_file, 'w')
     for prior, record in sorted(sorted_records, reverse=True):
         if prior < prob_min:
             break
-        sys.stdout.write(record.format('fasta'))
+        SeqIO.write(record,renamed_fasta_file,'fasta') 
+    
+    renamed_fasta_file.close()
+    return
+    
+
 
 def main(argv = None):
     if argv is None:
@@ -142,6 +148,10 @@ def main(argv = None):
     parser.add_option('-t', '--no_trim_N',
                       action="store_true",
                       help="Don't trim off N bases with no read support from ends of sequences.  Ignored if --no_N is also passed")
+    parser.add_option('-o', '--output_file',
+                      type="string",
+                      help="Name of output file")
+
 
 
     (options, args) = parser.parse_args(argv)
@@ -156,7 +166,7 @@ def main(argv = None):
     if re.match("iter.[0-9]+$", os.path.basename(wd)) is None:
         parser.error("Directory %s is not a valid emirge iter.DIR (try --help for full usage)"%(wd))
 
-    rename(wd, options.prob_min, options.record_prefix, options.no_N, options.no_trim_N)
+    rename(wd,options.output_file,options.prob_min, options.record_prefix, options.no_N, options.no_trim_N)
 
 
 
