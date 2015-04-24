@@ -38,15 +38,15 @@ appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011) *EMIRGE:
 reconstruction of full-length ribosomal genes from microbial community
-short read sequencing data.* Genome biology 12:
-R44. `doi:10.1186/gb-2011-12-5-r44`__.
+short read sequencing data.* Genome biology 12:R44.
+`doi:10.1186/gb-2011-12-5-r44`__.
 
 __ http://doi.org/10.1186/gb-2011-12-5-r44
 
 Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield
 JF (2013) *Short-Read Assembly of Full-Length 16S Amplicons Reveals
-Bacterial Diversity in Subsurface Sediments.* PloS one 8:
-e56018. `doi:10.1371/journal.pone.0056018`__.
+Bacterial Diversity in Subsurface Sediments.* PloS one
+8:e56018. `doi:10.1371/journal.pone.0056018`__.
 
 __ http://doi.org/10.1371/journal.pone.0056018
 
