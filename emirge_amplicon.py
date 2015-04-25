@@ -826,11 +826,11 @@ class EM(object):
         if num_seqs < 500:
             sens_string = "--maxaccepts 32 --maxrejects 256"
         if num_seqs < 150:
-            algorithm="-search_global"
+            algorithm="-usearch_global"
             sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
         # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
         if num_seqs < 50:
-            algorithm="-search_global"
+            algorithm="-usearch_global"
             sens_string = "-fulldp"
 
         cmd = "vsearch %s %s --db %s --id %.3f -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
@@ -1205,9 +1205,9 @@ class EM(object):
         this value is used in post-processing steps to filter final EMIRGE fasta file
         """
         self.final_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.max_iterations))
-        bam_filename = [fn for fn in (self.final_iterdir) if fn.endswith('.bam') and fn.startswith("bowtie.iter.%02d"%self.max_iterations)]
+        bam_filename = [fn for fn in os.listdir(self.iterdir) if fn.endswith('.bam') and fn.startswith("bowtie.iter.%02d"%self.max_iterations)]
         assert len(bam_filename) == 1, "ERROR: more than one valid bam file found in %s"%(self.final_iterdir)
-        bam_filename = os.path.join(self.final_iterdir, bam_filename[0])
+	bam_filename = os.path.join(self.final_iterdir, bam_filename[0])
         bamfile = pysam.Samfile(bam_filename, "rb")
         self.avg_emirge_seq_length = numpy.mean(bamfile.lengths)
         # self.mean_read_length = numpy.mean(self.readlengths)
