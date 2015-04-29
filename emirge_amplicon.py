@@ -338,6 +338,7 @@ class EM(object):
 
         initial_iteration = self.iteration_i < 0  # this is initial iteration
         self.current_bam_filename = bam_filename
+        self.n_alignments = self.get_n_alignments_from_bowtie() # moved here from mapping functions because no longer relies on bowtie stderr
         self.current_reference_fasta_filename = reference_fasta_filename
         self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
         # set here:
@@ -833,7 +834,7 @@ class EM(object):
             algorithm="-usearch_global"
             sens_string = "-fulldp"
 
-        cmd = "vsearch %s %s --db %s --id %.3f -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
+        cmd = "vsearch %s %s --db %s --id %.3f --query_cov 0.5 --target_cov 0.5 --strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi --threads %d %s --quiet"%\
               (algorithm,
                tmp_fastafilename, tmp_fastafilename,
                uclust_id,
@@ -891,6 +892,7 @@ class EM(object):
             seed_n_mapped_bases = self.unmapped_bases[seed_seq_id].shape[0] - self.unmapped_bases[seed_seq_id].sum()
             member_n_mapped_bases = self.unmapped_bases[member_seq_id].shape[0] - self.unmapped_bases[member_seq_id].sum()
 
+            
             if (aln_columns < 500) \
                    or ((float(matches) / aln_columns) < 1.0):  # Fixed merging threshold for EMIRGE2.  During iterations only merge seqs that are 100% identical. Rest are cleaned up in post-processing steps.
                     #or ((float(matches) / aln_columns) < self.cluster_thresh):
@@ -1005,13 +1007,108 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("DONE with read mapping for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
         return
+     
+#    #bowtie2 version:
+#    def do_mapping_bowtie(self, full_fasta_path, nice = None):
+#        """
+#        run bowtie2 to produce bam file for next iteration
+#
+#        """
+#        bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
+#        bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
+#        # 1. build index
+#        cmd = "bowtie2-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
+#        if self._VERBOSE:
+#            sys.stderr.write("\tbowtie2-build command:\n")
+#            sys.stderr.write("\t%s\n"%cmd)
+#        check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+#
+#        # 2. run bowtie
+#        nicestring = ""
+#        if nice is not None:
+#            nicestring = "nice -n %d"%(nice)
+#
+#        if self.reads1_filepath.endswith(".gz"):
+#            cat_cmd = "gzip -dc "
+#        else:
+#            cat_cmd = "cat "
+#
+#    
+#        # minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length) # this was to keep "dovetailing" (overlapping reads that extend past each other) reads from mapping, but causes problems with modern overlapped reads common on MiSeq, etc.  Goal was to keep adapter sequence bases out of EMIRGE's view.
+#        minins = max((self.insert_mean - 3*self.insert_sd), 0) # Puts burden on user to make sure there are no adapter sequences in input reads.
+#        maxins = self.insert_mean + 3*self.insert_sd
+#        output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
+#        output_filename = "%s.PE.u.bam"%output_prefix
+#
+#
+#        # these are used for single reads too.  Bowtie2 ignores the paired-end options when single reads are used
+#
+#        shared_bowtie_params = "-D 20 -R 3 -N 0 -L 20 -i S,1,0.50 -k 20 --no-unal --phred%d -t -p %s"%(\
+#            self.reads_ascii_offset, 
+#            self.n_cpus)
+#
+#        #Build Bowtie2 command depending if reads2 was given in Emirge command line parameters
+#
+#        if self.reads2_filepath is not None:
+#            bowtie_command = "%s %s | %s bowtie2 %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S - > %s 2> %s "%(\
+#                cat_cmd,
+#                self.reads1_filepath,
+#                nicestring,
+#                shared_bowtie_params,
+#                minins, maxins,
+#                bowtie_index,
+#                self.reads2_filepath,
+#                output_filename,
+#                bowtie_logfile)
+#        else: # single reads
+#            bowtie_command = "%s %s | %s bowtie2 %s -x %s -U - | samtools view -b -S - > %s 2> %s "%(\
+#                cat_cmd,
+#                self.reads1_filepath,
+#                nicestring,
+#                shared_bowtie_params,
+#                bowtie_index,
+#                output_filename,
+#                bowtie_logfile)
+#
+#        if self._VERBOSE:
+#            sys.stderr.write("\tbowtie command:\n")
+#            sys.stderr.write("\t%s\n"%bowtie_command)
+#
+#        p = Popen(bowtie_command, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
+#        p.wait()
+#        stderr_string = p.stderr.read()
+#        self.fragments_mapped = self.get_frags_mapped_bt2(stderr_string)
+#        sys.stdout.write(stderr_string)
+#        sys.stdout.flush()
+#
+#        if self._VERBOSE:
+#            sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
+#
+#        # 3. clean up
+#        # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
+#        check_call("gzip -f %s"%(bowtie_logfile), shell=True)
+#
+#        assert self.iterdir != '/'
+#        for filename in os.listdir(self.iterdir):
+#            assert(len(os.path.basename(bowtie_index)) >= 20)  # weak check that I'm not doing anything dumb.
+#            if os.path.basename(bowtie_index) in filename:
+#                os.remove(os.path.join(self.iterdir, filename))
+#
+#
+#        self.current_bam_filename = output_filename   # do this last.
+#   
+#        
+#        
+#        return  
+        
+   # original bowtie1 version:   
     def do_mapping_bowtie(self, full_fasta_path, nice = None):
-        """
-        run bowtie to produce bam file for next iteration
-
-        sets self.n_alignments
-        sets self.current_bam_filename
-        """
+#        """
+#        run bowtie to produce bam file for next iteration
+#
+#        sets self.n_alignments
+#        sets self.current_bam_filename
+#        """
         bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
         bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
         # 1. build index
@@ -1072,8 +1169,8 @@ class EM(object):
         p = Popen(bowtie_command, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
         p.wait()
         stderr_string = p.stderr.read()
-        self.n_alignments = self.get_n_alignments_from_bowtie(stderr_string)
-        self.fragments_mapped = self.get_frags_mapped(stderr_string)
+        self.fragments_mapped = self.get_frags_mapped_bt1(stderr_string)
+  
 
         # re-print this to stdout, since we stole it from bowtie
         sys.stdout.write(stderr_string)
@@ -1100,45 +1197,59 @@ class EM(object):
                 os.remove(os.path.join(self.iterdir, filename))
 
         self.current_bam_filename = output_filename   # do this last.
-
+        
         return
-    def get_n_alignments_from_bowtie(self, stderr_string):
-        """
-        IN:  stderr output string from bowtie
-        OUT: does some re to get number of unique reads mapped,
-             returns as int
+        
 
-        #####  sample stderr for paired-end:   #####
-        Time loading reference: 00:00:00
-        Time loading forward index: 00:00:00
-        Time loading mirror index: 00:00:00
-        Seeded quality full-index search: 00:06:50
-        # reads processed: 897895
-        # reads with at least one reported alignment: 720465 (80.24%)
-        # reads that failed to align: 177430 (19.76%)
-        Reported 19244466 paired-end alignments to 1 output stream(s)
+
+    def get_n_alignments_from_bowtie(self):
         """
+        bowtie2 output has changed,
+        use this to get number of aligned reads
+        """ 
+        bam_to_use=self.current_bam_filename      
+        cmd = "samtools view -c %s "%(bam_to_use)
+        p = Popen(cmd, shell=True, stdout = PIPE, stderr = sys.stderr, close_fds=True)
+        stdout_string = p.stdout.read()
+        return int(stdout_string) 
+
+    
+    
+    def get_frags_mapped_bt1(self,stderr_string):
+
         try:
             r = re.findall(r'Reported ([0-9]+) (paired-end )?alignments', stderr_string)
             if r[0][1] != '': # "paired-end" string matched -- two lines in samfile per paired-end aln
                 return int(r[0][0])*2
             else:             # single-end -- one line in samfile per alignment
-                return int(r[0][0])
+                return int(r[0][0])            
+        except IndexError:
+            print >> sys.stderr, "OOPS, we didn't get number of reads from bowtie:"
+            print >> sys.stderr, stderr_string
+            print >> sys.stderr, r
+            raise
+            
+                  
+    def get_frags_mapped_bt2(self,stderr_string):
+        """
+        49227 reads; of these:
+            49227 (100.00%) were paired; of these:
+                0 (0.00%) aligned concordantly 0 times
+                36694 (74.54%) aligned concordantly exactly 1 time
+                12533 (25.46%) aligned concordantly >1 times
+        100.00% overall alignment rate
+"""
+        try:
+            r = re.findall(r'([0-9]+) reads;', stderr_string)
+            rt = re.findall(r'([0-9]+\.[0-9]+)% overall',stderr_string)
+            frags=(float(rt[0])/100)*int(r[0])
+            return int(frags)
         except IndexError:
             print >> sys.stderr, "OOPS, we didn't get number of reads from bowtie:"
             print >> sys.stderr, stderr_string
             print >> sys.stderr, r
             raise
 
-    def get_frags_mapped(self,stderr_string):
-        try:
-            r = re.findall(r'reported alignment: ([0-9]+)', stderr_string)
-            return int(r[0])
-        except IndexError:
-            print >> sys.stderr, "OOPS, we didn't get number of reads from bowtie:"
-            print >> sys.stderr, stderr_string
-            print >> sys.stderr, r
-            raise
 
     def calc_likelihoods(self):
         """
@@ -1337,7 +1448,56 @@ def do_premapping(pre_mapping_dir,options):
     
     return
 
-
+#bowtie2 version:
+#def do_initial_mapping(em, working_dir, options):
+#    """
+#    IN:  takes the working directory and an OptionParser options object
+#   
+#    does the initial 1-reference-per-read bowtie mapping to initialize the algorithm
+#    OUT:  path to the bam file from this initial mapping
+#    """
+#    initial_mapping_dir = os.path.join(working_dir, "initial_mapping")
+#    if not os.path.exists(initial_mapping_dir):
+#        os.mkdir(initial_mapping_dir)
+#
+#    minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length)
+#    maxins = options.insert_mean + 3*options.insert_stddev
+#    bampath_prefix = os.path.join(initial_mapping_dir, "initial_bowtie_mapping.PE")
+#
+#    nicestring = ""   
+#    if options.nice_mapping is not None:
+#        nicestring = "nice -n %d"%(options.nice_mapping)  # TODO: fix this so it isn't such a hack and will work in bash.  Need to rewrite all subprocess code, really (shell=False)
+#    reads_ascii_offset = {False: 64, True: 33}[options.phred33]
+#    if options.fastq_reads_1.endswith(".gz"):
+#        option_strings = ["gzip -dc "]
+#    else:
+#        option_strings = ["cat "]
+#    # shared regardless of whether paired mapping or not
+#    option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors])
+#
+#    # PAIRED END MAPPING
+#    if options.fastq_reads_2 is not None:
+#        option_strings.extend([minins, maxins, options.bowtie2_db, options.fastq_reads_2, bampath_prefix])
+#        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S -u - > %s.u.bam "%tuple(option_strings)    
+#    # SINGLE END MAPPING
+#    else:
+#        option_strings.extend([options.bowtie2_db, bampath_prefix])
+#        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -x %s -U - | samtools view -b -S -u - > %s.u.bam "%tuple(option_strings)    
+#
+#
+#    sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
+#    p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
+#    p.wait()
+#    stderr_string = p.stderr.read()
+#    em.fragments_mapped=em.get_frags_mapped_bt2(stderr_string)
+#    # re-print this to stdout, since we stole it.
+#    sys.stdout.write(stderr_string)
+#    sys.stdout.flush()
+#
+#    return bampath_prefix+".u.bam"
+    
+    
+ #original bowtie1 version:
 def do_initial_mapping(em, working_dir, options):
     
     """
@@ -1378,11 +1538,12 @@ def do_initial_mapping(em, working_dir, options):
         option_strings.extend([options.bowtie_db, samtools_cmd, bampath_prefix])
         cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 512  %s - | %s > %s.u.bam """%tuple(option_strings)
 
+    
     sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
     p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
     p.wait()
     stderr_string = p.stderr.read()
-    em.n_alignments = em.get_n_alignments_from_bowtie(stderr_string)
+    em.fragments_mapped=em.get_frags_mapped_bt1(stderr_string)
     # re-print this to stdout, since we stole it.
     sys.stdout.write(stderr_string)
     sys.stdout.flush()
