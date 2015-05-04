@@ -261,8 +261,19 @@ class EM(object):
         base_alpha2int = _emirge.base_alpha2int
 
         # this pass just to read from file, get disk access over with.  As little processing as possible.
-        predata = [(alignedread.pos, alignedread.tid, alignedread.is_read2, alignedread.qname,
-                    alignedread.qual, alignedread.seq) for alignedread in bamfile]
+         # from Casey:       
+        # Need to get the pysam.alignedread cigar string here: # call function to parse cigar string and locate position of insertion or deletion, and measure of quality
+        predata = []
+        predata_append = predata.append
+        cigars = []
+        cigars_append = cigars.append # speed hack!
+        for alignedread in bamfile:
+            predata_append((alignedread.pos, alignedread.tid, alignedread.is_read2, alignedread.qname,
+                    alignedread.qual, alignedread.seq))
+            cigars_append(alignedread.cigar) 
+        self.cigars = cigars       
+        #predata = [(alignedread.pos, alignedread.tid, alignedread.is_read2, alignedread.qname,
+        #            alignedread.qual, alignedread.seq) for alignedread in bamfile]
 
         # cache bamfile information in this data structure, bamfile_data:
         # [seq_i, read_i, pair_i, rlen, pos], dtype=int))
@@ -295,6 +306,7 @@ class EM(object):
 
 
         self.probN = [None for x in range(max(self.sequence_name2sequence_i[-1].values())+1)]
+        self.prob_indels = [None for x in range(max(self.sequence_name2sequence_i[-1].values())+1)]
         self.unmapped_bases = [None for x in self.probN]
         self.mean_read_length = numpy.mean(self.readlengths)
 
@@ -305,6 +317,7 @@ class EM(object):
             seq_i = self.sequence_name2sequence_i[-1].get(refname)
             if seq_i is not None:
                 self.probN[seq_i] = numpy.zeros((len(record.sequence), 5), dtype=numpy.float)   #ATCG[other] --> 01234
+                self.prob_indels[seq_i] = numpy.zeros((len(record.sequence), 4), dtype=numpy.float)  #0 = match weight, 1 = insertion weight, 2 = deletion weight 3 = insertion weight * insertion length
                 self.coverage[seq_i] = self.coverage[seq_i] / float(len(record.sequence))
 
         for d in [self.priors, self.posteriors,
@@ -511,6 +524,12 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
 
+       # from Casey:
+       # For Debugging - dump prob_indels table - comment out for production use
+        probindels_filename = os.path.join(self.iterdir, 'prob_indels.pkl')
+        cPickle.dump(self.prob_indels, file(probindels_filename, 'w'), cPickle.HIGHEST_PROTOCOL)
+        print >> sys.stderr, "Prob_Indels Saved to Pickle File"
+
         # now do a new mapping run for next iteration
         self.do_mapping(consensus_filename, nice = self.mapping_nice)
 
@@ -707,6 +726,7 @@ class EM(object):
 
                 # write out minor strain consensus
                 of.write(">%s\n"%(m_title))
+                minor_consensus = self.eval_indels(seq_i, minor_consensus, m_title)
                 of.write("%s\n"%("".join(minor_consensus)))
                 if self._VERBOSE:
                     sys.stderr.write("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
@@ -717,6 +737,7 @@ class EM(object):
 
             # now write major strain consensus, regardless of whether there was a minor strain consensus
             of.write(">%s\n"%(title))
+            consensus = self.eval_indels(seq_i, consensus, title)
             of.write("%s\n"%("".join(consensus)))
 
         # END LOOP
@@ -750,6 +771,46 @@ class EM(object):
             sys.stderr.write("DONE Writing consensus for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = total_time)))
 
         return
+        
+        
+    def eval_indels(self, seq_i, consensus, title):
+        #Evaluates consensus sequence for write outs against the prob_indels array.  Removes bases that are probablistically a deletion in the reference sequence, and inserts an insertion of length = ins(len)*weight/(sum(I/W)) 
+        new_cons = []
+        mod_del = False
+        mod_insert = False
+        eval_prob_indels = self.prob_indels[seq_i] #retreive single numpy matrice of prob_indel values for seq_i from prob_indels list of numpy matrices
+        for base in range (eval_prob_indels.shape[0]):
+            new_row = []
+            #Eval if Deletion Exists at Base Position
+            #Divides weight of deletion, by the sum of all other weights.  If greater than .5, means chance of deletion is greater than match weights, and skips base from consensus
+            if (eval_prob_indels[base,2]) > 0:
+                if (eval_prob_indels[base,2])/(eval_prob_indels[base,0]+eval_prob_indels[base,2]) > .5:  
+                    if self._VERBOSE:
+                        sys.stderr.write("Modified reference sequence %d (%s) with a deletion of base %d \n"%(seq_i, title, base))
+                else:
+                    new_row = [consensus[base]] #Get base from consensus to append to new_cons
+                    new_cons = numpy.concatenate([new_cons, new_row])
+            else:
+                new_row = [consensus[base]] #Get base from consensus to append to new_cons
+                new_cons = numpy.concatenate([new_cons, new_row])
+            #Eval if Insertion Exists after Base Position
+            #Divides total of ins(len)*weight by total sum of insertion weights (I(w)) to get mean insertion length of aligned reads.  Rounded to nearest integer. 
+            if (eval_prob_indels[base,1]) > 0:
+                if (eval_prob_indels[base,1]) / ((eval_prob_indels[base,0])+(eval_prob_indels[base,2])) > .5:   #Checks if there is any value in I(w) column of prob_indels for seq_i and this base.  Compares it to the match weight + deletion weight (arbitrary) to make sure its not a minimal insertion mapping.  If not, don't calculate an insertion length.
+                    ins_length = round((eval_prob_indels[base,3]) / (eval_prob_indels[base,1]))
+                    for insertion in range (int(ins_length)):
+                        new_row = ["N"] #Insert single N for insertion.
+                        new_cons = numpy.concatenate([new_cons, new_row])
+                    if self._VERBOSE:
+                        sys.stderr.write("Modified reference sequence %d (%s) with a %d base-pair insertion after base %d \n"%(seq_i, title, int(ins_length), base))
+                else:
+                    continue
+            else:
+                continue
+
+        return numpy.array(new_cons)
+
+
 
     def write_consensus_with_mask(self, reference_fastafilename, output_fastafilename, mask):
         """
@@ -1016,17 +1077,19 @@ class EM(object):
             sys.stderr.write("DONE with read mapping for iteration %d at %s...\n"%(self.iteration_i, ctime()))
 
         return
+        
+    #Bowtie2 version:
     def do_mapping_bowtie(self, full_fasta_path, nice = None):
         """
-        run bowtie to produce bam file for next iteration
+        run bowtie2 to produce bam file for next iteration
 
         """
         bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
         bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
         # 1. build index
-        cmd = "bowtie-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
+        cmd = "bowtie2-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
         if self._VERBOSE:
-            sys.stderr.write("\tbowtie-build command:\n")
+            sys.stderr.write("\tbowtie2-build command:\n")
             sys.stderr.write("\t%s\n"%cmd)
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
 
@@ -1040,15 +1103,22 @@ class EM(object):
         else:
             cat_cmd = "cat "
 
-        # these are used for single reads too.
-        shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 128"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
-
+        
         minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
         maxins = self.insert_mean + 3*self.insert_sd
         output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
 
+
+        # these are used for single reads too.  Bowtie2 ignores the paired-end options when single reads are used
+
+        shared_bowtie_params = "-D 20 -R 3 -N 0 -L 20 -i S,1,0.50 -k 20 --no-unal --phred%d -t -p %s"%(\
+            self.reads_ascii_offset, 
+            self.n_cpus)
+
+        #Build Bowtie2 command depending if reads2 was given in Emirge command line parameters
+
         if self.reads2_filepath is not None:
-            bowtie_command = "%s %s | %s bowtie %s --minins %d --maxins %d %s -1 - -2 %s | samtools view -b -S -F 0x0004 - > %s.PE.bam 2> %s "%(\
+            bowtie_command = "%s %s | %s bowtie2 %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S - > %s.PE.bam 2> %s "%(\
                 cat_cmd,
                 self.reads1_filepath,
                 nicestring,
@@ -1059,7 +1129,7 @@ class EM(object):
                 output_prefix,
                 bowtie_logfile)
         else: # single reads
-            bowtie_command = "%s %s | %s bowtie %s %s - | samtools view -b -S -F 0x0004 - > %s.PE.bam 2> %s "%(\
+            bowtie_command = "%s %s | %s bowtie2 %s -x %s -U - | samtools view -b -S - > %s.PE.bam 2> %s "%(\
                 cat_cmd,
                 self.reads1_filepath,
                 nicestring,
@@ -1086,7 +1156,82 @@ class EM(object):
             assert(len(os.path.basename(bowtie_index)) >= 20)  # weak check that I'm not doing anything dumb.
             if os.path.basename(bowtie_index) in filename:
                 os.remove(os.path.join(self.iterdir, filename))
-        return
+        return  
+        
+#    #Bowtie1 version:        
+#    def do_mapping_bowtie(self, full_fasta_path, nice = None):
+#        """
+#        run bowtie to produce bam file for next iteration
+#
+#        """
+#        bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
+#        bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
+#        # 1. build index
+#        cmd = "bowtie-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
+#        if self._VERBOSE:
+#            sys.stderr.write("\tbowtie-build command:\n")
+#            sys.stderr.write("\t%s\n"%cmd)
+#        check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+#
+#        # 2. run bowtie
+#        nicestring = ""
+#        if nice is not None:
+#            nicestring = "nice -n %d"%(nice)
+#
+#        if self.reads1_filepath.endswith(".gz"):
+#            cat_cmd = "gzip -dc "
+#        else:
+#            cat_cmd = "cat "
+#
+#        # these are used for single reads too.
+#        shared_bowtie_params = "--phred%d-quals -t -p %s  -n 3 -l %s -e %s  --best --strata --all --sam --chunkmbs 128"%(self.reads_ascii_offset, self.n_cpus, BOWTIE_l, BOWTIE_e)
+#
+#        minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length)
+#        maxins = self.insert_mean + 3*self.insert_sd
+#        output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
+#
+#        if self.reads2_filepath is not None:
+#            bowtie_command = "%s %s | %s bowtie %s --minins %d --maxins %d %s -1 - -2 %s | samtools view -b -S -F 0x0004 - > %s.PE.bam 2> %s "%(\
+#                cat_cmd,
+#                self.reads1_filepath,
+#                nicestring,
+#                shared_bowtie_params,
+#                minins, maxins,
+#                bowtie_index,
+#                self.reads2_filepath,
+#                output_prefix,
+#                bowtie_logfile)
+#        else: # single reads
+#            bowtie_command = "%s %s | %s bowtie %s %s - | samtools view -b -S -F 0x0004 - > %s.PE.bam 2> %s "%(\
+#                cat_cmd,
+#                self.reads1_filepath,
+#                nicestring,
+#                shared_bowtie_params,
+#                bowtie_index,
+#                output_prefix,
+#                bowtie_logfile)
+#
+#        if self._VERBOSE:
+#            sys.stderr.write("\tbowtie command:\n")
+#            sys.stderr.write("\t%s\n"%bowtie_command)
+#
+#        check_call(bowtie_command, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+#
+#        if self._VERBOSE:
+#            sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
+#
+#        # 3. clean up
+#        # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
+#        check_call("gzip -f %s"%(bowtie_logfile), shell=True)
+#
+#        assert self.iterdir != '/'
+#        for filename in os.listdir(self.iterdir):
+#            assert(len(os.path.basename(bowtie_index)) >= 20)  # weak check that I'm not doing anything dumb.
+#            if os.path.basename(bowtie_index) in filename:
+#                os.remove(os.path.join(self.iterdir, filename))
+#        return
+
+
     def calc_likelihoods(self):
         """
         sets self.likelihoods  (seq_n x read_n) for this round
@@ -1137,7 +1282,8 @@ class EM(object):
                                  probN,
                                  lik_row_seqi,
                                  lik_col_readi,
-                                 lik_data)
+                                 lik_data,
+                                 self.cigars)
 
         # now actually construct sparse matrix.
         self.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), self.likelihoods.shape, dtype=self.likelihoods.dtype).tocsr()
@@ -1241,7 +1387,9 @@ class EM(object):
                                 posteriors,
                                 self.reads,
                                 self.quals,
-                                self.probN)
+                                self.probN,
+                                self.cigars,
+                                self.prob_indels)
 
         numpy_where = numpy.where
         numpy_nonzero = numpy.nonzero
@@ -1446,6 +1594,7 @@ def do_iterations(em, max_iter, save_every):
             os.system("bzip2 -f %s &"%(filename))
     return
 
+#Bowtie 2 version, corrected from CB
 def do_initial_mapping(working_dir, options):
     """
     IN:  takes the working directory and an OptionParser options object
@@ -1470,16 +1619,16 @@ def do_initial_mapping(working_dir, options):
     else:
         option_strings = ["cat "]
     # shared regardless of whether paired mapping or not
-    option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors, BOWTIE_l, BOWTIE_e])
+    option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors])
 
     # PAIRED END MAPPING
     if options.fastq_reads_2 is not None:
         option_strings.extend([minins, maxins, options.bowtie_db, options.fastq_reads_2, bampath_prefix])
-        cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 --minins %s --maxins %s %s -1 - -2 %s | samtools view -b -S -u -F 0x0004 - > %s.bam "%tuple(option_strings)    
+        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S -u - > %s.bam "%tuple(option_strings)    
     # SINGLE END MAPPING
     else:
         option_strings.extend([options.bowtie_db, bampath_prefix])
-        cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128  %s - | samtools view -b -S -u -F 0x0004 - > %s.bam "%tuple(option_strings)    
+        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -x %s -U - | samtools view -b -S -u - > %s.bam "%tuple(option_strings)    
 
     print "Performing initial mapping with command:\n%s"%cmd
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
@@ -1487,6 +1636,49 @@ def do_initial_mapping(working_dir, options):
     sys.stderr.flush()
 
     return bampath_prefix+".bam"
+
+##Bowtie1 version:
+#def do_initial_mapping(working_dir, options):
+#    """
+#    IN:  takes the working directory and an OptionParser options object
+#
+#    does the initial 1-reference-per-read bowtie mapping to initialize the algorithm
+#    OUT:  path to the bam file from this initial mapping
+#    """
+#    initial_mapping_dir = os.path.join(working_dir, "initial_mapping")
+#    if not os.path.exists(initial_mapping_dir):
+#        os.mkdir(initial_mapping_dir)
+#
+#    minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length)
+#    maxins = options.insert_mean + 3*options.insert_stddev
+#    bampath_prefix = os.path.join(initial_mapping_dir, "initial_bowtie_mapping.PE")
+#
+#    nicestring = ""
+#    if options.nice_mapping is not None:
+#        nicestring = "nice -n %d"%(options.nice_mapping)  # TODO: fix this so it isn't such a hack and will work in bash.  Need to rewrite all subprocess code, really (shell=False)
+#    reads_ascii_offset = {False: 64, True: 33}[options.phred33]
+#    if options.fastq_reads_1.endswith(".gz"):
+#        option_strings = ["gzip -dc "]
+#    else:
+#        option_strings = ["cat "]
+#    # shared regardless of whether paired mapping or not
+#    option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors, BOWTIE_l, BOWTIE_e])
+#
+#    # PAIRED END MAPPING
+#    if options.fastq_reads_2 is not None:
+#        option_strings.extend([minins, maxins, options.bowtie_db, options.fastq_reads_2, bampath_prefix])
+#        cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128 --minins %s --maxins %s %s -1 - -2 %s | samtools view -b -S -u -F 0x0004 - > %s.bam "%tuple(option_strings)    
+#    # SINGLE END MAPPING
+#    else:
+#        option_strings.extend([options.bowtie_db, bampath_prefix])
+#        cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128  %s - | samtools view -b -S -u -F 0x0004 - > %s.bam "%tuple(option_strings)    
+#
+#    print "Performing initial mapping with command:\n%s"%cmd
+#    check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+#    sys.stdout.flush()
+#    sys.stderr.flush()
+#
+#    return bampath_prefix+".bam"
 
 def dependency_check():
     """
