@@ -91,7 +91,8 @@ def _calc_likelihood(np.ndarray[np.int_t, ndim=2] bamfile_data,
                      list probN,
                      np.ndarray[np.uint_t, ndim=1] lik_row_seqi,
                      np.ndarray[np.uint_t, ndim=1] lik_col_readi,
-                     np.ndarray[np.float_t, ndim=1] lik_data):
+                     np.ndarray[np.float_t, ndim=1] lik_data,
+                     list cigars):
     """
     do looping here in Cython
 
@@ -103,6 +104,7 @@ def _calc_likelihood(np.ndarray[np.int_t, ndim=2] bamfile_data,
     cdef int pair_i
     cdef int rlen
     cdef int pos
+    cdef int ref_i
 
     cdef double p
     cdef double s
@@ -124,16 +126,45 @@ def _calc_likelihood(np.ndarray[np.int_t, ndim=2] bamfile_data,
         probN_single  = probN[seq_i]
 
         p = 0.0
+        
+       #Iterate through the alignedread cigars, and calc likelihood for each read
+        cigarlist = cigars[alignedread_i] #Gives list representing cigar string for alignedread_i
+        i = 0 # i is the distance from the pos of a mapping in a read.  Doesn't increment for deletions in the read, but does for insertions. In other words, i is the base(n) of a read sequence
+        ref_i = 0 #ref_i is the distance from the pos of a mapping in the reference.  Initialized to start at 0
+        for tup in cigarlist: #for each tuple in cigar string in alignedread_i, representing a mapping in the cigar string and length
+            if tup[0] == 0: #Cigar String - Match 
+                matchlen = tup[1]
+                for k in range(matchlen): #increment i, and ref_i once for each base, and calc prob(n) for each base
+                    for j in range(4):
+                        if numeric_bases[i] == j:   # this is called base, set 1-P
+                            # s += (1. - error_p_i) * probN[pos + i, j]
+                            s += ( qual2one_minus_p[qualints[i]] * probN_single[pos + ref_i, j] )    # lookup table
+                        else:                       # this is not the called base, so set to P/3
+                            # s += (error_p_i / 3 ) * probN[pos + i, j]
+                            s += ( qual2p_div_3[qualints[i]] * probN_single[pos + ref_i, j] )
+                    ref_i += 1
+                    i += 1
+            elif tup[0] == 1: #Cigar String - Insertion to reference
+                matchlen = tup[1]
+                for k in range(matchlen): #increment i for each inserted base, and calc prob(n) for each base
+                    i += 1
+            elif tup[0] == 2: #Cigar String - Deletion from the reference
+                matchlen = tup[1]
+                for k in range(matchlen): #increment ref_i for each deleted base
+                    ref_i += 1
+            else:
+                print >> sys.stderr, "Calc Likelihood Failure: Invalid Cigar String with header value of",tup[1]
+                sys.exit("Calc Likelihood Failure: Invalid Cigar String Header Value")
 
-        for i in range(rlen):   # numeric_bases.shape[0]):
-            s = 0.0
-            for j in range(4):
-                if numeric_bases[i] == j:   # this is called base, set 1-P
-                    # s += (1. - error_p_i) * probN[pos + i, j]
-                    s += ( qual2one_minus_p[qualints[i]] * probN_single[pos + i, j] )    # lookup table
-                else:                       # this is not the called base, so set to P/3
-                    # s += (error_p_i / 3 ) * probN[pos + i, j]
-                    s += ( qual2p_div_3[qualints[i]] * probN_single[pos + i, j] )          # lookup table
+        #for i in range(rlen):   # numeric_bases.shape[0]):
+        #    s = 0.0
+        #    for j in range(4):
+        #        if numeric_bases[i] == j:   # this is called base, set 1-P
+        #            # s += (1. - error_p_i) * probN[pos + i, j]
+        #            s += ( qual2one_minus_p[qualints[i]] * probN_single[pos + i, j] )    # lookup table
+        #        else:                       # this is not the called base, so set to P/3
+        #            # s += (error_p_i / 3 ) * probN[pos + i, j]
+        #            s += ( qual2p_div_3[qualints[i]] * probN_single[pos + i, j] )          # lookup table
             p += log(s)
 
         lik_data[alignedread_i] = c_pow(M_E, p)
@@ -186,7 +217,9 @@ def _calc_probN(np.ndarray[np.int_t, ndim=2] bamfile_data,
                 posteriors,  # pass as python object for now
                 list numeric_bases,
                 list qualints,
-                list probN):  # list of  probN numpy matrices
+                list probN,
+                list cigars,
+                list prob_indels): # list of prob_indels numpy matrices
     """
     calculates effect of *all* reads on probN
 
@@ -203,9 +236,12 @@ def _calc_probN(np.ndarray[np.int_t, ndim=2] bamfile_data,
     cdef int pair_i
     cdef int rlen
     cdef int pos
+    cdef int ref_i
 
     cdef int i
     cdef int j
+    cdef int k
+    cdef int matchlen
     cdef double weight
 
     cdef np.ndarray[np.uint8_t, ndim=1] numeric_bases_single # single numeric bases numpy array -- per read
@@ -234,15 +270,58 @@ def _calc_probN(np.ndarray[np.int_t, ndim=2] bamfile_data,
         numeric_bases_single = numeric_bases[read_i]
         qualints_single      = qualints[read_i]
         probN_single         = probN[seq_i]
-        
-        for i in range(numeric_bases_single.shape[0]): # for i in range(rlen)  # ????
-            s = 0.0
-            for j in range(4):
-                if numeric_bases_single[i] == j:   # this is called base, add (1-P) * weight
-                    probN_single[pos + i, j] += qual2one_minus_p[qualints_single[i]] * weight
-                else:                       # this is not the called base, so add P/3 * weight
-                    probN_single[pos + i, j] += qual2p_div_3[qualints_single[i]] * weight
+        prob_indels_single   = prob_indels[seq_i]
+
+        #Iterate through the alignedread cigars, and calc prob(n) for each position
+        cigarlist = cigars[alignedread_i] #Gives list representing cigar string for alignedread_i
+        i = 0
+        ref_i = 0 #ref_i is the distance from the pos of a mapping in the reference.  Initialized to start at 0
+        for tup in cigarlist: #for each tuple in cigar string in alignedread_i, representing a mapping in the cigar string and length
+            if tup[0] == 0: #Cigar String - Match 
+                matchlen = tup[1]
+                for k in range(matchlen): #increment i, and ref_i once for each base, and calc prob(n) for each base
+                    for j in range(4):
+                        if numeric_bases_single[i] == j:   # this is called base, add (1-P) * weight
+                            probN_single[pos + ref_i, j] += qual2one_minus_p[qualints_single[i]] * weight
+                        else:                       # this is not the called base, so add P/3 * weight
+                            probN_single[pos + ref_i, j] += qual2p_div_3[qualints_single[i]] * weight
+                    prob_indels_single[pos + ref_i, 0] += weight   #Add indel weight for a match
+                    ref_i += 1
+                    i += 1
+            elif tup[0] == 1: #Cigar String - Insertion to reference (insertion(s) in read relative to reference when aligned)
+                matchlen = tup[1]
+                for k in range(matchlen): #increment i for each inserted base, and calc prob(n) for each base
+                    if k == 0:
+                        prob_indels_single[pos + ref_i - 1, 1] += weight  #Add weight for an insertion after pos+ref_i in reference sequence, subtract 1 since ref_i was already incremented past
+                        prob_indels_single[pos + ref_i - 1, 3] += matchlen * weight
+                    i += 1
+            elif tup[0] == 2: #Cigar String - Deletion from the reference (gaps in read relative to reference when aligned)
+                matchlen = tup[1]
+                for k in range(matchlen): #increment ref_i for each deleted base
+                    prob_indels_single[pos + ref_i, 2] += weight #Add weight for a deletion at pos+ref_i in reference sequence
+                    ref_i += 1
+            else:
+                print >> sys.stderr, "ProbN Failure: Invalid Cigar String with header value of",tup[1]
+                sys.exit("Calc Likelihood Failure: Invalid Cigar String Header Value")
+
+    # Casey comments:
+    # Uncomment Below to Dump prob_indels_single numpy array for 2 reference sequences
+    # for indels in range(2):
+    #     filename = "probindels_" + str(indels)
+    #     np.savetxt(filename,prob_indels[indels],delimiter=',')
+    #     print >> sys.stderr, "ProbN Indel Printout - Cigarlist:"
+
     return
+    
+    #    original code:                    
+    #    for i in range(numeric_bases_single.shape[0]): # for i in range(rlen)  # ????
+    #        s = 0.0
+    #        for j in range(4):
+    #            if numeric_bases_single[i] == j:   # this is called base, add (1-P) * weight
+    #                probN_single[pos + i, j] += qual2one_minus_p[qualints_single[i]] * weight
+    #            else:                       # this is not the called base, so add P/3 * weight
+    #                probN_single[pos + i, j] += qual2p_div_3[qualints_single[i]] * weight
+    #return
 
 
 def count_cigar_aln(char* query_seq, char* hit_seq,
