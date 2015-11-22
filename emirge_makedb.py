@@ -6,10 +6,8 @@ import re
 import sys, os
 import hashlib
 from optparse import OptionParser, OptionGroup
-from Bio import SeqIO, Seq
 import random
 import subprocess
-import gzip
 
 USAGE = \
 """usage: %prog [OPTIONS]
@@ -244,9 +242,13 @@ def main(argv = sys.argv[1:]):
         silva_fasta      = silva_download_fasta(options.release, options.gene, options.tmpdir)
         clustered_fasta  = cluster_fasta(options.vsearch, silva_fasta,
                                          options.min_len, options.max_len, options.clusterid)
-        #if (not options.keep): os.unlink(silva_fasta)
         randomized_fasta = randomize_ambiguous_fasta(clustered_fasta, folder="")
         build_bowtie_index(options.bowtie, randomized_fasta)
+        if (not options.keep):
+            os.unlink(silva_fasta)
+            os.unlink(silva_fasta+".md5")
+            os.unlink(clustered_fasta)
+
     except DownloadException as e:
         print(e.args[0])
         exit(1)
