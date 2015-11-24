@@ -18,7 +18,6 @@ except ImportError:
 from distutils.extension import Extension
 from distutils.command.build import build
 from distutils.command.sdist import sdist
-from distutils.command.build_ext import build_ext as _build_ext
 import os
 import shutil
 import pkg_resources
@@ -30,14 +29,17 @@ try:
     from Cython.Distutils import build_ext as _build_ext
     cython = True
 except ImportError:
+    from distutils.command.build_ext import build_ext as _build_ext
     cython = False
+
 
 class build_ext(_build_ext):
     def build_extensions(self):
         numpy_incl = pkg_resources.resource_filename('numpy', 'core/include')
 
         for ext in self.extensions:
-            if hasattr(ext, 'include_dirs') and not numpy_incl in ext.include_dirs:
+            if hasattr(ext, 'include_dirs') \
+               and numpy_incl not in ext.include_dirs:
                 ext.include_dirs.append(numpy_incl)
         _build_ext.build_extensions(self)
 
@@ -99,7 +101,7 @@ class CheckSDist(sdist):
                 cfile = pyxfile[:-3] + 'c'
                 cppfile = pyxfile[:-3] + 'cpp'
                 msg = "C-source file '%s' not found." % (cfile) +\
-                  " Run 'setup.py cython' before sdist."
+                      " Run 'setup.py cython' before sdist."
                 assert os.path.isfile(cfile) or os.path.isfile(cppfile), msg
         sdist.run(self)
 
@@ -168,6 +170,7 @@ extensions = [
               include_dirs=['./Emirge/']),
     ]
 
+
 def no_cythonize(extensions, **_ignore):
     for extension in extensions:
         sources = []
@@ -196,7 +199,8 @@ else:
 setup(
     name='EMIRGE',
     version=version,
-    description="EMIRGE reconstructs full length sequences from short sequencing reads",
+    description="EMIRGE reconstructs full length sequences from short" +
+                "sequencing reads",
     long_description="""
     EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes
             from the Environment
@@ -227,7 +231,8 @@ setup(
         "Environment :: Console",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+        "License :: OSI Approved :: GNU General Public License v3 or " +
+        "later (GPLv3+)",
         "Operating System :: POSIX",
         "Programming Language :: Cython",
         "Programming Language :: Python :: 2.7",
@@ -255,5 +260,3 @@ print ""
 print "NOTE:"
 print "To download a standard candidate SSU database to use with EMIRGE, run"
 print "python emirge_download_candidate_db.py"
-
-
