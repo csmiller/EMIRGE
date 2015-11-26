@@ -86,6 +86,9 @@ def _calc_likelihood(em):
     cdef np.ndarray[np.uint8_t, ndim=3] reads = em.reads
     cdef np.ndarray[np.uint8_t, ndim=3] quals = em.quals                    
     cdef list probN = em.probN
+    cdef list prob_indels = em.prob_indels
+    cdef list cigars = em.cigars
+    
 
     # probN_array_of_pointers = 
 
@@ -125,6 +128,7 @@ def _calc_likelihood(em):
     cdef bint pair_collected = 1        
     cdef unsigned int result_i       = 0
     cdef np.ndarray[np.float_t, ndim=2] probN_single  # an individual probN numpy matrix
+    cdef np.ndarray[np.float_t, ndim=2] prob_indels_single
 
     cdef np.ndarray[np.uint8_t, ndim=1] dead_seqs # these sequences have been removed previously
     dead_seqs = np.zeros(len(em.probN), dtype=np.uint8)
@@ -151,37 +155,119 @@ def _calc_likelihood(em):
             pos = bamfile_data[alignedread_i, 4]
             is_reverse= bamfile_data[alignedread_i, 5]
 
-            probN_single  = probN[seq_i]  # probably slow!! (list access)
+            #probN_single  = probN[seq_i]  # probably slow!! (list access)
             # probN_single = PyList_GET_ITEM(probN, seq_i)
-
+            
+    # check indents here:           
+            #numeric_bases_single = numeric_bases[read_i] # needed in casey's code below, where from?
+            numeric_bases_single = reads[read_i,pair_i] # and why are we calling this numeric bases better as reads_single?
+            #qualints_single      = qualints[read_i]   # where this needs to be qualints = self.quals  ?
+            quals_single = quals[read_i,pair_i]
+            probN_single = probN[seq_i]
+            prob_indels_single   = prob_indels[seq_i]  
+            cigarlist = cigars[alignedread_i] #Gives list representing cigar string for alignedread_i
+        
+            ref_i = 0
             if is_reverse:
-                # This code is redundant, but by basically manually inlining everything here in the special reverse-complement case, I gain some speed
-                for i in range(rlen):
-                    ii = rlen-1-i
-                    s = 0.0
-                    for j in range(4):
-                        if complement_numeric_base(reads[read_i, pair_i, ii]) == j:   # this is called base, set 1-P
-                            # s += (1. - error_p_i) * probN[pos + i, j]
-                            s += ( qual2one_minus_p[quals[read_i, pair_i, ii]] * probN_single[pos + i, j] )    # lookup table
-                        else:                       # this is not the called base, so set to P/3
-                            # s += (error_p_i / 3 ) * probN[pos + i, j]
-                            s += ( qual2p_div_3[quals[read_i, pair_i, ii]] * probN_single[pos + i, j] )          # lookup table
+                # put reverse case here, see below:
+                #Iterate through the alignedread cigars, and calc likelihood for each read
+                i = rlen-1
+                for tup in cigarlist: #for each tuple in cigar string in alignedread_i, representing a mapping in the cigar string and length
+                    s = 0.0  #here?
+                    if tup[0] == 0: #Cigar String - Match 
+                        matchlen = tup[1]
+                        for k in range(matchlen): #increment i, and ref_i once for each base, and calc prob(n) for each base
+                            for j in range(4):
+                                if complement_numeric_base(numeric_bases_single[i]) == j:   # this is called base, set 1-P
+                                    # s += (1. - error_p_i) * probN[pos + i, j]
+                                    s += ( qual2one_minus_p[quals_single[i]] * probN_single[pos + ref_i, j] )    # lookup table
+                                else:                       # this is not the called base, so set to P/3
+                                    # s += (error_p_i / 3 ) * probN[pos + i, j]
+                                    s += ( qual2p_div_3[quals_single[i]] * probN_single[pos + ref_i, j] )
+                            ref_i += 1
+                            i -= 1
+                            
+                    elif tup[0] == 1: #Cigar String - Insertion to reference
+                        matchlen = tup[1]
+                        for k in range(matchlen): #increment i for each inserted base, and calc prob(n) for each base
+                            i -= 1
+                            
+                    elif tup[0] == 2: #Cigar String - Deletion from the reference
+                        matchlen = tup[1]
+                        for k in range(matchlen): #increment ref_i for each deleted base
+                            ref_i += 1   
+                    else:
+                        print >> sys.stderr, "Calc Likelihood Failure: Invalid Cigar String with header value of",tup[1]
+                        sys.exit("Calc Likelihood Failure: Invalid Cigar String Header Value")
+                        
                     p += log(s)
-
-            else: # not reverse
-                for i in range(rlen):
-                    s = 0.0
-                    for j in range(4):
-                        if reads[read_i, pair_i, i] == j:   # this is called base, set 1-P
-                            # s += (1. - error_p_i) * probN[pos + i, j]
-                            s += ( qual2one_minus_p[quals[read_i, pair_i, i]] * probN_single[pos + i, j] )    # lookup table
-                        else:                       # this is not the called base, so set to P/3
-                            # s += (error_p_i / 3 ) * probN[pos + i, j]
-                            s += ( qual2p_div_3[quals[read_i, pair_i, i]] * probN_single[pos + i, j] )          # lookup table
+            
+            
+            else:  #not reverse    
+                #Iterate through the alignedread cigars, and calc likelihood for each read
+                i = 0 # i is the distance from the pos of a mapping in a read.  Doesn't increment for deletions in the read, but does for insertions. In other words, i is the base(n) of a read sequence
+                for tup in cigarlist: #for each tuple in cigar string in alignedread_i, representing a mapping in the cigar string and length
+                    s = 0.0  #here?
+                    if tup[0] == 0: #Cigar String - Match 
+                        matchlen = tup[1]
+                        for k in range(matchlen): #increment i, and ref_i once for each base, and calc prob(n) for each base
+                            for j in range(4):
+                                if numeric_bases_single[i] == j:   # this is called base, set 1-P
+                                    # s += (1. - error_p_i) * probN[pos + i, j]
+                                    s += ( qual2one_minus_p[quals_single[i]] * probN_single[pos + ref_i, j] )    # lookup table
+                                else:                       # this is not the called base, so set to P/3
+                                    # s += (error_p_i / 3 ) * probN[pos + i, j]
+                                    s += ( qual2p_div_3[quals_single[i]] * probN_single[pos + ref_i, j] )
+                            ref_i += 1
+                            i += 1
+                            
+                    elif tup[0] == 1: #Cigar String - Insertion to reference
+                        matchlen = tup[1]
+                        for k in range(matchlen): #increment i for each inserted base, and calc prob(n) for each base
+                            i += 1
+                    elif tup[0] == 2: #Cigar String - Deletion from the reference
+                        matchlen = tup[1]
+                        for k in range(matchlen): #increment ref_i for each deleted base
+                            ref_i += 1
+                    else:
+                        print >> sys.stderr, "Calc Likelihood Failure: Invalid Cigar String with header value of",tup[1]
+                        sys.exit("Calc Likelihood Failure: Invalid Cigar String Header Value")
+                    
                     p += log(s)
+            
+    
+# original code:
+#            if is_reverse:
+#                # This code is redundant, but by basically manually inlining everything here in the special reverse-complement case, I gain some speed
+#                for i in range(rlen):
+#                    ii = rlen-1-i
+#                    s = 0.0
+#                    for j in range(4):
+#                        if complement_numeric_base(reads[read_i, pair_i, ii]) == j:   # this is called base, set 1-P
+#                            # s += (1. - error_p_i) * probN[pos + i, j]
+#                            s += ( qual2one_minus_p[quals[read_i, pair_i, ii]] * probN_single[pos + i, j] )    # lookup table
+#                        else:                       # this is not the called base, so set to P/3
+#                            # s += (error_p_i / 3 ) * probN[pos + i, j]
+#                            s += ( qual2p_div_3[quals[read_i, pair_i, ii]] * probN_single[pos + i, j] )          # lookup table
+#                    p += log(s)
+#
+#            else: # not reverse
+#                for i in range(rlen):
+#                    s = 0.0
+#                    for j in range(4):
+#                        if reads[read_i, pair_i, i] == j:   # this is called base, set 1-P
+#                            # s += (1. - error_p_i) * probN[pos + i, j]
+#                            s += ( qual2one_minus_p[quals[read_i, pair_i, i]] * probN_single[pos + i, j] )    # lookup table
+#                        else:                       # this is not the called base, so set to P/3
+#                            # s += (error_p_i / 3 ) * probN[pos + i, j]
+#                            s += ( qual2p_div_3[quals[read_i, pair_i, i]] * probN_single[pos + i, j] )          # lookup table
+#                    p += log(s)
+#            
+        
+        
             if pair_collected:
                 result = c_pow(M_E, p)
-        
+    
         if pair_collected:
             # for either good seq or dead seq, add the values to the coo construction arrays
             lik_row_seqi[result_i] = seq_i
@@ -189,6 +275,7 @@ def _calc_likelihood(em):
             lik_data[result_i] = result
             p = 0.0  # reset for next pair or single read
             result_i += 1
+    
     td = timedelta(seconds = time()-loop_t0)
     # print >> sys.stderr, "DEBUG: iteration %02d _calc_likelihood time per 1000 bam entries: %.2e seconds"%(em.iteration_i, (((td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / float(10**6)) / alignedread_i) * 1000.0) # DEBUG
     # now actually construct sparse matrix.
@@ -224,6 +311,7 @@ def _calc_probN(em):
     cdef np.ndarray[np.int32_t, ndim=1] posteriors_indices
     cdef np.ndarray[np.int32_t, ndim=1] posteriors_indptr
     
+    
     if not initial_iteration:
         convert_t0 = time()
         em.posteriors[-2] = em.posteriors[-2].tocsr()
@@ -237,8 +325,10 @@ def _calc_probN(em):
         posteriors = None
 
     t_check = time()                    # DEBUG
-    cdef list probN      = em.probN       # list of numpy arrays.  At this point, only None values will be due to just-culled sequences.
-
+    cdef list probN      = em.probN     # list of numpy arrays.  At this point, only None values will be due to just-culled sequences.
+    cdef list cigars = em.cigars        # should be list of lists of pysam cigartuples read from bamfile in process_bamfile()
+    cdef list prob_indels = em.prob_indels  
+    
     # for bamfile_data
     cdef unsigned int alignedread_i
     cdef unsigned int seq_i
@@ -260,7 +350,9 @@ def _calc_probN(em):
     
     cdef double weight
 
-    cdef np.ndarray[np.float_t, ndim=2] probN_single  # an individual probN numpy matrix.
+    cdef np.ndarray[np.float_t, ndim=2] probN_single        # an individual probN numpy matrix.
+    cdef np.ndarray[np.float_t, ndim=2] prob_indels_single  # indel data structure.
+
     # cdef np.ndarray[np.uint8_t, ndim=1] new_read      # see below
     cdef np.ndarray[np.uint8_t, ndim=1] reads_seen = em.reads_seen      # ...in previous rounds
     cdef np.ndarray[np.uint8_t, ndim=1] reads_seen_this_round = np.zeros_like(reads_seen)      # see below
@@ -315,26 +407,94 @@ def _calc_probN(em):
                         weight = posteriors_data[mid]
                         break
                 # assert weight == posteriors[seq_i, read_i], "%s vs %s"%(weight, posteriors[seq_i, read_i])  # DEBUG.  Make sure I'm doing this right, since no error checking otherwise
+                
+ # original code:       
+#        if is_reverse:
+#           # manually inline reverse complement loop here.  It's redundant, but it's all in the name of speed.
+#            for i in range(rlen):  
+#                ii = rlen-1-i # the index to the base given that this seq is reversed
+#                for j in range(4):
+#                    if complement_numeric_base(reads[read_i, pair_i, ii]) == j:   # this is called base, add (1-P) * weight
+#                        probN_single[pos + i, j] += ( qual2one_minus_p[quals[read_i, pair_i, ii]] * weight )
+#                    else:                       # this is not the called base, so add P/3 * weight
+#                        probN_single[pos + i, j] += ( qual2p_div_3[quals[read_i, pair_i, ii]] * weight )
+#
+#        else: # not reverse
+#            for i in range(rlen):
+#                for j in range(4):
+#                    if reads[read_i, pair_i, i] == j:   # this is called base, add (1-P) * weight
+#                        probN_single[pos + i, j] += ( qual2one_minus_p[quals[read_i, pair_i, i]] * weight )
+#                    else:                       # this is not the called base, so add P/3 * weight
+#                        probN_single[pos + i, j] += ( qual2p_div_3[quals[read_i, pair_i, i]] * weight )
 
-        probN_single = probN[seq_i]
-        
+    
+
+        #numeric_bases_single = numeric_bases[read_i]
+        numeric_bases_single = reads[read_i, pair_i]
+        #qualints_single      = qualints[read_i]  # check is this the same as quals above?
+        quals_single = quals[read_i, pair_i]
+        probN_single         = probN[seq_i]
+        prob_indels_single   = prob_indels[seq_i]
+        cigarlist = cigars[alignedread_i] #Gives list of cigartuples representing cigar string for alignedread_i
+
+        ref_i = 0 # ref_i is the distance from the pos of a mapping in the reference.  Initialized to start at 0
+
         if is_reverse:
-            # manually inline reverse complement loop here.  It's redundant, but it's all in the name of speed.
-            for i in range(rlen):  
-                ii = rlen-1-i # the index to the base given that this seq is reversed
-                for j in range(4):
-                    if complement_numeric_base(reads[read_i, pair_i, ii]) == j:   # this is called base, add (1-P) * weight
-                        probN_single[pos + i, j] += ( qual2one_minus_p[quals[read_i, pair_i, ii]] * weight )
-                    else:                       # this is not the called base, so add P/3 * weight
-                        probN_single[pos + i, j] += ( qual2p_div_3[quals[read_i, pair_i, ii]] * weight )
-
-        else: # not reverse
-            for i in range(rlen):
-                for j in range(4):
-                    if reads[read_i, pair_i, i] == j:   # this is called base, add (1-P) * weight
-                        probN_single[pos + i, j] += ( qual2one_minus_p[quals[read_i, pair_i, i]] * weight )
-                    else:                       # this is not the called base, so add P/3 * weight
-                        probN_single[pos + i, j] += ( qual2p_div_3[quals[read_i, pair_i, i]] * weight )
+            i = rlen-1 # index into read, start at right end or read as stored
+            for tup in cigarlist: #for each tuple in cigar string in alignedread_i, representing a mapping in the cigar string and length
+                if tup[0] == 0: #Cigar String - Match 
+                    matchlen = tup[1]
+                    for k in range(matchlen): #increment i, and ref_i once for each base, and calc prob(n) for each base
+                        for j in range(4):
+                            if complement_numeric_base(numeric_bases_single[i]) == j:   # this is called base, add (1-P) * weight
+                                probN_single[pos + ref_i, j] += qual2one_minus_p[quals_single[i]] * weight
+                            else:                       # this is not the called base, so add P/3 * weight
+                                probN_single[pos + ref_i, j] += qual2p_div_3[quals_single[i]] * weight
+                        prob_indels_single[pos + ref_i, 0] += weight   #Add indel weight for a match
+                        ref_i += 1
+                        i -= 1
+                elif tup[0] == 1: #Cigar String - Insertion to reference (insertion(s) in read relative to reference when aligned)
+                    matchlen = tup[1]
+                    #Add weight for an insertion after pos+ref_i in reference sequence, subtract 1 since ref_i was already incremented past
+                    prob_indels_single[pos + ref_i - 1, 1] += weight
+                    i -= matchlen
+                elif tup[0] == 2: #Cigar String - Deletion from the reference (gaps in read relative to reference when aligned)
+                    matchlen = tup[1]
+                    for k in range(matchlen): #increment ref_i for each deleted base
+                        prob_indels_single[pos + ref_i, 2] += weight #Add weight for a deletion at pos+ref_i in reference sequence
+                        ref_i += 1
+                else:
+                    print >> sys.stderr, "ProbN Failure: Invalid Cigar String with header value of",tup[1]
+                    sys.exit("Calc Likelihood Failure: Invalid Cigar String Header Value")
+            
+        else: # not reverse:
+            i = 0     # index into read
+            #Iterate through the alignedread cigars, and calc prob(n) for each position
+            for tup in cigarlist: #for each tuple in cigar string in alignedread_i, representing a mapping in the cigar string and length
+                if tup[0] == 0: #Cigar String - Match 
+                    matchlen = tup[1]
+                    for k in range(matchlen): #increment i, and ref_i once for each base, and calc prob(n) for each base
+                        for j in range(4):
+                            if numeric_bases_single[i] == j:   # this is called base, add (1-P) * weight
+                                probN_single[pos + ref_i, j] += qual2one_minus_p[quals_single[i]] * weight
+                            else:                       # this is not the called base, so add P/3 * weight
+                                probN_single[pos + ref_i, j] += qual2p_div_3[quals_single[i]] * weight
+                        prob_indels_single[pos + ref_i, 0] += weight   #Add indel weight for a match
+                        ref_i += 1
+                        i += 1
+                elif tup[0] == 1: #Cigar String - Insertion to the reference (i.e. need to insert gap(s) in reference seq to align)
+                    matchlen = tup[1]
+                    #Add weight for an insertion after pos+ref_i in reference sequence, subtract 1 since ref_i was already incremented past
+                    prob_indels_single[pos + ref_i - 1, 1] += weight  
+                    i += matchlen    # move index in read 
+                elif tup[0] == 2: #Cigar String - Deletion from the reference (i.e. need to insert gap(s) in read to align)
+                    matchlen = tup[1]
+                    for k in range(matchlen): #increment ref_i for each deleted base
+                        prob_indels_single[pos + ref_i, 2] += weight #Add weight for a deletion at pos+ref_i in reference sequence
+                        ref_i += 1
+                else:
+                    print >> sys.stderr, "ProbN Failure: Invalid Cigar String with header value of",tup[1]
+                    sys.exit("Calc Likelihood Failure: Invalid Cigar String Header Value")
 
     td = timedelta(seconds = time()-loop_t0)
     # print >> sys.stderr, "DEBUG: iteration %02d _calc_probN time per 1000 bam entries: %.2e seconds"%(em.iteration_i, (((td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / float(10**6)) / alignedread_i) * 1000.0) # DEBUG
@@ -535,6 +695,7 @@ def process_bamfile(em, int ascii_offset):
     read in bamfile and populate:
        bamfile_data    # [seq_i, read_i, pair_i, rlen, pos, is_reverse]
        sequence_name2sequence_i if new entries are here that we haven't seen in previous rounds.
+       cigars  # list of cigar tuples per alignment.  Same length as bamfile_data
 
     assume read name is an integer == read index.
     """
@@ -553,7 +714,9 @@ def process_bamfile(em, int ascii_offset):
 
     cdef np.ndarray[np.uint32_t, ndim=2] bamfile_data
     bamfile_data = np.empty((em.n_alignments, 6), dtype=np.uint32)
-
+    cdef list cigars = []  # it's an empty list stores cigartuples from pysam alignments
+    cigars = range(bamfile_data.shape[0])  # make same size as bamfile_data
+    
     cdef int i                          # generic counter
 
     cdef unsigned int alignedread_i
@@ -615,6 +778,7 @@ def process_bamfile(em, int ascii_offset):
         for i in range(base_coverage.shape[0]):
             base_coverages_2d[seq_i, i] = base_coverage[i]
 
+    # Now actually iterate through alignments
     alignedread_i = 0
     for alignedread in bamfile:
         #TODO: decide if it's better to assign first to typed variable, or assign directly to bamfile_data
@@ -629,13 +793,14 @@ def process_bamfile(em, int ascii_offset):
         # read_i = int(qname_temp)
         reads_mapped[read_i] = 1
         seq_i = tid2seq_i[alignedread.tid]
-        coverage[seq_i] += <unsigned int>alignedread.rlen
+        cigars[alignedread_i] = alignedread.cigartuples  # indexed by alignedread_i just as bamfile_data
+        coverage[seq_i] += <unsigned int>alignedread.rlen  # TODO: INDEL-AWARE (see below)
         # base_coverage = em.base_coverages[seq_i]  # list lookup.  SLOW?
         # for i in range(alignedread.pos, alignedread.pos+alignedread.rlen):
         #     base_coverage[i] += 1
+        # TODO: MAKE THIS INDEL-AWARE, i.e. go through cigar string here.  Or use pysam pileup, but expensive?
         for i in range(alignedread.pos, alignedread.pos+alignedread.rlen):
              base_coverages_2d[seq_i, i] += 1    # base_coverage[i] += 1
-        
             
         bamfile_data[alignedread_i, 0] = seq_i
         bamfile_data[alignedread_i, 1] = read_i
@@ -647,6 +812,7 @@ def process_bamfile(em, int ascii_offset):
         alignedread_i += 1
     assert alignedread_i == bamfile_data.shape[0]
     em.bamfile_data = bamfile_data.copy()
+    em.cigars = cigars[:]  # is slicing necessary for safe copy?
     bamfile.close()
 
     # get base_coverages back in list:
@@ -663,6 +829,7 @@ def process_bamfile(em, int ascii_offset):
 def reset_probN(em):
     """
     sets probN back to zeros for all sequences
+    NEW: also resets prob_indels to zeros - this also updates array size for new seq length 
     gets coverage set for all sequences by dividing current values by sequence lengths
     does culling based on base_coverages
     
@@ -683,24 +850,22 @@ def reset_probN(em):
     references_array = np.array(bamfile.references) # slicing these tuples is stupid-slow, for some reason.
     references_lengths = np.array(bamfile.lengths)
     for i in range(len(bamfile.lengths)):
-        seq_i = em.sequence_name2sequence_i.get(references_array[i])
+        seq_i = em.sequence_name2sequence_i.get(references_array[i])  
         if seq_i is not None:  # since not all seqs in header will be ones with mapped reads
             # CULLING: check for coverage > 0 across a % threshold of bases
             percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.base_coverages[seq_i].shape[0]
             if percent_length_covered < length_thresh:
                 em.probN[seq_i] = None
+                em.prob_indels[seq_i] = None
                 em.coverage[seq_i] = 0
                 cullcount += 1
                 continue
             # else is a valid seq, so create empty probN matrix
             l = references_lengths[i]
             em.probN[seq_i] = np.zeros((l, 5), dtype=np.float)   #ATCG[other] --> 01234
+            em.prob_indels[seq_i] = np.zeros((l, 3), dtype=np.float)  #0 = match weight, 1 = insertion weight, 2 = deletion weight
             em.coverage[seq_i] = em.coverage[seq_i] / float(l)
     bamfile.close()
-
-    # EXPERIMENTAL: if initial iteration, then redistribute Priors out over only sequences that weren't culled.
-    # if em.iteration_i < 1:  # initial_iteration
-        
 
     if em._VERBOSE:
         if cullcount > 0:
