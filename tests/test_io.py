@@ -1,13 +1,35 @@
 """Tests functions in Emirge.io"""
 
+from StringIO import StringIO
+
 from Emirge import io
 
-fasta_sample = """>id123
+## FASTA test data
+
+# sequence formatted at 60 cols
+fasta_sample_60 = """>id123
 GUGCAAAGUUGUGUAGUGCGAUCGGUGGAUGCCUUGGCACCAAGAGCCGAUGAAGGACGU
 UGUGACCUGCGAUAAGCCCUGGGGAGUUGGUGAGCGAGCUGUGAUCCGGGGGUGUCCGAA
 UGGGGAAACCUGGAAUGUCCGGAGUAGUGUCCGGUGGCCCUGCCCUGAAUGUAUAGGGGU
 GUGGGUGGUAACGCGGGGAAGUGAAACAUCUUAGUACCCGUAGGAAGAGAAAACAAGUGU
 """
+
+# same sequence formated at 77 cols
+fasta_sample_77 = """>id123
+GUGCAAAGUUGUGUAGUGCGAUCGGUGGAUGCCUUGGCACCAAGAGCCGAUGAAGGACGUUGUGACCUGCGAUAAGC
+CCUGGGGAGUUGGUGAGCGAGCUGUGAUCCGGGGGUGUCCGAAUGGGGAAACCUGGAAUGUCCGGAGUAGUGUCCGG
+UGGCCCUGCCCUGAAUGUAUAGGGGUGUGGGUGGUAACGCGGGGAAGUGAAACAUCUUAGUACCCGUAGGAAGAGAA
+AACAAGUGU
+"""
+
+# same sequence, one line
+sequence_sample = (
+    "GUGCAAAGUUGUGUAGUGCGAUCGGUGGAUGCCUUGGCACCAAGAGCCGAUGAAGGACGU"
+    "UGUGACCUGCGAUAAGCCCUGGGGAGUUGGUGAGCGAGCUGUGAUCCGGGGGUGUCCGAA"
+    "UGGGGAAACCUGGAAUGUCCGGAGUAGUGUCCGGUGGCCCUGCCCUGAAUGUAUAGGGGU"
+    "GUGGGUGGUAACGCGGGGAAGUGAAACAUCUUAGUACCCGUAGGAAGAGAAAACAAGUGU"
+)
+
 
 def test_Record_empty():
     record = io.Record()
@@ -17,20 +39,19 @@ def test_Record_empty():
 
 
 def test_Record_formatting():
-    record = io.Record(
-        title="id123",
-        sequence="GUGCAAAGUUGUGUAGUGCGAUCGGUGGAUGCCUUGGCACCA"
-                 "AGAGCCGAUGAAGGACGUUGUGACCUGCGAUAAGCCCU"
-                 "GGGGAGUUGGUGAGCGAGCUGUGAUCCGGGGGUGUCCGAAUG"
-                 "GGGAAACCUGGAAUGUCCGGAGUAGUGUCCGGUGGCCC"
-                 "UGCCCUGAAUGUAUAGGGGUGUGGGUGGUAACGCGGGGAAGU"
-                 "GAAACAUCUUAGUACCCGUAGGAAGAGAAAACAAGUGU"
-    )
-    assert str(record) == fasta_sample
+    record = io.Record(title="id123", sequence=sequence_sample)
+    print sequence_sample
+    assert str(record) == fasta_sample_60
 
 
 def test_FastIterator():
-    pass
+    n = 10
+    fasta_file = StringIO(fasta_sample_77 * n)
+    i = 0
+    for record in io.FastIterator(fasta_file):
+        assert str(record) == fasta_sample_60
+        i = i+1
+    assert i == n
 
 
 def test_ReindexReads():
