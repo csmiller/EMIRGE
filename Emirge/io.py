@@ -5,17 +5,20 @@ import re
 
 class Record:
     """
-    stripped down FASTA record class with same members as
-    Biopython FASTA Record Class
+    Stripped down FASTA record class with same members as
+    Biopython FASTA Record Class:
+
         title    -- with > removed
         sequence -- as string
+                    assumed to be free of whitespace and other non-sequence
+                    characters
     """
+
     _colwidth = 60  # number of residues per FASTA line
 
     def __init__(self, title="", sequence=""):
         """
         Create a new Record.
-
         """
         self.title = title
         self.sequence = sequence
