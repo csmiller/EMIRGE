@@ -154,7 +154,7 @@ class EM(object):
                                                # then split this sequence into two sequences.
 
 
-        self.cov_thresh = cov_thresh #add to init args where cov_thresh=options.min_coverage_threshold
+        self.cov_thresh = cov_thresh #cov_thresh=options.min_coverage_threshold
 
         if self.reads2_filepath == None:
             self.paired_end = False
@@ -208,7 +208,7 @@ class EM(object):
         it means that reading of bam files do not require a costly separate
         id lookup step on the read name.
 
-        also: set self.reads_n
+        also: set self.n_reads
               initialize self.reads_seen  # bool matrix of reads seen mapped at any iteration
 
         """
@@ -291,6 +291,7 @@ class EM(object):
                 self.unmapped_bases
                 self.coverage
                 self.bamfile_data
+                self.cigars
 
         This MUST maintain seq_i to name and read_i to name mappings between iterations, so that a single
         name always maintains the same index from one iteration to the next.  One result of this requirement
@@ -305,10 +306,11 @@ class EM(object):
         self.n_alignments = self.get_n_alignments_from_bowtie() # moved here from mapping functions because no longer relies on bowtie stderr
         self.current_reference_fasta_filename = reference_fasta_filename
         self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
-        # set here:
-        #       self.sequence_name2sequence_i
-        #       self.sequence_i2sequence_name
+        self.cigars = []   # eventually will hold list of pysam cigartuples.  populated in _emirge.process_bamfile
+        # set in process_bamfile cython function:
+        #       self.sequence_name2sequence_i and self.sequence_i2sequence_name
         #       self.bamfile_data  numpy array with (seq_i, read_i, pair_i, rlen, pos, is_reverse)
+        #       self.cigars, python list of cigar string tuples
 
         _emirge.process_bamfile(self, BOWTIE_ASCII_OFFSET)
 
@@ -320,13 +322,14 @@ class EM(object):
         self.posteriors.append(sparse.lil_matrix((self.n_sequences+1, self.n_reads+1), dtype=numpy.float))
 
         self.probN = [None for x in range(self.n_sequences)]  # TODO: is this necessary any more? or is bookkeeping with probN good enough now.
+        self.prob_indels = [None for x in self.probN]  # adjusted initialization to be same as probN as was done in emirge.py 
         self.unmapped_bases = [None for x in self.probN]
-        self.mean_read_length = numpy.mean(self.readlengths)
+        self.mean_read_length = numpy.mean(self.readlengths) # need to calculate this each time? can't we set this once as self.readlengths doesn't change with iters? 
 
         # reset probN for valid sequences (from current_reference_fasta_filename).
         # is this still necessary?  Or do I keep probN bookkeeping in order already?
         t_check = time()
-        _emirge.reset_probN(self)  # also updates coverage values and culls via fraction of length covered
+        _emirge.reset_probN(self)  # also updates coverage values and culls via fraction of length covered, NEW: resets prob_indels as well
         # print >> sys.stderr, "DEBUG: reset_probN loop time: %s"%(timedelta(seconds = time()-t_check))
 
         for d in [self.priors, self.posteriors]:
@@ -400,7 +403,7 @@ class EM(object):
         self.iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.iteration_i))
         check_call("mkdir -p %s"%(self.iterdir), shell=True)
         self.read_bam(bam_filename, reference_fasta_filename)  # initializes all data structures.
-
+        
         # m-step
         self.calc_likelihoods()
         self.calc_posteriors()
@@ -646,6 +649,7 @@ class EM(object):
 
                 # write out minor strain consensus
                 of.write(">%s\n"%(m_title))
+                minor_consensus = self.eval_indels(seq_i, minor_consensus, m_title) # added for indels
                 of.write("%s\n"%("".join(minor_consensus)))
                 if self._VERBOSE:
                     sys.stderr.write("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
@@ -654,6 +658,7 @@ class EM(object):
 
             # now write major strain consensus, regardless of whether there was a minor strain consensus
             of.write(">%s\n"%(title))
+            consensus = self.eval_indels(seq_i, consensus, title)  # added for indels
             of.write("%s\n"%("".join(consensus)))
 
         # END LOOP
@@ -687,6 +692,44 @@ class EM(object):
             sys.stderr.write("DONE Writing consensus for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = total_time)))
 
         return
+        
+    def eval_indels(self, seq_i, consensus, title):
+        # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
+        # OUT:   returns a list of single character bases as new consensus
+        deletion_threshold  = 0.75
+        insertion_threshold = 0.75
+        new_cons = []
+        prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
+        for base_i in range (prob_indels_single.shape[0]):
+            # Eval if deletion exists at base position
+            # Divides weight of deletion, by the sum of both deletions and matches
+            denominator = (prob_indels_single[base_i,0] + prob_indels_single[base_i,2])
+            if denominator == 0:  # nothing mapped to this base.  Use consensus base from reference
+                new_cons.append(consensus[base_i])
+            elif denominator > 0:
+                if (prob_indels_single[base_i,2] / denominator) > deletion_threshold:
+                    # delete (add nothing to new consensus)
+                    if self._VERBOSE:
+                        sys.stderr.write("Modified reference sequence %d (%s) with a deletion of base %d \n"%(seq_i, title, base_i))
+                else: # not deleted
+                    new_cons.append(consensus[base_i])
+            else:
+                raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
+            
+            # Eval if insertion exists after base position
+            if (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
+                continue
+            # if summed weights of insertion is greater than sum of reads mapped nearby (at base on left flank of proposed insertion (because it's easy), i-1)
+            elif (prob_indels_single[base_i,1] / denominator) > insertion_threshold: 
+                new_cons.append('N')
+                if self._VERBOSE:
+                        sys.stderr.write("Modified reference sequence %d (%s) with a single base insertion after base %d \n"%(seq_i, title, base_i))
+                else: # no insertion
+                    continue
+            else:
+                raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
+
+        return new_cons
 
     def write_consensus_with_mask(self, reference_fastafilename, output_fastafilename, mask):
         """
@@ -1317,6 +1360,7 @@ def do_iterations(em, max_iter, save_every):
         #     os.system("bzip2 -f %s &"%(filename))
 
     em.calc_cutoff_threshold()
+    
     # clean up any global temporary files, i.e. rewritten reads files
     for filename in em.temporary_files:
         os.remove(filename)
@@ -1374,10 +1418,7 @@ def do_premapping(pre_mapping_dir,options):
     stderr_string = p.stderr.read()
     sys.stdout.write(stderr_string)
     sys.stdout.flush()
-
-    # remove call to script later and replace with commented block, using this to get around pykseq problem:
-    #cmd="""/home/anarrowe/workspace/test_parse_sam.py %s %s %s"""%(pre_mapping_dir,options.fastq_reads_1,options.fastq_reads_2)
-    #check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+    
 
     # get IDs of mapped reads    
     sam=pysam.AlignmentFile(premapSam,'r')
