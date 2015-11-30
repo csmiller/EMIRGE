@@ -250,6 +250,7 @@ setup(
     ext_modules=extensions,
     cmdclass=cmdclass,
     packages=find_packages(exclude=['tests', 'tests.*']),
+    test_suite='nose.collector',
     license="GPLv3+",
     keywords=["rRNA", "EM"],
     install_requires=["numpy", "pysam", "scipy", "biopython"],
