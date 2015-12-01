@@ -734,6 +734,7 @@ def process_bamfile(em, int ascii_offset):
     cdef unsigned int n_reads_mapped = 0  # num. of single reads or pairs
     cdef np.ndarray[np.uint8_t, ndim=1] reads_mapped = np.zeros(em.n_reads, dtype=np.uint8) # mapped this round = 1
     cdef np.ndarray[np.uint32_t, ndim=1] base_coverage # single base coverage
+
     
     samfile_references = np.array(bamfile.references)  # faster to slice numpy array
     samfile_lengths    = np.array(bamfile.lengths)  # faster to slice numpy array
@@ -744,6 +745,8 @@ def process_bamfile(em, int ascii_offset):
     # dictionary lookup for each and every alignedread
     cdef np.ndarray[np.uint32_t, ndim=1] tid2seq_i = np.zeros(len(bamfile.references), dtype=np.uint32)
     cdef np.ndarray[np.uint8_t, ndim=1] tid_mapped = np.zeros(len(bamfile.references), dtype=np.uint8)
+    cdef np.ndarray[np.uint32_t, ndim=1] refseq_length = np.zeros(len(bamfile.lengths), dtype=np.uint32)    
+    
     t_check = time()
     for alignedread in bamfile:
         tid_mapped[alignedread.tid] = 1
@@ -754,6 +757,7 @@ def process_bamfile(em, int ascii_offset):
     new_seq_i = len(sequence_i2sequence_name)
     for tid, refname in enumerate(bamfile.references):
         # assert bamfile.getrname(tid) == refname # this is true
+        print "length of reference seq %s is %s"%(refname,samfile_lengths[tid])
         if tid_mapped[tid] == 1:
             if not sequence_name2sequence_i.has_key(refname):  # new sequence we haven't seen before
                 seq_i = new_seq_i
@@ -764,19 +768,27 @@ def process_bamfile(em, int ascii_offset):
             else:
                 seq_i = sequence_name2sequence_i[refname]
             tid2seq_i[tid] = seq_i
+            refseq_length[seq_i] = samfile_lengths[tid]
+            
         
     # reset this here to be size of n_sequences
-    em.coverage = np.zeros(len(sequence_name2sequence_i), dtype=np.uint32)
+    em.coverage = np.zeros(len(sequence_name2sequence_i), dtype=np.uint32)  #Don't think we need this anymore.
     cdef np.ndarray[np.uint32_t, ndim=1] coverage = em.coverage
 
     # and now keep temporary base_coverages in numpy array for speed below.
     cdef list base_coverages = em.base_coverages  # list of arrays
-    max_length = max([base_coverage.shape[0] for base_coverage in base_coverages])
+    max_length = max(bamfile.lengths) 
     cdef np.ndarray[np.uint32_t, ndim=2] base_coverages_2d = np.zeros((len(base_coverages), max_length), dtype=np.uint32)
     
     for seq_i, base_coverage in enumerate(base_coverages):
-        for i in range(base_coverage.shape[0]):
-            base_coverages_2d[seq_i, i] = base_coverage[i]
+        print "seq_i: %s"%seq_i
+        print "seq_length of array: %s"%base_coverage.shape[0]
+        print "length of reference seq %s is %s"%(seq_i,refseq_length[seq_i])
+        print np.array_str(base_coverage)
+        if base_coverage.shape[0] != refseq_length[seq_i]:
+            em.base_coverages[seq_i] = np.zeros(refseq_length[seq_i],dtype=np.uint32) # make sure this is long enough to get full sequence info below
+        else:
+            em.base_coverages[seq_i][:] = 0      
 
     # Now actually iterate through alignments
     alignedread_i = 0
@@ -810,14 +822,6 @@ def process_bamfile(em, int ascii_offset):
                     i+=1
 
         
-        ##coverage[seq_i] += <unsigned int>alignedread.rlen  # TODO: INDEL-AWARE (see below)
-        # base_coverage = em.base_coverages[seq_i]  # list lookup.  SLOW?
-        # for i in range(alignedread.pos, alignedread.pos+alignedread.rlen):
-        #     base_coverage[i] += 1
-        # TODO: MAKE THIS INDEL-AWARE, i.e. go through cigar string here.  Or use pysam pileup, but expensive?
-        ##for i in range(alignedread.pos, alignedread.pos+alignedread.rlen):
-        ##     base_coverages_2d[seq_i, i] += 1    # base_coverage[i] += 1
-            
         bamfile_data[alignedread_i, 0] = seq_i
         bamfile_data[alignedread_i, 1] = read_i
         bamfile_data[alignedread_i, 2] = alignedread.is_read2
@@ -833,8 +837,13 @@ def process_bamfile(em, int ascii_offset):
 
     # get base_coverages back in list:
     for seq_i, base_coverage in enumerate(base_coverages):
-        for i in range(base_coverage.shape[0]):
-            base_coverage[i] = base_coverages_2d[seq_i, i]
+        print "base coverage array size is %s"%base_coverage.shape[0]
+        print "2d array size is %s"%len(base_coverages_2d[seq_i])
+        print np.array_str(base_coverage)
+        print np.array_str(base_coverages_2d[seq_i])
+        base_coverage[:] = base_coverages_2d[seq_i][:base_coverage.shape[0]]
+        print np.array_str(base_coverage)
+
     
     cdef int n_reads_total = reads_mapped.shape[0]
     for i in range(n_reads_total):
@@ -880,7 +889,7 @@ def reset_probN(em):
             l = references_lengths[i]
             em.probN[seq_i] = np.zeros((l, 5), dtype=np.float)   #ATCG[other] --> 01234
             em.prob_indels[seq_i] = np.zeros((l, 3), dtype=np.float)  #0 = match weight, 1 = insertion weight, 2 = deletion weight
-            em.coverage[seq_i] = em.coverage[seq_i] / float(l)
+            em.coverage[seq_i] = em.coverage[seq_i] / float(l)  # Don't think we need this anymore
     bamfile.close()
 
     if em._VERBOSE:
