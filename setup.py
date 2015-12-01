@@ -250,13 +250,15 @@ setup(
     ext_modules=extensions,
     cmdclass=cmdclass,
     packages=find_packages(exclude=['tests', 'tests.*']),
+    test_suite='nose.collector',
     license="GPLv3+",
     keywords=["rRNA", "EM"],
     install_requires=["numpy", "pysam", "scipy", "biopython"],
     setup_requires=["numpy"]
 )
 
-print ""
-print "NOTE:"
-print "To download a standard candidate SSU database to use with EMIRGE, run"
-print "python emirge_download_candidate_db.py"
+print """
+NOTE:
+To build a candidate SSU or LSU database based on the most recent SILVA
+release, run "python emirge_makedb.py".
+"""
