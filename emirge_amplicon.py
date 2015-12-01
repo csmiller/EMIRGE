@@ -201,7 +201,7 @@ class EM(object):
 
         self.temporary_files = []  # to remove at end of run
 
-        if self.rewrite_reads:
+        if rewrite_reads:
             (self.reads1, self.n_reads) = \
                 io.ReindexReads(self.reads1_filepath)
             self.reads1_filepath = self.reads1.name
