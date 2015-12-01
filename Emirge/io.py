@@ -1,11 +1,10 @@
 """Implements IO functions"""
 
 import re
-import sys
-from time import ctime, time
-from datetime import timedelta
 from tempfile import NamedTemporaryFile
 from subprocess import CalledProcessError, check_call, Popen, PIPE
+
+from Emirge import log
 
 
 class Record:
@@ -55,7 +54,8 @@ def FastIterator(filehandle, dummyParser=None, record=None):
         yield record
 
 
-def ReindexReads(reads_filepath, _VERBOSE=True):
+@log.timed("Rewriting reads with indicies in headers")
+def ReindexReads(reads_filepath):
     """
     Replaces sequence headers ("@...") with the sequence number.
     Although this requires an inefficient rewrite of the fastq file,
@@ -66,10 +66,6 @@ def ReindexReads(reads_filepath, _VERBOSE=True):
         new_reads_file  NamedTemporaryFile (will self-delete) of rewritten fq
         num_reads       int number of sequences in fq
     """
-
-    if _VERBOSE:
-        sys.stderr.write("Rewriting reads with indices in headers at %s...\n" % (ctime()))
-        start_time = time()
 
     tmp_n_reads_file_path = NamedTemporaryFile()
     new_reads_filepath = NamedTemporaryFile(suffix="reindexed_reads.fq")
@@ -90,12 +86,8 @@ def ReindexReads(reads_filepath, _VERBOSE=True):
 
         n_reads = int(tmp_n_reads_file_path.readline().strip())
     except CalledProcessError:
-        if _VERBOSE:
-            sys.stderr.write("\tawk rewrite of reads failed! Is awk installed?\n")
-            raise
-
-    if _VERBOSE:
-        sys.stderr.write("DONE Rewriting reads with indexes in headers at %s [%s]...\n"%(ctime(), timedelta(seconds = time()-start_time)))
+        log.error("awk rewrite of reads failed! Is awk installed?")
+        raise
 
     new_reads_filepath.seek(0)
     return (new_reads_filepath, n_reads)
