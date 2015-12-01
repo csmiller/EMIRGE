@@ -983,113 +983,114 @@ class EM(object):
             sys.stderr.write("Starting read mapping for iteration %d at %s...\n"%(self.iteration_i, ctime()))
             start_time = time()
 
-        self.do_mapping_bowtie(full_fasta_path, nice = nice)
+        self.do_mapping_bowtie2(full_fasta_path, nice = nice)
+        #self.do_mapping_bowtie(full_fasta_path, nice = nice)
 
         if self._VERBOSE:
             sys.stderr.write("DONE with read mapping for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
         return
      
 #    #bowtie2 version:
-#    def do_mapping_bowtie(self, full_fasta_path, nice = None):
-#        """
-#        run bowtie2 to produce bam file for next iteration
-#
-#        """
-#        bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
-#        bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
-#        # 1. build index
-#        cmd = "bowtie2-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
-#        if self._VERBOSE:
-#            sys.stderr.write("\tbowtie2-build command:\n")
-#            sys.stderr.write("\t%s\n"%cmd)
-#        check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
-#
-#        # 2. run bowtie
-#        nicestring = ""
-#        if nice is not None:
-#            nicestring = "nice -n %d"%(nice)
-#
-#        if self.reads1_filepath.endswith(".gz"):
-#            cat_cmd = "gzip -dc "
-#        else:
-#            cat_cmd = "cat "
-#
-#    
-#        # minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length) # this was to keep "dovetailing" (overlapping reads that extend past each other) reads from mapping, but causes problems with modern overlapped reads common on MiSeq, etc.  Goal was to keep adapter sequence bases out of EMIRGE's view.
-#        minins = max((self.insert_mean - 3*self.insert_sd), 0) # Puts burden on user to make sure there are no adapter sequences in input reads.
-#        maxins = self.insert_mean + 3*self.insert_sd
-#        output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
-#        output_filename = "%s.PE.u.bam"%output_prefix
-#
-#
-#        # these are used for single reads too.  Bowtie2 ignores the paired-end options when single reads are used
-#
-#        shared_bowtie_params = "-D 20 -R 3 -N 0 -L 20 -i S,1,0.50 -k 20 --no-unal --phred%d -t -p %s"%(\
-#            self.reads_ascii_offset, 
-#            self.n_cpus)
-#
-#        #Build Bowtie2 command depending if reads2 was given in Emirge command line parameters
-#
-#        if self.reads2_filepath is not None:
-#            bowtie_command = "%s %s | %s bowtie2 %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S - > %s 2> %s "%(\
-#                cat_cmd,
-#                self.reads1_filepath,
-#                nicestring,
-#                shared_bowtie_params,
-#                minins, maxins,
-#                bowtie_index,
-#                self.reads2_filepath,
-#                output_filename,
-#                bowtie_logfile)
-#        else: # single reads
-#            bowtie_command = "%s %s | %s bowtie2 %s -x %s -U - | samtools view -b -S - > %s 2> %s "%(\
-#                cat_cmd,
-#                self.reads1_filepath,
-#                nicestring,
-#                shared_bowtie_params,
-#                bowtie_index,
-#                output_filename,
-#                bowtie_logfile)
-#
-#        if self._VERBOSE:
-#            sys.stderr.write("\tbowtie command:\n")
-#            sys.stderr.write("\t%s\n"%bowtie_command)
-#
-#        p = Popen(bowtie_command, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
-#        p.wait()
-#        stderr_string = p.stderr.read()
-#        self.fragments_mapped = self.get_frags_mapped_bt2(stderr_string)
-#        sys.stdout.write(stderr_string)
-#        sys.stdout.flush()
-#
-#        if self._VERBOSE:
-#            sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
-#
-#        # 3. clean up
-#        # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
-#        check_call("gzip -f %s"%(bowtie_logfile), shell=True)
-#
-#        assert self.iterdir != '/'
-#        for filename in os.listdir(self.iterdir):
-#            assert(len(os.path.basename(bowtie_index)) >= 20)  # weak check that I'm not doing anything dumb.
-#            if os.path.basename(bowtie_index) in filename:
-#                os.remove(os.path.join(self.iterdir, filename))
-#
-#
-#        self.current_bam_filename = output_filename   # do this last.
-#   
-#        
-#        
-#        return  
+    def do_mapping_bowtie2(self, full_fasta_path, nice = None):
+        """
+        run bowtie2 to produce bam file for next iteration
+
+        """
+        bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
+        bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
+        # 1. build index
+        cmd = "bowtie2-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
+        if self._VERBOSE:
+            sys.stderr.write("\tbowtie2-build command:\n")
+            sys.stderr.write("\t%s\n"%cmd)
+        check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
+
+        # 2. run bowtie
+        nicestring = ""
+        if nice is not None:
+            nicestring = "nice -n %d"%(nice)
+
+        if self.reads1_filepath.endswith(".gz"):
+            cat_cmd = "gzip -dc "
+        else:
+            cat_cmd = "cat "
+
+    
+        # minins = max((self.insert_mean - 3*self.insert_sd), self.max_read_length) # this was to keep "dovetailing" (overlapping reads that extend past each other) reads from mapping, but causes problems with modern overlapped reads common on MiSeq, etc.  Goal was to keep adapter sequence bases out of EMIRGE's view.
+        minins = max((self.insert_mean - 3*self.insert_sd), 0) # Puts burden on user to make sure there are no adapter sequences in input reads.
+        maxins = self.insert_mean + 3*self.insert_sd
+        output_prefix = os.path.join(self.iterdir, "bowtie.iter.%02d"%(self.iteration_i))
+        output_filename = "%s.PE.u.bam"%output_prefix
+
+
+        # these are used for single reads too.  Bowtie2 ignores the paired-end options when single reads are used
+
+        shared_bowtie_params = "-D 20 -R 3 -N 0 -L 20 -i S,1,0.50 -k 20 --no-unal --phred%d -t -p %s"%(\
+            self.reads_ascii_offset, 
+            self.n_cpus)
+
+        #Build Bowtie2 command depending if reads2 was given in Emirge command line parameters
+
+        if self.reads2_filepath is not None:
+            bowtie_command = "%s %s | %s bowtie2 %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S - > %s 2> %s "%(\
+                cat_cmd,
+                self.reads1_filepath,
+                nicestring,
+                shared_bowtie_params,
+                minins, maxins,
+                bowtie_index,
+                self.reads2_filepath,
+                output_filename,
+                bowtie_logfile)
+        else: # single reads
+            bowtie_command = "%s %s | %s bowtie2 %s -x %s -U - | samtools view -b -S - > %s 2> %s "%(\
+                cat_cmd,
+                self.reads1_filepath,
+                nicestring,
+                shared_bowtie_params,
+                bowtie_index,
+                output_filename,
+                bowtie_logfile)
+
+        if self._VERBOSE:
+            sys.stderr.write("\tbowtie command:\n")
+            sys.stderr.write("\t%s\n"%bowtie_command)
+
+        p = Popen(bowtie_command, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
+        p.wait()
+        stderr_string = p.stderr.read()
+        self.fragments_mapped = self.get_frags_mapped_bt2(stderr_string)
+        sys.stdout.write(stderr_string)
+        sys.stdout.flush()
+
+        if self._VERBOSE:
+            sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
+
+        # 3. clean up
+        # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
+        check_call("gzip -f %s"%(bowtie_logfile), shell=True)
+
+        assert self.iterdir != '/'
+        for filename in os.listdir(self.iterdir):
+            assert(len(os.path.basename(bowtie_index)) >= 20)  # weak check that I'm not doing anything dumb.
+            if os.path.basename(bowtie_index) in filename:
+                os.remove(os.path.join(self.iterdir, filename))
+
+
+        self.current_bam_filename = output_filename   # do this last.
+   
+        
+        
+        return  
         
    # original bowtie1 version:   
     def do_mapping_bowtie(self, full_fasta_path, nice = None):
-#        """
-#        run bowtie to produce bam file for next iteration
-#
-#        sets self.n_alignments
-#        sets self.current_bam_filename
-#        """
+        """
+        run bowtie to produce bam file for next iteration
+
+        sets self.n_alignments
+        sets self.current_bam_filename
+        """
         bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
         bowtie_logfile = os.path.join(self.iterdir, "bowtie.iter.%02d.log"%(self.iteration_i))
         # 1. build index
@@ -1428,53 +1429,53 @@ def do_premapping(pre_mapping_dir,options):
     return
 
 #bowtie2 version:
-#def do_initial_mapping(em, working_dir, options):
-#    """
+def do_initial_mapping_bt2(em, working_dir, options):
+    """
 #    IN:  takes the working directory and an OptionParser options object
 #   
 #    does the initial 1-reference-per-read bowtie mapping to initialize the algorithm
 #    OUT:  path to the bam file from this initial mapping
 #    """
-#    initial_mapping_dir = os.path.join(working_dir, "initial_mapping")
-#    if not os.path.exists(initial_mapping_dir):
-#        os.mkdir(initial_mapping_dir)
-#
-#    minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length)
-#    maxins = options.insert_mean + 3*options.insert_stddev
-#    bampath_prefix = os.path.join(initial_mapping_dir, "initial_bowtie_mapping.PE")
-#
-#    nicestring = ""   
-#    if options.nice_mapping is not None:
-#        nicestring = "nice -n %d"%(options.nice_mapping)  # TODO: fix this so it isn't such a hack and will work in bash.  Need to rewrite all subprocess code, really (shell=False)
-#    reads_ascii_offset = {False: 64, True: 33}[options.phred33]
-#    if options.fastq_reads_1.endswith(".gz"):
-#        option_strings = ["gzip -dc "]
-#    else:
-#        option_strings = ["cat "]
-#    # shared regardless of whether paired mapping or not
-#    option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors])
-#
-#    # PAIRED END MAPPING
-#    if options.fastq_reads_2 is not None:
-#        option_strings.extend([minins, maxins, options.bowtie2_db, options.fastq_reads_2, bampath_prefix])
-#        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S -u - > %s.u.bam "%tuple(option_strings)    
-#    # SINGLE END MAPPING
-#    else:
-#        option_strings.extend([options.bowtie2_db, bampath_prefix])
-#        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -x %s -U - | samtools view -b -S -u - > %s.u.bam "%tuple(option_strings)    
-#
-#
-#    sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
-#    p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
-#    p.wait()
-#    stderr_string = p.stderr.read()
-#    em.fragments_mapped=em.get_frags_mapped_bt2(stderr_string)
-#    # re-print this to stdout, since we stole it.
-#    sys.stdout.write(stderr_string)
-#    sys.stdout.flush()
-#
-#    return bampath_prefix+".u.bam"
-    
+    initial_mapping_dir = os.path.join(working_dir, "initial_mapping")
+    if not os.path.exists(initial_mapping_dir):
+        os.mkdir(initial_mapping_dir)
+
+    minins = max((options.insert_mean - 3*options.insert_stddev), options.max_read_length)
+    maxins = options.insert_mean + 3*options.insert_stddev
+    bampath_prefix = os.path.join(initial_mapping_dir, "initial_bowtie_mapping.PE")
+
+    nicestring = ""   
+    if options.nice_mapping is not None:
+        nicestring = "nice -n %d"%(options.nice_mapping)  # TODO: fix this so it isn't such a hack and will work in bash.  Need to rewrite all subprocess code, really (shell=False)
+    reads_ascii_offset = {False: 64, True: 33}[options.phred33]
+    if options.fastq_reads_1.endswith(".gz"):
+        option_strings = ["gzip -dc "]
+    else:
+        option_strings = ["cat "]
+    # shared regardless of whether paired mapping or not
+    option_strings.extend([options.fastq_reads_1, nicestring, reads_ascii_offset, options.processors])
+
+    # PAIRED END MAPPING
+    if options.fastq_reads_2 is not None:
+        option_strings.extend([minins, maxins, options.bowtie2_db, options.fastq_reads_2, bampath_prefix])
+        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S -u - > %s.u.bam "%tuple(option_strings)    
+    # SINGLE END MAPPING
+    else:
+        option_strings.extend([options.bowtie2_db, bampath_prefix])
+        cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -x %s -U - | samtools view -b -S -u - > %s.u.bam "%tuple(option_strings)    
+
+
+    sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
+    p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
+    p.wait()
+    stderr_string = p.stderr.read()
+    em.fragments_mapped=em.get_frags_mapped_bt2(stderr_string)
+    # re-print this to stdout, since we stole it.
+    sys.stdout.write(stderr_string)
+    sys.stdout.flush()
+
+    return bampath_prefix+".u.bam"
+   
     
  #original bowtie1 version:
 def do_initial_mapping(em, working_dir, options):
@@ -1912,7 +1913,10 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
     # DO INITIAL MAPPING if not provided with --mapping
     if options.mapping is None:
-        options.mapping = do_initial_mapping(em, working_dir, options)
+        if options.bowtie2_db is not None:
+            options.mapping = do_initial_mapping_bt2(em, working_dir, options)
+        else:
+            options.mapping = do_initial_mapping(em, working_dir, options)
 
 
     #  if >= this percentage of bases are minor alleles, split candidate sequence
