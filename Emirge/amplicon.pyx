@@ -794,13 +794,29 @@ def process_bamfile(em, int ascii_offset):
         reads_mapped[read_i] = 1
         seq_i = tid2seq_i[alignedread.tid]
         cigars[alignedread_i] = alignedread.cigartuples  # indexed by alignedread_i just as bamfile_data
-        coverage[seq_i] += <unsigned int>alignedread.rlen  # TODO: INDEL-AWARE (see below)
+        
+        i = alignedread.pos
+        for tup in cigars[alignedread_i]:
+            matchlen=tup[1]
+            if tup[0]==0: #match
+                for j in range(matchlen):
+                    base_coverages_2d[seq_i, i] += 1 
+                    i+=1
+            elif tup[0] == 1: #Cigar String - Insertion to the reference (i.e. need to insert gap(s) in reference seq to align)
+                for j in range(matchlen):
+                    i+=0
+            elif tup[0] == 2: #Cigar String - Deletion to the reference (i.e. need to insert gap(s) in read to align)
+                for j in range(matchlen):
+                    i+=1
+
+        
+        ##coverage[seq_i] += <unsigned int>alignedread.rlen  # TODO: INDEL-AWARE (see below)
         # base_coverage = em.base_coverages[seq_i]  # list lookup.  SLOW?
         # for i in range(alignedread.pos, alignedread.pos+alignedread.rlen):
         #     base_coverage[i] += 1
         # TODO: MAKE THIS INDEL-AWARE, i.e. go through cigar string here.  Or use pysam pileup, but expensive?
-        for i in range(alignedread.pos, alignedread.pos+alignedread.rlen):
-             base_coverages_2d[seq_i, i] += 1    # base_coverage[i] += 1
+        ##for i in range(alignedread.pos, alignedread.pos+alignedread.rlen):
+        ##     base_coverages_2d[seq_i, i] += 1    # base_coverage[i] += 1
             
         bamfile_data[alignedread_i, 0] = seq_i
         bamfile_data[alignedread_i, 1] = read_i

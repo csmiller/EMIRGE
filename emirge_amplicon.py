@@ -97,6 +97,7 @@ class EM(object):
                  max_read_length=76,
                  iterdir_prefix="iter.",
                  cluster_thresh=0.97,
+                 indel_thresh=0.3,
                  mapping_nice=None,
                  reads_ascii_offset=64,
                  expected_coverage_thresh=10,
@@ -126,6 +127,7 @@ class EM(object):
         self.cluster_thresh = cluster_thresh
         assert self.cluster_thresh >= 0 and self.cluster_thresh <= 1.0
         self.expected_coverage_thresh = expected_coverage_thresh
+        self.indel_thresh = indel_thresh
 
         # Single numpy array.  Has the shape: (numsequences x numreads)
         # [numreads can be numpairs]
@@ -665,39 +667,42 @@ class EM(object):
     def eval_indels(self, seq_i, consensus, title):
         # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
         # OUT:   returns a list of single character bases as new consensus
-        deletion_threshold  = 0.75
-        insertion_threshold = 0.75
+        deletion_threshold  = self.indel_thresh
+        insertion_threshold = self.indel_thresh
         new_cons = []
         prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
         for base_i in range (prob_indels_single.shape[0]):
             # Eval if deletion exists at base position
             # Divides weight of deletion, by the sum of both deletions and matches
             denominator = (prob_indels_single[base_i,0] + prob_indels_single[base_i,2])
-            if denominator == 0:  # nothing mapped to this base.  Use consensus base from reference
+            
+            if denominator < 0:
+                raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
+                
+            elif denominator == 0:  # nothing mapped to this base.  Use consensus base from reference
                 new_cons.append(consensus[base_i])
-            elif denominator > 0:
-                if (prob_indels_single[base_i,2] / denominator) > deletion_threshold:
+            
+            else:
+                if (prob_indels_single[base_i,2]) == 0:  # no evidence for deletion
+                    new_cons.append(consensus[base_i]) # not deleted
+                elif (prob_indels_single[base_i,2] / denominator) < deletion_threshold: #doesn't meet criteria for deletion
+                    new_cons.append(consensus[base_i]) # not deleted
+                else:
                     # delete (add nothing to new consensus)
                     if self._VERBOSE:
                         sys.stderr.write("Modified reference sequence %d (%s) with a deletion of base %d \n"%(seq_i, title, base_i))
-                else: # not deleted
-                    new_cons.append(consensus[base_i])
-            else:
-                raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
-            
+    
             # Eval if insertion exists after base position
-            if (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
-                continue
+                if (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
+                    continue
             # if summed weights of insertion is greater than sum of reads mapped nearby (at base on left flank of proposed insertion (because it's easy), i-1)
-            elif (prob_indels_single[base_i,1] / denominator) > insertion_threshold: 
-                new_cons.append('N')
-                if self._VERBOSE:
+                elif (prob_indels_single[base_i,1] / denominator) > insertion_threshold: 
+                    new_cons.append('N')
+                    if self._VERBOSE:
                         sys.stderr.write("Modified reference sequence %d (%s) with a single base insertion after base %d \n"%(seq_i, title, base_i))
                 else: # no insertion
                     continue
-            else:
-                raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
-
+  
         return new_cons
 
     def write_consensus_with_mask(self, reference_fastafilename, output_fastafilename, mask):
@@ -1731,6 +1736,9 @@ def main(argv = sys.argv[1:]):
     group_opt.add_option("--debug",
                         action="store_true",default=False,
                         help="temporary flag to debug premapping step, skips bowtie mapping")
+    group_opt.add_option("--indel_thresh",
+                        type="float",default="0.3",
+                        help="temporary flag to test indel thresholds")
 
     # DEPRECIATED
     # group_opt.add_option("-c", "--min_depth",
@@ -1893,6 +1901,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             cov_thresh=options.min_coverage_threshold,
             max_read_length = options.max_read_length,
             cluster_thresh = options.join_threshold,
+            indel_thresh = options.indel_thresh,
             n_cpus = options.processors,
             cwd = working_dir,
             reads_ascii_offset = {False: 64, True: 33}[options.phred33],
