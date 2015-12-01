@@ -66,7 +66,7 @@ from Bio import SeqIO
 import multiprocessing
 from emirge_rename_fasta import rename
 from Emirge.pykseq import Kseq
-import Emirge.io
+from Emirge import io, log
 
 
 BOWTIE_l = 20
@@ -203,28 +203,17 @@ class EM(object):
 
         if self.rewrite_reads:
             (self.reads1, self.n_reads) = \
-                Emirge.io.ReindexReads(self.reads1_filepath)
+                io.ReindexReads(self.reads1_filepath)
             self.reads1_filepath = self.reads1.name
             if self.paired_end:
                 (self.reads2, dummy) = \
-                    Emirge.io.ReindexReads(self.reads2_filepath)
+                    io.ReindexReads(self.reads2_filepath)
                 self.reads2_filepath = self.reads2.name
         else:
             # hidden option in main to avoid rewriting reads from big
             # files more than necessary if already has correct integer
             # read neames, then simply count reads in file
-            if self._VERBOSE:
-                sys.stderr.write("Counting reads in input files at %s...\n"%(ctime()))
-                start_time = time()
-
-            cmd = "cat %s | wc -l"%(self.reads1_filepath)
-            if self.reads1_filepath.endswith('.gz'):
-                cmd = "z" + cmd
-            p = Popen(cmd, shell=True, stdout=PIPE)
-            stdoutdata, stderrdata = p.communicate()
-            self.n_reads = int(stdoutdata.strip())
-            if self._VERBOSE:
-                sys.stderr.write("DONE Counting reads in input files at %s [%s]...\n"%(ctime(), timedelta(seconds = time()-start_time)))
+            self.n_reads = io.FastqCountReads(self.reads1_filepath)
 
         if self._VERBOSE:
             sys.stderr.write("Number of reads (or read pairs) in input file(s): %d\n"%(self.n_reads))
@@ -956,7 +945,7 @@ class EM(object):
         tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
         recordstrings=""
         num_seqs = 0
-        for record in Emirge.io.FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
+        for record in io.FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
             seqname = record.title.split()[0]
             seq_id = self.sequence_name2sequence_i.get(seqname)
             if seq_id not in already_removed:

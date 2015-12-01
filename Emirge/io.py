@@ -91,3 +91,12 @@ def ReindexReads(reads_filepath):
 
     new_reads_filepath.seek(0)
     return (new_reads_filepath, n_reads)
+
+@log.timed("Counting reads in input files")
+def FastqCountReads(filename):
+    cmd = "cat %s | wc -l" % (filename)
+    if filename.endswith('.gz'):
+        cmd = "z" + cmd
+    p = Popen(cmd, shell=True, stdout=PIPE)
+    stdoutdata, stderrdata = p.communicate()
+    return int(stdoutdata.strip()) / 4

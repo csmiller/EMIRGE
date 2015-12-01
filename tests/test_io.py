@@ -96,3 +96,8 @@ def test_ReindexReads():
     dst, n_reads = io.ReindexReads(src_zipped.name)
     assert n_reads == nlines / 4
     cmp_reindexed_fq_files(src, dst, n_reads)
+
+
+def test_FastqCountReads():
+    n_reads = io.FastqCountReads(read_file_1)
+    assert n_reads == 50000
