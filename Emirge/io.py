@@ -54,7 +54,7 @@ def FastIterator(filehandle, dummyParser=None, record=None):
         yield record
 
 
-@log.timed("Rewriting reads with indicies in headers")
+@log.timed("Rewriting reads with indices in headers")
 def ReindexReads(reads_filepath):
     """
     Replaces sequence headers ("@...") with the sequence number.
