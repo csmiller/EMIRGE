@@ -1,6 +1,8 @@
 #!/usr/bin/env python2
 """
-EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
+EMIRGE:
+Expectation-Maximization Iterative Reconstruction of Genes from the Environment
+
 Copyright (C) 2010-2012 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
 
     This program is free software: you can redistribute it and/or modify
@@ -21,8 +23,7 @@ https://github.com/csmiller/EMIRGE
 for help, type:
 python emirge_amplicon.py --help
 """
-USAGE = \
-"""usage: %prog DIR <required_parameters> [options]
+USAGE = """usage: %prog DIR <required_parameters> [options]
 
 This version of EMIRGE (%prog) attempts to reconstruct rRNA SSU genes
 from Illumina amplicon data.  It can handle up to a few million rRNA
@@ -37,11 +38,14 @@ https://github.com/csmiller/EMIRGE/wiki
 If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
-EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
+EMIRGE: reconstruction of full-length ribosomal genes from microbial community
+short read sequencing data.
 Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
 
-Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
-Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments.
+Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC,
+Banfield JF (2013)
+Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in
+Subsurface Sediments.
 PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 """
 
@@ -53,24 +57,23 @@ from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
 import pysam
 import numpy
 from scipy import sparse
-from subprocess import Popen, PIPE, check_call, CalledProcessError
+from subprocess import Popen, PIPE, check_call
 from time import ctime, time
 from datetime import timedelta
-import gzip
 import cPickle
 import Emirge.amplicon as _emirge
-from Bio import SeqIO, Seq
-from gzip import GzipFile
+from Bio import SeqIO
 import multiprocessing
-from emirge_rename_fasta import rename, replace_with_Ns
+from emirge_rename_fasta import rename
 from Emirge.pykseq import Kseq
 import Emirge.io
 
 
 BOWTIE_l = 20
-BOWTIE_e  = 300
+BOWTIE_e = 300
 
-BOWTIE_ASCII_OFFSET = 33   # currently, bowtie writes quals with an ascii offset of 33
+# currently, bowtie writes quals with an ascii offset of 33
+BOWTIE_ASCII_OFFSET = 33
 
 
 class EM(object):
@@ -78,11 +81,10 @@ class EM(object):
     driver class for EM algorithm
     """
     _VERBOSE = True
-    base2i = {"A":0,"T":1,"C":2,"G":3}
-    i2base = dict([(v,k) for k,v in base2i.iteritems()])
+    base2i = {"A": 0, "T": 1, "C": 2, "G": 3}
+    i2base = dict([(v, k) for k, v in base2i.iteritems()])
     # asciibase2i = {65:0,84:1,67:2,71:3}
 
-    clustermark_pat = re.compile(r'(\d+\|.?\|)?(.*)')  # cludgey code associated with this should go into a method: get_seq_i()
     DEFAULT_ERROR = 0.05
 
     def __init__(self, reads1_filepath, reads2_filepath,
@@ -90,78 +92,114 @@ class EM(object):
                  insert_sd,
                  output_files_prefix,
                  cov_thresh,
-                 n_cpus = 1,
-                 cwd = os.getcwd(), max_read_length = 76,
-                 iterdir_prefix = "iter.", cluster_thresh = 0.97,
-                 mapping_nice = None,
-                 reads_ascii_offset = 64,
-                 expected_coverage_thresh = 10,
-                 rewrite_reads = True):
+                 n_cpus=1,
+                 cwd=os.getcwd(),
+                 max_read_length=76,
+                 iterdir_prefix="iter.",
+                 cluster_thresh=0.97,
+                 mapping_nice=None,
+                 reads_ascii_offset=64,
+                 expected_coverage_thresh=10,
+                 rewrite_reads=True):
         """
-
-        n_cpus is how many processors to use for multithreaded steps (currently only the bowtie mapping)
+        n_cpus is how many processors to use for multithreaded steps
+        (currently only the bowtie mapping)
         mapping_nice is nice value to add to mapping program
         """
         self.reads1_filepath = reads1_filepath
         self.reads2_filepath = reads2_filepath
         self.insert_mean = insert_mean
         self.insert_sd = insert_sd
-        self.output_files_prefix = output_files_prefix  #add output_files_prefix to init args where output_files_prefix = options.output_files_prefix
+        # add output_files_prefix to init args where
+        # output_files_prefix = options.output_files_prefix
+        self.output_files_prefix = output_files_prefix
         self.n_cpus = n_cpus
-        self.mapping_nice   = mapping_nice
+        self.mapping_nice = mapping_nice
         self.reads_ascii_offset = reads_ascii_offset
 
         self.iteration_i = None    # keeps track of which iteration we are on.
         self.cwd = cwd
         self.max_read_length = max_read_length
         self.iterdir_prefix = iterdir_prefix
-        self.cluster_thresh = cluster_thresh   # if two sequences evolve to be >= cluster_thresh identical (via vsearch), then merge them. [0, 1.0]
+        # if two sequences evolve to be >= cluster_thresh identical
+        # (via vsearch), then merge them. [0, 1.0]
+        self.cluster_thresh = cluster_thresh
         assert self.cluster_thresh >= 0 and self.cluster_thresh <= 1.0
         self.expected_coverage_thresh = expected_coverage_thresh
 
-        # Single numpy array.  Has the shape: (numsequences x numreads) [numreads can be numpairs]
-        self.likelihoods = None      # = Pr(R_i|S_i), the likelihood of generating read R_i given sequence S_i
-        # list of numpy arrays.  list index is iteration number.  Each numpy array has the shape: (numsequences,)
-        self.priors      = []      # = Pr(S_i), the prior probability that sequence S generated any read
-        # list of numpy arrays.  list index is iteration number.  Each numpy array has the shape: (numsequences x numreads)
-        self.posteriors      = []  # = Pr(S_i|R_i), the posterior probability that sequence S_i generated read R_i
+        # Single numpy array.  Has the shape: (numsequences x numreads)
+        # [numreads can be numpairs]
+        self.likelihoods = None
+        # = Pr(R_i|S_i),
+        # the likelihood of generating read R_i given sequence S_i
 
-        # dict's and list keeping id mappings between sequence names and internal indices (seq_i)
-        # index is stable between iterations.  If sequence_i2sequence value is None, means this sequence was abandoned in a previous round
+        # list of numpy arrays.  list index is iteration number.
+        # Each numpy array has the shape: (numsequences,)
+        self.priors = []
+        # = Pr(S_i),
+        # the prior probability that sequence S generated any read
+
+        # list of numpy arrays.  list index is iteration number.
+        # Each numpy array has the shape: (numsequences x numreads)
+        self.posteriors = []
+        # = Pr(S_i|R_i),
+        # the posterior probability that sequence S_i generated read R_i
+
+        # dict's and list keeping id mappings between sequence names
+        # and internal indices (seq_i)
+        # index is stable between iterations.
+        # If sequence_i2sequence value is None, means this sequence was
+        # abandoned in a previous round
         self.sequence_name2sequence_i = {}
-        self.sequence_i2sequence_name = [] # list index is iteration number.
+        # list index is iteration number:
+        self.sequence_i2sequence_name = []
 
-        self.split_seq_first_appeared = {}  # seq_i --> iteration first seen.  Useful for keeping track of when a sequence first appeared, and not allowing merging of recently split out sequences
+        # seq_i --> iteration first seen.  Useful for keeping track of
+        # when a sequence first appeared, and not allowing merging of
+        # recently split out sequences
+        self.split_seq_first_appeared = {}
 
-        # similar to above except for reads -- depreciated
-        # self.read_name2read_i = {}  # Trie()
-        # self.read_i2read_name = numpy.array([], dtype=numpy.uint) -- DEPRECIATED
-
-        self.n_reads = 0        # in fastq input (number of reads **or number of read pairs**)
+        # in fastq input (number of reads **or number of read pairs**)
+        self.n_reads = 0
         self.n_reads_mapped = 0
         self.n_sequences = 0
 
-        # other constants, potentially changeable, tunable later, or could incorporate into probabilistic model.
-        self.min_depth = 5.0    # minimum depth to keep sequence around for next round
-        self.min_prior = None   # minimum prior probability for a sequence to keep it around for next round (alternative to depth, which is
-                                # a little weird when you allow mappings to more than one place.  NOT YET IMPLEMENTED
+        # other constants, potentially changeable, tunable later,
+        # or could incorporate into probabilistic model:
+        #
+        # minimum depth to keep sequence around for next round
+        self.min_depth = 5.0
+        # minimum prior probability for a sequence to keep it
+        # around for next round (alternative to depth, which is
+        # a little weird when you allow mappings to more than one place.
+        # NOT YET IMPLEMENTED
+        self.min_prior = None
 
-        self.base_coverages = []               # list of numpy arrays -- per base coverage values.
-        self.min_length_coverage_def = 1       # EXPERIMENTAL:  Minimum coverage in order to be counted in min_length_coverage
-        self.min_length_coverage = None         # EXPERIMENTAL.  Fraction of length that has to be covered by >= min_length_cov_depth
-        self.snp_minor_prob_thresh = 0.10      # if prob(N) for minor allele base N is >= this threshold, call site a minor allele
-        self.snp_percentage_thresh = 0.10      # if >= this percentage of bases are minor alleles (according to self.snp_minor_prob_thresh),
-                                               # then split this sequence into two sequences.
+        # list of numpy arrays -- per base coverage values.
+        self.base_coverages = []
+        # EXPERIMENTAL:  Minimum coverage in order to be counted in
+        #                min_length_coverage
+        self.min_length_coverage_def = 1
+        # EXPERIMENTAL.  Fraction of length that has to be covered by
+        #                >= min_length_cov_depth
+        self.min_length_coverage = None
+        # if prob(N) for minor allele base N is >= this threshold, call
+        # site a minor allele
+        self.snp_minor_prob_thresh = 0.10
+        # if >= this percentage of bases are minor alleles (according to
+        # self.snp_minor_prob_thresh), then split this sequence into
+        # two sequences.
+        self.snp_percentage_thresh = 0.10
 
+        # cov_thresh=options.min_coverage_threshold
+        self.cov_thresh = cov_thresh
 
-        self.cov_thresh = cov_thresh #cov_thresh=options.min_coverage_threshold
-
-        if self.reads2_filepath == None:
+        if self.reads2_filepath is None:
             self.paired_end = False
         else:
             self.paired_end = True
 
-        self.temporary_files = [] # to remove at end of run
+        self.temporary_files = []  # to remove at end of run
 
         if self.rewrite_reads:
             (self.reads1, self.n_reads) = \
@@ -172,8 +210,9 @@ class EM(object):
                     Emirge.io.ReindexReads(self.reads2_filepath)
                 self.reads2_filepath = self.reads2.name
         else:
-            # hidden option in main to avoid rewriting reads from big files more than necessary
-            # if already has correct integer read neames, then simply count reads in file
+            # hidden option in main to avoid rewriting reads from big
+            # files more than necessary if already has correct integer
+            # read neames, then simply count reads in file
             if self._VERBOSE:
                 sys.stderr.write("Counting reads in input files at %s...\n"%(ctime()))
                 start_time = time()
