@@ -64,7 +64,7 @@ from gzip import GzipFile
 import multiprocessing
 from emirge_rename_fasta import rename, replace_with_Ns
 from Emirge.pykseq import Kseq
-from Emirge.io import FastIterator
+import Emirge.io
 
 
 BOWTIE_l = 20
@@ -161,11 +161,18 @@ class EM(object):
         else:
             self.paired_end = True
 
-        # rewrite reads for index mapping, set self.n_reads
         self.temporary_files = [] # to remove at end of run
-        if rewrite_reads:
-            self.rewrite_reads()  # also sets self.n_reads
-        else:  # hidden option in main to avoid rewriting reads from big files more than necessary
+
+        if self.rewrite_reads:
+            (self.reads1, self.n_reads) = \
+                Emirge.io.ReindexReads(self.reads1_filepath)
+            self.reads1_filepath = self.reads1.name
+            if self.paired_end:
+                (self.reads2, dummy) = \
+                    Emirge.io.ReindexReads(self.reads2_filepath)
+                self.reads2_filepath = self.reads2.name
+        else:
+            # hidden option in main to avoid rewriting reads from big files more than necessary
             # if already has correct integer read neames, then simply count reads in file
             if self._VERBOSE:
                 sys.stderr.write("Counting reads in input files at %s...\n"%(ctime()))
@@ -201,72 +208,6 @@ class EM(object):
             sys.stderr.write("DONE Preallocating reads and quals in memory at %s [%s]...\n"%(ctime(), timedelta(seconds = time()-start_time)))
         return
 
-    def rewrite_reads(self):
-        """
-        rewrite reads files with indices as only info in header.
-        Though this requires an inefficient rewrite of the fastq file,
-        it means that reading of bam files do not require a costly separate
-        id lookup step on the read name.
-
-        also: set self.n_reads
-              initialize self.reads_seen  # bool matrix of reads seen mapped at any iteration
-
-        """
-
-        if self._VERBOSE:
-            sys.stderr.write("Rewriting reads with indices in headers at %s...\n"%(ctime()))
-            start_time = time()
-
-        tmp_n_reads_file_path = os.path.join(self.cwd, "emirge_tmp_n_reads.txt")
-
-        for i in (1, 2):
-            reads_filepath     = getattr(self, "reads%s_filepath"%i)
-            if reads_filepath is None:  # if not paired end, then self.reads2_filepath should be None
-                continue
-            new_reads_filepath = os.path.join(self.cwd, "emirge_tmp_reads_%s.fastq"%i)
-            self.temporary_files.append(new_reads_filepath)
-            setattr(self, "reads%s_filepath"%i, new_reads_filepath)
-
-            # first try awk, which is fast:
-            try:
-
-                cmd = """cat %s | awk 'BEGIN {i=0} {if ((NR-1)%%4==0) {print "@"i; i++} else print $0} END {print i > "%s"} ' > %s"""%(reads_filepath, tmp_n_reads_file_path, new_reads_filepath)
-                if reads_filepath.endswith('.gz'):
-                    cmd = 'z' + cmd
-                check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
-                self.n_reads = int(file(tmp_n_reads_file_path).readline().strip())
-                os.remove(tmp_n_reads_file_path)
-                continue  # awk code worked
-            except CalledProcessError:
-                if self._VERBOSE:
-                    sys.stderr.write("\tawk rewrite of reads failed! Is awk installed?\n")
-                    raise
-                    # sys.stderr.write("\tawk rewrite failed, falling back to pykseq...\n")
-
-            # COMMENTED OUT FOR THE TIME BEING.  REASONABLE TO EXPECT AWK
-            # if code reaches here, means awk failed, so use pykseq instead (about 2X slower)
-            # outf = file(new_reads_filepath, 'w')
-            # outf_write = outf.write
-            # ks = Kseq(reads_filepath)
-            # i = 0
-            # while 1:
-            #     t = ks.read_sequence_and_quals()
-            #     if t is None:
-            #         break
-            #     else:
-            #         outf_write("@%s\n%s\n+\n%s\n" % (i, t[1], t[2]))
-            #         i += 1
-
-            # outf.close()
-            # del ks
-            # self.n_reads = i
-
-
-
-        if self._VERBOSE:
-            sys.stderr.write("DONE Rewriting reads with indexes in headers at %s [%s]...\n"%(ctime(), timedelta(seconds = time()-start_time)))
-
-        return
 
     def read_bam(self, bam_filename, reference_fasta_filename):
         """
@@ -976,7 +917,7 @@ class EM(object):
         tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
         recordstrings=""
         num_seqs = 0
-        for record in FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
+        for record in Emirge.io.FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
             seqname = record.title.split()[0]
             seq_id = self.sequence_name2sequence_i.get(seqname)
             if seq_id not in already_removed:
