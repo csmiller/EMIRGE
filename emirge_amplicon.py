@@ -236,8 +236,6 @@ class EM(object):
         _emirge.populate_reads_arrays(self)
         if self._VERBOSE:
             sys.stderr.write("DONE Preallocating reads and quals in memory at %s [%s]...\n"%(ctime(), timedelta(seconds = time()-start_time)))
-        return
-
 
     def read_bam(self, bam_filename, reference_fasta_filename):
         """
@@ -310,7 +308,6 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("DONE Reading bam file %s at %s [%s]...\n"%(bam_filename, ctime(), timedelta(seconds = time()-start_time)))
-        return
 
     def initialize_EM(self, bam_filename, reference_fasta_filename, randomize_priors = False):
         """
@@ -356,8 +353,6 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("DONE with initialization at %s...\n"%(ctime()))
-
-        return
 
     def do_iteration(self, bam_filename, reference_fasta_filename):
         """
@@ -434,7 +429,6 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("Finished iteration %d at %s...\n"%(self.iteration_i, ctime()))
             sys.stderr.write("Total time for iteration %d: %s\n"%(self.iteration_i, timedelta(seconds = time()-start_time)))
-        return
     def print_priors(self, ofname = None):
         """
         leave a file in directory with nonzero priors printed out.
@@ -460,8 +454,6 @@ class EM(object):
         # therefore, should be csc sparse type for efficient summing
         self.posteriors[-1] = self.posteriors[-1].tocsc()
         self.priors[-1] = numpy.asarray(self.posteriors[-1].sum(axis = 1)).flatten() / self.posteriors[-1].sum()
-
-        return
 
     def write_consensus(self, outputfilename):
         """
@@ -661,8 +653,6 @@ class EM(object):
             sys.stderr.write("\tAverage time for non-split sequences: [%.6f seconds]\n"%((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
             # sys.stderr.write("\tCulled %d sequences\n"%(cullcount))
             sys.stderr.write("DONE Writing consensus for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = total_time)))
-
-        return
         
     def eval_indels(self, seq_i, consensus, title):
         # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
@@ -969,8 +959,6 @@ class EM(object):
             sys.stderr.write("\tsequences remaining for iteration %02d: %d\n"%(self.iteration_i, num_seqs))
             sys.stderr.write("DONE Clustering sequences for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
 
-        return
-
     def do_mapping(self, full_fasta_path, nice = None):
         """
         IN:  path of fasta file to map reads to
@@ -988,7 +976,6 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("DONE with read mapping for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
-        return
      
 #    #bowtie2 version:
     def do_mapping_bowtie2(self, full_fasta_path, nice = None):
@@ -1078,10 +1065,6 @@ class EM(object):
 
 
         self.current_bam_filename = output_filename   # do this last.
-   
-        
-        
-        return  
         
    # original bowtie1 version:   
     def do_mapping_bowtie(self, full_fasta_path, nice = None):
@@ -1179,10 +1162,6 @@ class EM(object):
                 os.remove(os.path.join(self.iterdir, filename))
 
         self.current_bam_filename = output_filename   # do this last.
-        
-        return
-        
-
 
     def get_n_alignments_from_bowtie(self):
         """
@@ -1248,7 +1227,6 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("DONE Calculating likelihood for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
-        return
 
     def calc_probN(self):
         """
@@ -1272,7 +1250,6 @@ class EM(object):
         if self._VERBOSE:
             sys.stderr.write("\tDONE calculating Pr(N=n) for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
 
-        return
     def calc_posteriors(self):
         if self._VERBOSE:
             sys.stderr.write("Calculating posteriors for iteration %d at %s...\n"%(self.iteration_i, ctime()))
@@ -1282,7 +1259,6 @@ class EM(object):
 
         if self._VERBOSE:
             sys.stderr.write("DONE Calculating posteriors for iteration %d at %s [%.3f seconds]...\n"%(self.iteration_i, ctime(), time() - t_start))
-        return
     def iterations_done(self):
         """
         check if we are done iterating, i.e. are the current reference sequences the same as that from the last round
@@ -1309,7 +1285,6 @@ class EM(object):
         sys.stderr.write("Average EMIRGE sequence length is %.5d\n"%self.avg_emirge_seq_length)
         sys.stderr.write("Fragments mapped = %.9d\n"%self.fragments_mapped)
         self.prob_min = (self.avg_emirge_seq_length*float(self.cov_thresh)) / (self.fragments_mapped*((int(self.paired_end)+1)*self.mean_read_length))
-        return
 
 
 def do_iterations(em, max_iter, save_every):
@@ -1354,7 +1329,6 @@ def do_iterations(em, max_iter, save_every):
         else:
             sys.stderr.write("ERROR: Could not convert last mapping file (%s) to compressed bam at %s.\n"%(os.path.basename(em.current_bam_filename), ctime()))
 
-    return
 
 def do_premapping(pre_mapping_dir,options):
     """
@@ -1426,7 +1400,6 @@ def do_premapping(pre_mapping_dir,options):
     sys.stderr.write("Total records read: %s\n"%(total_seqs))
     sys.stderr.write("Total premapped records written: %s\n"%(keptseqs))
     
-    return
 
 #bowtie2 version:
 def do_initial_mapping_bt2(em, working_dir, options):
@@ -1569,7 +1542,6 @@ def resume(working_dir, options):
     #     em.mapping_nice = options.nice_mapping
 
     do_iterations(em, max_iter = options.iterations, save_every = options.save_every)
-    return
 
 
 def post_process(em,working_dir):
@@ -1635,7 +1607,6 @@ def post_process(em,working_dir):
     outfile.close()
     os.remove(centroids)
     os.remove(uc)
-    return
 
 
 def dependency_check():
@@ -1662,7 +1633,6 @@ def dependency_check():
                                           (vsearch_minor == working_minor and vsearch_minor_minor < working_minor_minor))):
         print >> sys.stderr, "FATAL: vsearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nvsearch has different command line arguments and minor bugs in previous versions that can cause problems."%(vsearch_major, vsearch_minor, vsearch_minor_minor, working_maj, working_minor, working_minor_minor)
         exit(0)
-    return
 
 def main(argv = sys.argv[1:]):
     """
@@ -1944,8 +1914,6 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     # TODO
     
     sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"%(ctime(), timedelta(seconds = time()-total_start_time)))
-
-    return
 
 
 if __name__ == '__main__':
