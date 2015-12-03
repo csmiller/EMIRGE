@@ -1,3 +1,5 @@
+"""test functions in Emirge/amplicon.pyx"""
+
 from Emirge import amplicon
 from nose.tools import assert_equal
 
