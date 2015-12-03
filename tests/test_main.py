@@ -13,7 +13,7 @@ base = path.join(base, "test_data")
 in1 = path.join(base, "ten_seq_community_000_50K_L150_I350.1.fastq")
 in2 = path.join(base, "ten_seq_community_000_50K_L150_I350.2.fastq")
 ref = path.join(base, "twenty_seq_database.fasta")
-bt = path.join(base, "twenty_seq_database_BT_INDICES/twenty_seq_database")
+bt = path.join(base, "twenty_seq_database")
 
 main(argv=[
     outdir,
