@@ -681,16 +681,14 @@ def populate_reads_arrays(em):
             ks_p = ks.c_read_sequence()
             if ks_p == NULL:
                 break
-            else:
-                # read_index = atoi(ks_p.name.s)
-                readlengths[read_index] = ks_p.seq.l
-                for i in range(0, ks_p.seq.l):
-                    reads[read_index, readtype_index, i] = base_alpha2int(ks_p.seq.s[i])
-                    quals[read_index, readtype_index, i] = ks_p.qual.s[i] - ascii_offset
-                read_index += 1
-        
-    return
-    
+
+            readlengths[read_index] = ks_p.seq.l
+            for i in range(0, ks_p.seq.l):
+                reads[read_index, readtype_index, i] = base_alpha2int(ks_p.seq.s[i])
+                quals[read_index, readtype_index, i] = ks_p.qual.s[i] - ascii_offset
+            read_index += 1
+
+
 def process_bamfile(em, int ascii_offset):
     """
     read in bamfile and populate:
