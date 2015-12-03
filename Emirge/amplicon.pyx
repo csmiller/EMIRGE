@@ -36,6 +36,7 @@ from datetime import timedelta
 import pysam
 # cimport ctrie
 cimport pykseq
+from Emirge import log as logger
 
 
 # for lookup table of qual values
@@ -648,7 +649,7 @@ def count_cigar_aln(char* query_seq, char* hit_seq,
 
     return aln_columns, matches
 
-
+@logger.timed("Preallocating reads and quals in memory")
 def populate_reads_arrays(em):
     """
     2.  populates:

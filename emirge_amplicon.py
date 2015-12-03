@@ -217,8 +217,8 @@ class EM(object):
             # read neames, then simply count reads in file
             self.n_reads = io.FastqCountReads(self.reads1_filepath)
 
-        if self._VERBOSE:
-            sys.stderr.write("Number of reads (or read pairs) in input file(s): %d\n"%(self.n_reads))
+        log.info("Number of reads (or read pairs) in input file(s): %d"
+                 % (self.n_reads))
 
         self.reads_seen = numpy.zeros(self.n_reads, dtype=numpy.uint8)  # bool matrix of reads seen mapped at any iteration
 
@@ -230,13 +230,9 @@ class EM(object):
         self.quals = numpy.empty_like(self.reads)
         self.readlengths = numpy.empty((self.n_reads, 2), dtype = numpy.uint16)
         # read through reads file again, fill these.
-        if self._VERBOSE:
-            sys.stderr.write("Preallocating reads and quals in memory at %s...\n"%(ctime()))
-            start_time = time()
         _emirge.populate_reads_arrays(self)
-        if self._VERBOSE:
-            sys.stderr.write("DONE Preallocating reads and quals in memory at %s [%s]...\n"%(ctime(), timedelta(seconds = time()-start_time)))
 
+    @log.timed("Reading bam file")
     def read_bam(self, bam_filename, reference_fasta_filename):
         """
         reads a bam file and...
@@ -266,9 +262,6 @@ class EM(object):
         name always maintains the same index from one iteration to the next.  One result of this requirement
         is that the various matrices can always get larger in a later t, but never smaller (as reads or seqs are added)
         """
-        if self._VERBOSE:
-            sys.stderr.write("Reading bam file %s at %s...\n"%(bam_filename, ctime()))
-            start_time = time()
 
         initial_iteration = self.iteration_i < 0  # this is initial iteration
         self.current_bam_filename = bam_filename
@@ -306,9 +299,7 @@ class EM(object):
                 trash = d.pop(0)  # no longer care about t-2
                 del trash
 
-        if self._VERBOSE:
-            sys.stderr.write("DONE Reading bam file %s at %s [%s]...\n"%(bam_filename, ctime(), timedelta(seconds = time()-start_time)))
-
+    @log.timed("Initializing EM")
     def initialize_EM(self, bam_filename, reference_fasta_filename, randomize_priors = False):
         """
         Set up EM with two things so that first iteration can proceed:
@@ -327,8 +318,6 @@ class EM(object):
            results, and how often the algorithm gets stuck in local
            maxima.
         """
-        if self._VERBOSE:
-            sys.stderr.write("Beginning initialization at %s...\n"%(ctime()))
 
         self.iteration_i = -1
         self.read_bam(bam_filename, reference_fasta_filename)
@@ -351,9 +340,7 @@ class EM(object):
         # write priors as special case:
         self.print_priors(os.path.join(self.cwd, "priors.initialized.txt"))
 
-        if self._VERBOSE:
-            sys.stderr.write("DONE with initialization at %s...\n"%(ctime()))
-
+    @log.timed("Running iteration {self.iteration_i}+1") # FIXME i+1
     def do_iteration(self, bam_filename, reference_fasta_filename):
         """
         This starts with the M-step, so it requires that Pr(S) and Pr(N=n) from previous round are set.
@@ -362,9 +349,6 @@ class EM(object):
         Once M-step is done, then E-step calculates Pr(S) based upon the just-calculated M-step.
         """
         self.iteration_i += 1
-        if self._VERBOSE:
-            sys.stderr.write("Starting iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            start_time = time()
 
         self.iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.iteration_i))
         check_call("mkdir -p %s"%(self.iterdir), shell=True)
@@ -384,15 +368,8 @@ class EM(object):
         self.cluster_sequences(consensus_filename)  # merges sequences that have evolved to be the same (VSEARCH)
 
         # leave a few things around for later.  Note that print_priors also leaves sequence_name2sequence_i mapping, basically.
-        if self._VERBOSE:
-            sys.stderr.write("Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
         self.print_priors()
-        # python gzip.GzipFile is slow.  Use system call to gzip instead
-        pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
-        cPickle.dump(self.probN, file(pickled_filename, 'w'), cPickle.HIGHEST_PROTOCOL)
-        check_call("gzip -f %s"%(pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
-        if self._VERBOSE:
-            sys.stderr.write("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+        self.print_probN()
 
         # delete bamfile from previous round (keep -- and convert to
         # compressed bam -- initial iteration mapping in the
@@ -426,9 +403,8 @@ class EM(object):
 
         # now do a new mapping run for next iteration
         self.do_mapping(consensus_filename, nice = self.mapping_nice)
-        if self._VERBOSE:
-            sys.stderr.write("Finished iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            sys.stderr.write("Total time for iteration %d: %s\n"%(self.iteration_i, timedelta(seconds = time()-start_time)))
+
+    @log.timed("Writing priors for iteration {self.iteration_i}")
     def print_priors(self, ofname = None):
         """
         leave a file in directory with nonzero priors printed out.
@@ -444,6 +420,12 @@ class EM(object):
 
         of.close()
 
+    @log.timed("Writing probN for iteration {self.iteration_i}")
+    def print_probN(self):
+        # python gzip.GzipFile is slow.  Use system call to gzip instead
+        pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
+        cPickle.dump(self.probN, file(pickled_filename, 'w'), cPickle.HIGHEST_PROTOCOL)
+        check_call("gzip -f %s"%(pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
 
     def calc_priors(self):
         """
@@ -455,6 +437,7 @@ class EM(object):
         self.posteriors[-1] = self.posteriors[-1].tocsc()
         self.priors[-1] = numpy.asarray(self.posteriors[-1].sum(axis = 1)).flatten() / self.posteriors[-1].sum()
 
+    @log.timed("Writing consensus for iteration {self.iteration_i}")
     def write_consensus(self, outputfilename):
         """
         writes a consensus, taking the most probable base at each position, according to current
@@ -467,11 +450,8 @@ class EM(object):
                                             # then split this sequence into two sequences.
 
         """
-        if self._VERBOSE:
-            sys.stderr.write("Writing consensus for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            sys.stderr.write("\tsnp_minor_prob_thresh = %.3f\n"%(self.snp_minor_prob_thresh))
-            sys.stderr.write("\tsnp_percentage_thresh = %.3f\n"%(self.snp_percentage_thresh))
-            t0 = time()
+        log.info("\tsnp_minor_prob_thresh = %.3f"%(self.snp_minor_prob_thresh))
+        log.info("\tsnp_percentage_thresh = %.3f"%(self.snp_percentage_thresh))
 
         splitcount = 0
         cullcount  = 0
@@ -614,9 +594,8 @@ class EM(object):
                 of.write(">%s\n"%(m_title))
                 minor_consensus = self.eval_indels(seq_i, minor_consensus, m_title) # added for indels
                 of.write("%s\n"%("".join(minor_consensus)))
-                if self._VERBOSE:
-                    sys.stderr.write("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
-                                                                                   seq_i_minor, m_title))
+                log.info("splitting sequence %d (%s) to %d (%s)...\n"
+                         % (seq_i, title, seq_i_minor, m_title))
                 times_split.append(time()-seq_i_t0)
 
             # now write major strain consensus, regardless of whether there was a minor strain consensus
@@ -644,15 +623,14 @@ class EM(object):
         # update probN array:
         self.probN.extend(probNtoadd)
 
-        if self._VERBOSE:
-            total_time = time()-t0
-            sys.stderr.write("\tSplit out %d new minor strain sequences.\n"%(splitcount))
-            if splitcount > 0:
-                sys.stderr.write("\tAverage time for split sequence: [%.6f seconds]\n"%numpy.mean(times_split))
-                sys.stderr.write("\tAverage time for posterior update: [%.6f seconds]\n"%numpy.mean(times_posteriors))
-            sys.stderr.write("\tAverage time for non-split sequences: [%.6f seconds]\n"%((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
-            # sys.stderr.write("\tCulled %d sequences\n"%(cullcount))
-            sys.stderr.write("DONE Writing consensus for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = total_time)))
+        log.info("Split out %d new minor strain sequences." % (splitcount))
+        if splitcount > 0:
+            log.info("Average time for split sequence: [%.6f seconds]"
+                 % numpy.mean(times_split))
+            log.info("Average time for posterior update: [%.6f seconds]"
+                 % numpy.mean(times_posteriors))
+            log.info("Average time for non-split sequences: [%.6f seconds]"
+                 %((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
         
     def eval_indels(self, seq_i, consensus, title):
         # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
@@ -679,8 +657,8 @@ class EM(object):
                     new_cons.append(consensus[base_i]) # not deleted
                 else:
                     # delete (add nothing to new consensus)
-                    if self._VERBOSE:
-                        sys.stderr.write("Modified reference sequence %d (%s) with a deletion of base %d \n"%(seq_i, title, base_i))
+                    log.info("Modified reference sequence %d (%s) with a deletion of base %d "
+                             % (seq_i, title, base_i))
     
             # Eval if insertion exists after base position
                 if (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
@@ -688,8 +666,9 @@ class EM(object):
             # if summed weights of insertion is greater than sum of reads mapped nearby (at base on left flank of proposed insertion (because it's easy), i-1)
                 elif (prob_indels_single[base_i,1] / denominator) > insertion_threshold: 
                     new_cons.append('N')
-                    if self._VERBOSE:
-                        sys.stderr.write("Modified reference sequence %d (%s) with a single base insertion after base %d \n"%(seq_i, title, base_i))
+                    log.info("Modified reference sequence %d (%s) with a single base "
+                             "insertion after base %d"
+                             % (seq_i, title, base_i))
                 else: # no insertion
                     continue
   
@@ -732,6 +711,7 @@ class EM(object):
             of.write("%s\n"%("".join(consensus)))
             n_seqs += 1
         of.close()
+
         return n_seqs
 
     def cluster_sequences(self, fastafilename):
@@ -745,6 +725,7 @@ class EM(object):
         """
         return self.cluster_sequences_vsearch(fastafilename)
 
+    @log.timed("Clustering sequences for iteration {self.iteration_i}")
     def cluster_sequences_vsearch(self, fastafilename):
         """
         uses VSEARCH to merge sequences above self.cluster_thresh %ID over the
@@ -755,11 +736,10 @@ class EM(object):
 
         also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after merging.
         """
-        if self._VERBOSE:
-            sys.stderr.write("Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            #sys.stderr.write("\tcluster threshold = %.3f\n"%(self.cluster_thresh))
-            sys.stderr.write("cluster threshold = 100.00%")  # Hard threshold in place for EMIRGE2.  cluster_thresh from -j flag is now applied only in post-processing steps
-            start_time = time()
+        # Hard threshold in place for EMIRGE2.  cluster_thresh from -j flag
+        # is now applied only in post-processing steps
+        log.info("cluster threshold = 100.00%")
+
         tocleanup = []                  # list of temporary files to remove after done
 
         # get posteriors ready for slicing (just prior to this call, is csr matrix?):
@@ -813,8 +793,7 @@ class EM(object):
                self.n_cpus,
                sens_string)
 
-        if self._VERBOSE:
-            sys.stderr.write("vsearch command was:\n%s\n"%(cmd))
+        log.info("vsearch command was:\n%s"%(cmd))
 
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
@@ -878,8 +857,11 @@ class EM(object):
             if seed_first_appeared is not None and self.iteration_i - seed_first_appeared <= minimum_residence_time:
                 continue
 
-            if self._VERBOSE and num_seqs < 50:
-                print >> sys.stderr, "\t\t%s|%s vs %s|%s %.3f over %s aligned columns (vsearch %%ID: %s)"%(member_seq_id, member_name, seed_seq_id, seed_name, float(matches) / aln_columns, aln_columns, row[2])
+            if num_seqs < 50:
+                log.info("\t\t%s|%s vs %s|%s %.3f over %s aligned columns"
+                         "(vsearch %%ID: %s)"
+                         % (member_seq_id, member_name, seed_seq_id, seed_name,
+                            float(matches) / aln_columns, aln_columns, row[2]))
 
             # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
             percent_id = (float(matches) / aln_columns) * 100.
@@ -918,13 +900,12 @@ class EM(object):
 
             already_removed.add(remove_seq_id)
             nummerged += 1
-            if self._VERBOSE:
-                times.append(time()-t0)
-                sys.stderr.write("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns) in %.3f seconds\n"%\
-                                 (remove_seq_id, remove_name,
-                                  keep_seq_id,   keep_name,
-                                  percent_id, aln_columns,
-                                  times[-1]))
+
+            times.append(time()-t0)
+            log.info("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns)"
+                     "in %.3f seconds"
+                     % (remove_seq_id, remove_name, keep_seq_id, keep_name,
+                        percent_id, aln_columns, times[-1]))
 
         # if len(times) and self._VERBOSE:  # DEBUG
         #     sys.stderr.write("merges: %d\n"%(len(times)))
@@ -934,8 +915,7 @@ class EM(object):
         #     sys.stderr.write("max time per merge: %.3f seconds\n"%(numpy.max(times)))
 
         # write new fasta file with only new sequences
-        if self._VERBOSE:
-            sys.stderr.write("Writing new fasta file for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+        log.info("Writing new fasta file for iteration %d" % (self.iteration_i))
         tmp_fastafile.close()
         tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
         recordstrings=""
@@ -954,11 +934,11 @@ class EM(object):
         for fn in tocleanup:
             os.remove(fn)
 
-        if self._VERBOSE:
-            sys.stderr.write("\tremoved %d sequences after merging\n"%(nummerged))
-            sys.stderr.write("\tsequences remaining for iteration %02d: %d\n"%(self.iteration_i, num_seqs))
-            sys.stderr.write("DONE Clustering sequences for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
+        log.info("\tremoved %d sequences after merging" % (nummerged))
+        log.info("\tsequences remaining for iteration %02d: %d"
+             % (self.iteration_i, num_seqs))
 
+    @log.timed("Mapping reads for iteration {self.iteration_i}")
     def do_mapping(self, full_fasta_path, nice = None):
         """
         IN:  path of fasta file to map reads to
@@ -967,17 +947,11 @@ class EM(object):
 
         should also set self.n_alignments and self.current_bam_filename
         """
-        if self._VERBOSE:
-            sys.stderr.write("Starting read mapping for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            start_time = time()
 
         self.do_mapping_bowtie2(full_fasta_path, nice = nice)
         #self.do_mapping_bowtie(full_fasta_path, nice = nice)
-
-        if self._VERBOSE:
-            sys.stderr.write("DONE with read mapping for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
      
-#    #bowtie2 version:
+    # bowtie2 version:
     def do_mapping_bowtie2(self, full_fasta_path, nice = None):
         """
         run bowtie2 to produce bam file for next iteration
@@ -987,9 +961,8 @@ class EM(object):
         bowtie_index   = os.path.join(self.iterdir, "bowtie.index.iter.%02d"%(self.iteration_i))
         # 1. build index
         cmd = "bowtie2-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
-        if self._VERBOSE:
-            sys.stderr.write("\tbowtie2-build command:\n")
-            sys.stderr.write("\t%s\n"%cmd)
+        log.info("\tbowtie2-build command:")
+        log.info("\t%s" % cmd)
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
 
         # 2. run bowtie
@@ -1039,9 +1012,8 @@ class EM(object):
                 output_filename,
                 bowtie_logfile)
 
-        if self._VERBOSE:
-            sys.stderr.write("\tbowtie command:\n")
-            sys.stderr.write("\t%s\n"%bowtie_command)
+        log.info("\tbowtie command:")
+        log.info("\t%s"%bowtie_command)
 
         p = Popen(bowtie_command, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
         p.wait()
@@ -1050,8 +1022,7 @@ class EM(object):
         sys.stdout.write(stderr_string)
         sys.stdout.flush()
 
-        if self._VERBOSE:
-            sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
+        log.info("\tFinished Bowtie for iteration %02d" % (self.iteration_i))
 
         # 3. clean up
         # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
@@ -1065,7 +1036,7 @@ class EM(object):
 
 
         self.current_bam_filename = output_filename   # do this last.
-        
+
    # original bowtie1 version:   
     def do_mapping_bowtie(self, full_fasta_path, nice = None):
         """
@@ -1079,9 +1050,8 @@ class EM(object):
         # 1. build index
         cmd = "bowtie-build -o 3 %s %s > %s"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
         # note: just send stdout to log file, as stderr captured in emirge stderr
-        if self._VERBOSE:
-            sys.stderr.write("\tbowtie-build command:\n")
-            sys.stderr.write("\t%s\n"%cmd)
+        log.info("\tbowtie-build command:")
+        log.info("\t%s" % cmd)
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         sys.stdout.flush()
         sys.stderr.flush()
@@ -1127,9 +1097,8 @@ class EM(object):
                 samtools_cmd,
                 output_filename)
 
-        if self._VERBOSE:
-            sys.stderr.write("\tbowtie command:\n")
-            sys.stderr.write("\t%s\n"%bowtie_command)
+        log.info("\tbowtie command:")
+        log.info("\t%s" % bowtie_command)
 
         p = Popen(bowtie_command, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
         p.wait()
@@ -1147,8 +1116,7 @@ class EM(object):
         of.write("\n")
         of.close()
 
-        if self._VERBOSE:
-            sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
+        log.info("\tFinished Bowtie for iteration %02d" % (self.iteration_i))
 
         # 3. clean up
         # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
@@ -1173,11 +1141,8 @@ class EM(object):
         p = Popen(cmd, shell=True, stdout = PIPE, stderr = sys.stderr, close_fds=True)
         stdout_string = p.stdout.read()
         return int(stdout_string) 
-
-    
     
     def get_frags_mapped_bt1(self,stderr_string):
-
         try:
             r = re.findall(r'Reported ([0-9]+) (paired-end )?alignments', stderr_string)
             if r[0][1] != '': # "paired-end" string matched -- two lines in samfile per paired-end aln
@@ -1185,11 +1150,10 @@ class EM(object):
             else:             # single-end -- one line in samfile per alignment
                 return int(r[0][0])            
         except IndexError:
-            print >> sys.stderr, "OOPS, we didn't get number of reads from bowtie:"
-            print >> sys.stderr, stderr_string
-            print >> sys.stderr, r
+            log.error("OOPS, we didn't get number of reads from bowtie:")
+            log.error(stderr_string)
+            log.error(r)
             raise
-            
                   
     def get_frags_mapped_bt2(self,stderr_string):
         """
@@ -1206,28 +1170,24 @@ class EM(object):
             frags=(float(rt[0])/100)*int(r[0])
             return int(frags)
         except IndexError:
-            print >> sys.stderr, "OOPS, we didn't get number of reads from bowtie:"
-            print >> sys.stderr, stderr_string
-            print >> sys.stderr, r
+            log.error("OOPS, we didn't get number of reads from bowtie:")
+            log.error(stderr_string)
+            log.error(r)
             raise
 
-
+    @log.timed("Calculating likelihood {self.likelihoods.shape} "
+               "for iteration {self.iteration_i}")
     def calc_likelihoods(self):
         """
         sets self.likelihoods  (seq_n x read_n) for this round
         """
-        if self._VERBOSE:
-            sys.stderr.write("Calculating likelihood %s for iteration %d at %s...\n"%(self.likelihoods.shape, self.iteration_i, ctime()))
-            start_time = time()
         # first calculate self.probN from mapped reads, previous round's posteriors
         self.calc_probN()   # (handles initial iteration differently within this method)
 
         # Cython function for heavy lifting.
         _emirge._calc_likelihood(self)
 
-        if self._VERBOSE:
-            sys.stderr.write("DONE Calculating likelihood for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
-
+    @log.timed("Calculating Pr(N=n) for iteration {self.iteration_i}")
     def calc_probN(self):
         """
         Pr(N=n)
@@ -1240,25 +1200,14 @@ class EM(object):
         for Pr(N=n) use the prior as weighting factor instead of
         previous round's posterior.
         """
-        if self._VERBOSE:
-            sys.stderr.write("\tCalculating Pr(N=n) for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            start_time = time()
 
         # here do looping in Cython (this loop is about 95% of the time in this method on test data):
         _emirge._calc_probN(self)
 
-        if self._VERBOSE:
-            sys.stderr.write("\tDONE calculating Pr(N=n) for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
-
+    @log.timed("Calculating posteriors for iteration {self.iteration_i}")
     def calc_posteriors(self):
-        if self._VERBOSE:
-            sys.stderr.write("Calculating posteriors for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            t_start = time()
-
         _emirge._calc_posteriors(self)
 
-        if self._VERBOSE:
-            sys.stderr.write("DONE Calculating posteriors for iteration %d at %s [%.3f seconds]...\n"%(self.iteration_i, ctime(), time() - t_start))
     def iterations_done(self):
         """
         check if we are done iterating, i.e. are the current reference sequences the same as that from the last round
@@ -1281,9 +1230,12 @@ class EM(object):
         self.avg_emirge_seq_length = numpy.mean(bamfile.lengths)
         # self.mean_read_length = numpy.mean(self.readlengths)
 
-        sys.stderr.write("Average read length is %.4d\n"%self.mean_read_length)
-        sys.stderr.write("Average EMIRGE sequence length is %.5d\n"%self.avg_emirge_seq_length)
-        sys.stderr.write("Fragments mapped = %.9d\n"%self.fragments_mapped)
+        log.warning("Average read length is %.4d"
+                    % self.mean_read_length)
+        log.warning("Average EMIRGE sequence length is %.5d"
+                    % self.avg_emirge_seq_length)
+        log.warning("Fragments mapped = %.9d"
+                    % self.fragments_mapped)
         self.prob_min = (self.avg_emirge_seq_length*float(self.cov_thresh)) / (self.fragments_mapped*((int(self.paired_end)+1)*self.mean_read_length))
 
 
@@ -1317,18 +1269,20 @@ def do_iterations(em, max_iter, save_every):
 
     # compress last mapping (which we keep around)
     if os.path.exists(em.current_bam_filename) and em.current_bam_filename.endswith(".u.bam"):
-        sys.stderr.write("Converting last mapping file (%s) to compressed bam at %s...\n"%(os.path.basename(em.current_bam_filename), ctime()))
+        logthis = log.warningTimed(
+            "Converting last mapping file (%s) to compressed bam"
+            % (os.path.basename(em.current_bam_filename)))
         new_fn = em.current_bam_filename.rstrip(".u.sam")+".bam"
         # p = Popen(["samtools", "view", "-h", "-b", em.current_bam_filename, "-o", new_fn], stdout = sys.stdout, stderr = sys.stderr)
         p = Popen("samtools view -h -b %s > %s"%(em.current_bam_filename, new_fn), shell=True, stderr = sys.stderr)
         returncode = p.wait()
         if returncode == 0:
-            sys.stderr.write("DONE Converting last mapping file (%s) to compressed bam at %s.\n"%(os.path.basename(em.current_bam_filename), ctime()))
+            logthis.done()
             os.remove(em.current_bam_filename)
             em.current_bam_filename = new_fn
         else:
-            sys.stderr.write("ERROR: Could not convert last mapping file (%s) to compressed bam at %s.\n"%(os.path.basename(em.current_bam_filename), ctime()))
-
+            logthis.failed("Could not convert last mapping file (%s) to compressed bam"
+                           % (os.path.basename(em.current_bam_filename)))
 
 def do_premapping(pre_mapping_dir,options):
     """
@@ -1361,7 +1315,7 @@ def do_premapping(pre_mapping_dir,options):
         option_strings.extend([options.fastq_reads_1,options.fastq_reads_2,nicestring, reads_ascii_offset, options.processors,options.bowtie2_db,premapSam])
         cmd = """%s %s %s | %s bowtie2 --very-sensitive-local --phred%d -t -p %s -k1 -x %s --no-unal -S %s -U - """ %tuple(option_strings)
        
-    sys.stderr.write("Performing pre mapping with command:\n%s\n"%cmd)
+    log.warning("Performing pre mapping with command:\n%s" % cmd)
     p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
     p.wait()
     stderr_string = p.stderr.read()
@@ -1397,9 +1351,9 @@ def do_premapping(pre_mapping_dir,options):
                 keptseqs += 1
             total_seqs += 1  
 
-    sys.stderr.write("Total records read: %s\n"%(total_seqs))
-    sys.stderr.write("Total premapped records written: %s\n"%(keptseqs))
-    
+    log.warning("Total records read: %s" % (total_seqs))
+    log.warning("Total premapped records written: %s" % (keptseqs))
+
 
 #bowtie2 version:
 def do_initial_mapping_bt2(em, working_dir, options):
@@ -1438,7 +1392,7 @@ def do_initial_mapping_bt2(em, working_dir, options):
         cmd = "%s %s | %s bowtie2 -D 20 -R 3 -N 0 -L 20 -i S,1,0.50 --no-unal --phred%d -t -p %s -x %s -U - | samtools view -b -S -u - > %s.u.bam "%tuple(option_strings)    
 
 
-    sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
+    log.warning("Performing initial mapping with command:\n%s" % cmd)
     p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
     p.wait()
     stderr_string = p.stderr.read()
@@ -1492,7 +1446,7 @@ def do_initial_mapping(em, working_dir, options):
         cmd = """%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 512  %s - | %s > %s.u.bam """%tuple(option_strings)
 
     
-    sys.stderr.write("Performing initial mapping with command:\n%s\n"%cmd)
+    log.warning("Performing initial mapping with command:\n%s"%cmd)
     p = Popen(cmd, shell=True, stdout = sys.stdout, stderr = PIPE, close_fds=True)
     p.wait()
     stderr_string = p.stderr.read()
@@ -1503,6 +1457,7 @@ def do_initial_mapping(em, working_dir, options):
 
     return bampath_prefix+".u.bam"
 
+
 def resume(working_dir, options):
     """
     resume from a previous run.
@@ -1512,9 +1467,9 @@ def resume(working_dir, options):
     raise NotImplementedError, "This option is currently broken, and will be fixed in a later version."
     em = EM("", "", 0, 0)  # reads1_filepath, reads2_filepath, insert_mean, insert_sd
     data_path = os.path.join(working_dir, "iter.%02d"%(options.resume_from), 'em.%02i.data.pkl.bz2'%(options.resume_from))
-    sys.stdout.write("Loading saved state from %s...\n"%data_path)
+    log.warning("Loading saved state from %s..." % data_path)
     em.load_state(data_path)
-    sys.stdout.write("Done.\n")
+    log.warning("Done.")
 
     # if the current working dir has been copied or moved, the old state will no longer be valid,
     # so need to set this again:
@@ -1553,7 +1508,7 @@ def post_process(em,working_dir):
     #first need to do rename(em) with no probmin - keeping all sequences for clustering and writing out the raw output file
     nomin_fasta_filename = os.path.join(working_dir, em.output_files_prefix+"_nomin_iter."'%02d'%em.max_iterations +".RAW.fasta")
     if os.path.exists(nomin_fasta_filename):
-        sys.stderr.write("WARNING: overwriting file %s\n" %nomin_fasta_filename)
+        log.warning("WARNING: overwriting file %s" % nomin_fasta_filename)
     #nomin_file_handle = open(nomin_fasta_filename, 'w')
     rename(em.final_iterdir,nomin_fasta_filename,  em.output_files_prefix, prob_min=None,no_N = False, no_trim_N = True)
 
@@ -1562,14 +1517,14 @@ def post_process(em,working_dir):
     centroids=os.path.join(working_dir,"centroids.tmp")
     uc=os.path.join(working_dir,"uc.tmp")
     cmd = "vsearch --cluster_smallmem %s -usersort -notrunclabels -id %.2f -centroids %s -uc %s "%(nomin_fasta_filename,em.cluster_thresh,centroids,uc)
-    if em._VERBOSE:
-            sys.stderr.write("vsearch command was:\n%s\n"%(cmd))
+    log.info("vsearch command was:\n%s" % (cmd))
 
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
     
 
     #now meging cluster abundances and writing out the fasta file with merged abundancance over cutoff
-    sys.stderr.write("Minimum abundance for estimated %.2dX coverage is %.6f\n"%(em.cov_thresh,em.prob_min))
+    log.warning("Minimum abundance for estimated %.2dX coverage is %.6f"
+                % (em.cov_thresh, em.prob_min))
     clustered_fasta=os.path.join(working_dir,em.output_files_prefix+"_iter."'%02d'%em.max_iterations+"_"'%.6f'%em.prob_min+".fasta")
     outfile=open(clustered_fasta,'w')
     size_pattern = re.compile(r'NormPrior=([0-9\.]+)')
@@ -1622,7 +1577,7 @@ def dependency_check():
     working_minor_minor = 0
     match = re.search(r'vsearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("vsearch --version", shell=True, stdout=PIPE).stdout.read())
     if match is None:
-        print >> sys.stderr, "FATAL: vsearch not found in path!"
+        log.critical("FATAL: vsearch not found in path!")
         exit(0)
     binary_name, vsearch_major, vsearch_minor, vsearch_minor_minor = match.groups()
     vsearch_major = int(vsearch_major)
@@ -1631,8 +1586,14 @@ def dependency_check():
     if vsearch_major < working_maj or \
        (vsearch_major == working_maj and (vsearch_minor < working_minor or \
                                           (vsearch_minor == working_minor and vsearch_minor_minor < working_minor_minor))):
-        print >> sys.stderr, "FATAL: vsearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nvsearch has different command line arguments and minor bugs in previous versions that can cause problems."%(vsearch_major, vsearch_minor, vsearch_minor_minor, working_maj, working_minor, working_minor_minor)
+        log.critical("FATAL: vsearch version found was %s.%s.%s.\n"
+                     "emirge works with version >=  %s.%s.%s\n"
+                     "vsearch has different command line arguments and minor bugs"
+                     "in previous versions that can cause problems."
+                     % (vsearch_major, vsearch_minor, vsearch_minor_minor,
+                        working_maj, working_minor, working_minor_minor))
         exit(0)
+
 
 def main(argv = sys.argv[1:]):
     """
@@ -1845,7 +1806,10 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         else:
             if len(os.listdir(working_dir)) > 1:   # allow 1 file in case log file is redirected here.
                 print >> sys.stderr, os.listdir(working_dir)
-                parser.error("Directory not empty: %s\nIt is recommended you run emirge in a new directory each run; delete this directory or specifiy a new one."%working_dir)
+                parser.error("Directory not empty: %s\n"
+                             "It is recommended you run emirge in a new directory "
+                             "each run; delete this directory or specifiy a new one."
+                             % working_dir)
 
     # clean up options to be absolute paths
     for o in ["fastq_reads_1", "fastq_reads_2", "fasta_db", "bowtie_db", "mapping"]:
