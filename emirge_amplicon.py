@@ -220,15 +220,16 @@ class EM(object):
         log.info("Number of reads (or read pairs) in input file(s): %d"
                  % (self.n_reads))
 
-        self.reads_seen = numpy.zeros(self.n_reads, dtype=numpy.uint8)  # bool matrix of reads seen mapped at any iteration
-
+        # bool vector indicating whether read n was ever seen mapped
+        self.reads_seen = numpy.zeros(self.n_reads, dtype=numpy.uint8)
 
         # where 1st dimension is read index (from rewritten file headers)
         # and second dimension is read number (0 or 1 ==> read /1 or read /2)
         # 3rd dimension for reads and quals is max_readlen
-        self.reads = numpy.empty((self.n_reads, 2, self.max_read_length), dtype=numpy.uint8)
+        self.reads = numpy.empty((self.n_reads, 2, self.max_read_length),
+                                 dtype=numpy.uint8)
         self.quals = numpy.empty_like(self.reads)
-        self.readlengths = numpy.empty((self.n_reads, 2), dtype = numpy.uint16)
+        self.readlengths = numpy.empty((self.n_reads, 2), dtype=numpy.uint16)
         # read through reads file again, fill these.
         _emirge.populate_reads_arrays(self)
 
@@ -242,7 +243,8 @@ class EM(object):
                 self.read_name2read_i           # a dict
                 self.probN
 
-        doesn't do anything with these anymore, they should be populated and stable with _emirge.populate_reads_arrays
+        doesn't do anything with these anymore, they should be populated and
+        stable with _emirge.populate_reads_arrays
                 self.reads
                 self.quals
                 self.readlengths
@@ -258,38 +260,51 @@ class EM(object):
                 self.bamfile_data
                 self.cigars
 
-        This MUST maintain seq_i to name and read_i to name mappings between iterations, so that a single
-        name always maintains the same index from one iteration to the next.  One result of this requirement
-        is that the various matrices can always get larger in a later t, but never smaller (as reads or seqs are added)
+        This MUST maintain seq_i to name and read_i to name mappings between
+        iterations, so that a single name always maintains the same index from
+        one iteration to the next.  One result of this requirement is that the
+        various matrices can always get larger in a later t, but never smaller
+        (as reads or seqs are added)
         """
 
-        initial_iteration = self.iteration_i < 0  # this is initial iteration
         self.current_bam_filename = bam_filename
-        self.n_alignments = self.get_n_alignments_from_bowtie() # moved here from mapping functions because no longer relies on bowtie stderr
+        self.n_alignments = self.get_n_alignments_from_bowtie()
         self.current_reference_fasta_filename = reference_fasta_filename
         self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
-        self.cigars = []   # eventually will hold list of pysam cigartuples.  populated in _emirge.process_bamfile
-        # set in process_bamfile cython function:
-        #       self.sequence_name2sequence_i and self.sequence_i2sequence_name
-        #       self.bamfile_data  numpy array with (seq_i, read_i, pair_i, rlen, pos, is_reverse)
-        #       self.cigars, python list of cigar string tuples
+        self.cigars = []  # list of pysam cigartuples
 
+        # populate in cython:
+        #  self.sequence_name2sequence_i
+        #  self.sequence_i2sequence_name
+        #  self.bamfile_data  numpy array
+        #     with (seq_i, read_i, pair_i, rlen, pos, is_reverse)
+        #  self.cigars
         _emirge.process_bamfile(self, BOWTIE_ASCII_OFFSET)
 
         self.n_sequences = len(self.sequence_name2sequence_i)
 
         t_check = time()
-        self.priors.append(numpy.zeros(self.n_sequences, dtype = numpy.float))
-        self.likelihoods = sparse.coo_matrix((self.n_sequences, self.n_reads), dtype = numpy.float) #  init all to zero.
-        self.posteriors.append(sparse.lil_matrix((self.n_sequences+1, self.n_reads+1), dtype=numpy.float))
+        self.priors.append(numpy.zeros(self.n_sequences, dtype=numpy.float))
+        self.likelihoods = sparse.coo_matrix(
+            (self.n_sequences, self.n_reads), dtype=numpy.float
+        )  # init all to zero.
+        self.posteriors.append(sparse.lil_matrix(
+            (self.n_sequences+1, self.n_reads+1), dtype=numpy.float)
+        )
 
-        self.probN = [None for x in range(self.n_sequences)]  # TODO: is this necessary any more? or is bookkeeping with probN good enough now.
-        self.prob_indels = [None for x in self.probN]  # adjusted initialization to be same as probN as was done in emirge.py 
+        # TODO: is this necessary any more?
+        # or is bookkeeping with probN good enough now.
+        self.probN = [None for x in range(self.n_sequences)]
+        # adjusted initialization to be same as probN as was done in emirge.py
+        self.prob_indels = [None for x in self.probN]
         self.unmapped_bases = [None for x in self.probN]
-        self.mean_read_length = numpy.mean(self.readlengths) # need to calculate this each time? can't we set this once as self.readlengths doesn't change with iters? 
+        # need to calculate this each time? can't we set this once as
+        # self.readlengths doesn't change with iters?
+        self.mean_read_length = numpy.mean(self.readlengths)
 
-        # reset probN for valid sequences (from current_reference_fasta_filename).
-        # is this still necessary?  Or do I keep probN bookkeeping in order already?
+        # reset probN for valid sequences (from
+        # current_reference_fasta_filename). is this still necessary?
+        # Or do I keep probN bookkeeping in order already?
         t_check = time()
         _emirge.reset_probN(self)  # also updates coverage values and culls via fraction of length covered, NEW: resets prob_indels as well
         # print >> sys.stderr, "DEBUG: reset_probN loop time: %s"%(timedelta(seconds = time()-t_check))
