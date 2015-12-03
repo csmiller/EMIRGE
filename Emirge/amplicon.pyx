@@ -66,16 +66,18 @@ cdef inline int base_alpha2int(char base_ascii):
         return 4
 
 cdef inline unsigned char complement_numeric_base(unsigned char c):
-        if c == 0:
-            return 1
-        elif c == 1:
-            return 0
-        elif c == 2:
-            return 3
-        elif c == 3:
-            return 2
-        else:  # just set any non ACTG to N
-            return 4
+    return (c ^ 1) ^ (c >> 2)
+    # Explanation:
+    # (c ^ 1) because:
+    # A = 000  <=>  T = 001
+    # C = 010  <=>  G = 011  ==>  xor c with 1 to complement
+    # ... ^ (c >> 2) because:
+    # N = 100  <=>  N = 100, but c ^ 1 gives us 101
+    # ==> xor with c >> 2, which is 1 only for N (=100) to unset last bit
+
+
+def _complement_numeric_base(c):
+    return complement_numeric_base(c)
 
 @cython.boundscheck(False)
 def _calc_likelihood(em):
