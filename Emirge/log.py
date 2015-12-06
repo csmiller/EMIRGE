@@ -8,10 +8,9 @@ from inspect import getargspec
 
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s %(message)s'
 )
-
 
 DEBUG = logging.debug        # just for debug
 INFO = logging.info          # just FYI
@@ -26,6 +25,14 @@ warning = WARNING
 error = ERROR
 critical = CRITICAL
 log = LOG
+
+
+def setup(quiet, debug):
+    logger = logging.getLogger()
+    if debug:
+        logger.setLevel(logging.DEBUG)
+    elif quiet:
+        logger.setLevel(logging.WARNING)
 
 
 class Timed(object):

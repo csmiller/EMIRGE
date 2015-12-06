@@ -1680,9 +1680,12 @@ def main(argv = sys.argv[1:]):
                       help="If two candidate sequences share >= this fractional identity over their bases with mapped reads, then merge the two sequences into one for the next iteration.  (default: %default; valid range: [0.95, 1.0] ) ")
     group_opt.add_option("--meta", action="store_true",default="False",
                         help="If input reads are metagenomic, specify --meta to do a pre-mapping step.")
-    group_opt.add_option("--debug",
-                        action="store_true",default=False,
-                        help="temporary flag to debug premapping step, skips bowtie mapping")
+    group_opt.add_option("-d", "--debug",
+                        action="store_true", default=False,
+                        help="print debug information")
+    group_opt.add_option("-q", "--quiet",
+                         action="store_true", default=False,
+                         help="be less verbose")
     group_opt.add_option("--indel_thresh",
                         type="float",default="0.3",
                         help="temporary flag to test indel thresholds")
@@ -1737,6 +1740,9 @@ def main(argv = sys.argv[1:]):
 
     # ACTUALLY PARSE ARGS
     (options, args) = parser.parse_args(argv)
+
+    # configure log level:
+    log.setup(quiet=options.quiet, debug=options.debug)
 
     # minimal sanity checking of input
     if len(args) !=1:
