@@ -42,14 +42,18 @@ from Emirge import log as logger
 # for lookup table of qual values
 cdef extern from *:
     ctypedef double* static_const_double_ptr "static const double*"
-    
+
+
 cdef extern from "tables.h":
     static_const_double_ptr qual2one_minus_p   # lookup tables to avoid too many double calcs.
     static_const_double_ptr qual2p_div_3
 
-cdef inline int base_alpha2int(char base_ascii):
+
+cpdef inline int base_alpha2int(char base_ascii):
     """
-    base2i = {"A":0,"T":1,"C":2,"G":3}
+    Convert ASCII encoded base to numeric base.
+
+    Equivalent to lookup in dict: base2i = {"A":0,"T":1,"C":2,"G":3,"N":4}
     """
     if base_ascii == 65:   # <int>('A'):
         return 0
@@ -65,7 +69,17 @@ cdef inline int base_alpha2int(char base_ascii):
         print >> sys.stderr, "WARNING: invalid base in base_alpha2int: %s"%chr(base_ascii)
         return 4
 
-cdef inline unsigned char complement_numeric_base(unsigned char c):
+
+@cython.boundscheck(False) # turn off bounds-checking for entire function
+cpdef np.ndarray[np.uint8_t, ndim=1] seq_alpha2int(char* seq, int seqlen):
+    cdef unsigned int i
+    np_as_ints = np.empty(seqlen, dtype=np.uint8)
+    for i in range(seqlen):
+        np_as_ints[i] = base_alpha2int(seq[i])
+    return np_as_ints
+
+
+cpdef inline unsigned char complement_numeric_base(unsigned char c):
     return (c ^ 1) ^ (c >> 2)
     # Explanation:
     # (c ^ 1) because:
@@ -75,9 +89,6 @@ cdef inline unsigned char complement_numeric_base(unsigned char c):
     # N = 100  <=>  N = 100, but c ^ 1 gives us 101
     # ==> xor with c >> 2, which is 1 only for N (=100) to unset last bit
 
-
-def _complement_numeric_base(c):
-    return complement_numeric_base(c)
 
 @cython.boundscheck(False)
 def _calc_likelihood(em):
@@ -898,12 +909,3 @@ def reset_probN(em):
             print >> sys.stderr, "Culled %s sequences in iteration %02d due to low fraction of reference sequence bases covered by >= %s reads"%(cullcount, em.iteration_i, cov_thresh)
 
     return
-
-@cython.boundscheck(False) # turn off bounds-checking for entire function
-cdef np.ndarray[np.uint8_t, ndim=1] seq_alpha2int(char* seq, int seqlen):
-    cdef unsigned int i
-    np_as_ints = np.empty(seqlen, dtype=np.uint8)
-    for i in range(seqlen):
-        np_as_ints[i] = base_alpha2int(seq[i])
-    return np_as_ints
-
