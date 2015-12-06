@@ -1897,13 +1897,3 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
 if __name__ == '__main__':
     main()
-
-
-
-def f(bamfile):
-    t = time()
-    present = numpy.zeros(bamfile.nreferences, dtype=numpy.bool)
-    for alignedread in bamfile:
-        present[alignedread.tid] = 1
-    print timedelta(seconds = time()-t)
-    return present
