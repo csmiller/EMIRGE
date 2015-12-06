@@ -84,7 +84,6 @@ def _calc_likelihood(em):
     """
     Cython helper function with typed data structures, fast looping.
     """
-    t0 = time()
     cdef np.ndarray[np.uint32_t, ndim=2] bamfile_data = em.bamfile_data
     cdef np.ndarray[np.uint8_t, ndim=3] reads = em.reads
     cdef np.ndarray[np.uint8_t, ndim=3] quals = em.quals                    
@@ -140,7 +139,6 @@ def _calc_likelihood(em):
             dead_seqs[seq_i] = 1
 
     p = 0.0  # start off with no pair collected
-    loop_t0 = time()
     for alignedread_i in range(bamfile_data.shape[0]):
         if paired_reads:
             pair_collected = not pair_collected  # flip flag to indicate we've got 2/2 reads accumulated in p
@@ -279,12 +277,7 @@ def _calc_likelihood(em):
             p = 0.0  # reset for next pair or single read
             result_i += 1
     
-    td = timedelta(seconds = time()-loop_t0)
-    # print >> sys.stderr, "DEBUG: iteration %02d _calc_likelihood time per 1000 bam entries: %.2e seconds"%(em.iteration_i, (((td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / float(10**6)) / alignedread_i) * 1000.0) # DEBUG
-    # now actually construct sparse matrix.
     em.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), em.likelihoods.shape, dtype=em.likelihoods.dtype).tocsr()
-    # print >> sys.stderr, "DEBUG: iteration %02d _calc_likelihood total cython function call time: %s seconds"%(em.iteration_i, timedelta(seconds = time()-t0)) # DEBUG
-    return
 
 @cython.boundscheck(False)
 def _calc_probN(em):
@@ -314,12 +307,9 @@ def _calc_probN(em):
     cdef np.ndarray[np.int32_t, ndim=1] posteriors_indices
     cdef np.ndarray[np.int32_t, ndim=1] posteriors_indptr
     
-    
     if not initial_iteration:
-        convert_t0 = time()
         em.posteriors[-2] = em.posteriors[-2].tocsr()
         em.posteriors[-2].sort_indices()
-        # print >> sys.stderr, "DEBUG: Time for conversion of posterios to csr sparse matrix: %s"%(timedelta(seconds = time() - convert_t0))
         posteriors = em.posteriors[-2]  # this depends on PREVIOUS iteration's posteriors (seq_n x read_n)
         posteriors_data = posteriors.data
         posteriors_indices = posteriors.indices
@@ -327,7 +317,6 @@ def _calc_probN(em):
     else:
         posteriors = None
 
-    t_check = time()                    # DEBUG
     cdef list probN      = em.probN     # list of numpy arrays.  At this point, only None values will be due to just-culled sequences.
     cdef list cigars = em.cigars        # should be list of lists of pysam cigartuples read from bamfile in process_bamfile()
     cdef list prob_indels = em.prob_indels  
@@ -367,9 +356,6 @@ def _calc_probN(em):
         if em.probN[seq_i] is None:
             dead_seqs[seq_i] = 1
 
-    # print >> sys.stderr, "DEBUG: t_check 1: %s"%(timedelta(seconds = time() - t_check))
-
-    loop_t0 = time()
     for alignedread_i in range(bamfile_data.shape[0]):
         #   0       1       2      3     4       5   # "efficient indexing only affects certain index operations, namely those with exactly ndim number of typed integer indices”
         # seq_i, read_i, pair_i, rlen, pos, is_reverse = bamfile_data[alignedread_i]
@@ -499,12 +485,6 @@ def _calc_probN(em):
                     print >> sys.stderr, "ProbN Failure: Invalid Cigar String with header value of",tup[1]
                     sys.exit("Calc Likelihood Failure: Invalid Cigar String Header Value")
 
-    td = timedelta(seconds = time()-loop_t0)
-    # print >> sys.stderr, "DEBUG: iteration %02d _calc_probN time per 1000 bam entries: %.2e seconds"%(em.iteration_i, (((td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / float(10**6)) / alignedread_i) * 1000.0) # DEBUG
-    # print >> sys.stderr, "DEBUG: total loop time (%s bam entries): %s"%(alignedread_i, td)
-
-    t_check = time()                    # DEBUG
-
     # at this point, probN contains sums.
     # Now sum probs for each base, divide cells by this sum for probs.
     # Only divide cells with at least one base mapped, and assign
@@ -551,12 +531,8 @@ def _calc_probN(em):
                     probN_single[i, j] = probN_single[i, j] / base_sum
         em.unmapped_bases[seq_i] = unmapped_bases.copy()
 
-    # print >> sys.stderr, "DEBUG: t_check 2: %s"%(timedelta(seconds = time() - t_check))
-    t_check = time()                    # DEBUG
-
     reads_seen |= reads_seen_this_round  # logical or equals, i.e. update newly seen reads this round
 
-    # print >> sys.stderr, "DEBUG: t_check 3: %s"%(timedelta(seconds = time() - t_check))
     return
 
 # will I want to add @cython.boundscheck(False) ?
@@ -748,10 +724,8 @@ def process_bamfile(em, int ascii_offset):
     cdef np.ndarray[np.uint8_t, ndim=1] tid_mapped = np.zeros(len(bamfile.references), dtype=np.uint8)
     cdef np.ndarray[np.uint32_t, ndim=1] refseq_length = np.zeros(len(bamfile.lengths), dtype=np.uint32)    
     
-    t_check = time()
     for alignedread in bamfile:
         tid_mapped[alignedread.tid] = 1
-    # print >> sys.stderr, "DEBUG: first pass bamfile time: %s"%(timedelta(seconds = time()-t_check))
 
     bamfile = pysam.Samfile(em.current_bam_filename, mode)  # reopen file to reset.  seek(0) has problems? 
 
