@@ -81,7 +81,7 @@ class EM(object):
     driver class for EM algorithm
     """
     _VERBOSE = True
-    base2i = {"A": 0, "T": 1, "C": 2, "G": 3}
+    base2i = {"A": 0, "T": 1, "C": 2, "G": 3, "D":4}
     i2base = dict([(v, k) for k, v in base2i.iteritems()])
     # asciibase2i = {65:0,84:1,67:2,71:3}
 
@@ -475,6 +475,7 @@ class EM(object):
         times_split   = []              # DEBUG
         times_posteriors   = []              # DEBUG
         seqs_to_process = len(self.probN) # DEBUG
+        print "seqs to process = %s"%seqs_to_process
 
         i2base = self.i2base
         rows_to_add = []                # these are for updating posteriors at end with new minor strains
@@ -507,6 +508,21 @@ class EM(object):
             title = self.sequence_i2sequence_name[seq_i]
             consensus = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
 
+            ## check for deletion, collect deletion sites:
+            #deletion_threshold  = self.indel_thresh
+            #prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
+            #del_hits=[]
+            #for base_i in range (prob_indels_single.shape[0]):
+            ## Eval if deletion exists at base position
+            ## Divides weight of deletion, by the sum of both deletions and matches
+            #    denominator = (prob_indels_single[base_i,0] + prob_indels_single[base_i,2])
+            #    if denominator < 0:
+            #        raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
+            #    else:
+            #        if (prob_indels_single[base_i,2] / denominator) > deletion_threshold:
+            #            del_hits.append(base_i)
+            #deletion_indices=numpy.array(del_hits)
+
             # check for minor allele consensus, SPLIT sequence into two candidate sequences if passes thresholds.
             minor_indices = numpy.argwhere((self.probN[seq_i] >= self.snp_minor_prob_thresh).sum(axis=1) >= 2)[:,0]
             if minor_indices.shape[0] > 0:
@@ -526,6 +542,16 @@ class EM(object):
                 expected_coverage_minor = expected_coverage_minor * 2.0
                 expected_coverage_major = expected_coverage_major * 2.0
 
+            # Deletions will override minor indices, so remove conflicting indices from minor_indices array:
+            #if deletion_indices.shape[0] > 0:
+            #    mi=[]
+            #    for i in minor_indices:
+            #            if i not in deletion_indices:
+            #                mi.append(i)
+            #    minor_indices=numpy.array(mi)
+
+            #if (deletion_indices.shape[0] + minor_indices.shape[0]) / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
+            #       expected_coverage_minor >= self.expected_coverage_thresh:
             if minor_indices.shape[0] / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
                    expected_coverage_minor >= self.expected_coverage_thresh:
                 # We split!
@@ -533,9 +559,17 @@ class EM(object):
                 if self._VERBOSE:
                     t0_split = time()
                 major_fraction_avg = 1.-minor_fraction_avg # if there's >=3 alleles, major allele keeps prob of other minors)
-                minor_bases   = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i][minor_indices])[:,-2]]) # -2 gets second most probably base
+                minor_bases   = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i][minor_indices])[:,-2]]) # -2 gets second most probable base
                 minor_consensus = consensus.copy()               # get a copy of the consensus
                 minor_consensus[minor_indices] = minor_bases     # replace the bases that pass minor threshold
+
+                #remove deletion bases from minor_consensus - deletions form part of this new sequence
+                #new_minor_c=[]
+                #for i in range(minor_consensus.shape[0]):
+                #    if not i in deletion_indices:
+                #        new_minor_c.append(minor_consensus[i])
+                #new_minor_c = numpy.array(new_minor_c)
+
                 # now deal with naming.
                 title_root = re.search(r'(.+)(_m(\d+))$', title)
                 if title_root is None: # no _m00 on this name
@@ -566,9 +600,12 @@ class EM(object):
                 major_base_i = numpy.argsort(self.probN[seq_i][minor_indices])[:, -1]
                 newprobNarray = self.probN[seq_i].copy()
                 newprobNarray[(minor_indices, major_base_i)] = 0
+                #if deletion_indices.shape[0]> 0:
+                 #   deletion_base_i = numpy.argsort(self.probN[seq_i][deletion_indices])[:,-1]
+                  #  newprobNarray[(deletion_indices,deletion_base_i)] = 0  #set major to 0 for deletion base?
                 newprobNarray = newprobNarray / numpy.sum(newprobNarray, axis=1).reshape(newprobNarray.shape[0], 1)
                 probNtoadd.append(newprobNarray)
-                self.base_coverages.append(numpy.zeros_like(self.base_coverages[seq_i]))
+                self.base_coverages.append(numpy.zeros_like(self.base_coverages[seq_i])) #why are we doing this?!?!?
 
                 # MAJOR
                 minor_base_i = numpy.argsort(self.probN[seq_i][minor_indices])[:, -2]
@@ -646,7 +683,7 @@ class EM(object):
                  % numpy.mean(times_posteriors))
             log.info("Average time for non-split sequences: [%.6f seconds]"
                  %((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
-        
+
     def eval_indels(self, seq_i, consensus, title):
         # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
         # OUT:   returns a list of single character bases as new consensus
@@ -664,17 +701,20 @@ class EM(object):
                 
             elif denominator == 0:  # nothing mapped to this base.  Use consensus base from reference
                 new_cons.append(consensus[base_i])
-            
+
             else:
-                if (prob_indels_single[base_i,2]) == 0:  # no evidence for deletion
+                if consensus[base_i] != "D":
                     new_cons.append(consensus[base_i]) # not deleted
-                elif (prob_indels_single[base_i,2] / denominator) < deletion_threshold: #doesn't meet criteria for deletion
-                    new_cons.append(consensus[base_i]) # not deleted
+                #if (prob_indels_single[base_i,2]) == 0:  # no evidence for deletion
+                    #new_cons.append(consensus[base_i]) # not deleted
+                #elif (prob_indels_single[base_i,2] / denominator) < deletion_threshold: #doesn't meet criteria for deletion
+                 #   new_cons.append(consensus[base_i]) # not deleted
                 else:
                     # delete (add nothing to new consensus)
                     log.info("Modified reference sequence %d (%s) with a deletion of base %d "
                              % (seq_i, title, base_i))
     
+
             # Eval if insertion exists after base position
                 if (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
                     continue

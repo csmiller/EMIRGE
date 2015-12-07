@@ -176,7 +176,7 @@ def _calc_likelihood(em):
             numeric_bases_single = reads[read_i,pair_i] # and why are we calling this numeric bases better as reads_single?
             quals_single = quals[read_i,pair_i]
             probN_single = probN[seq_i]
-            prob_indels_single   = prob_indels[seq_i]  
+            prob_indels_single   = prob_indels[seq_i]
             cigarlist = cigars[alignedread_i] #Gives list representing cigar string for alignedread_i
         
             ref_i = 0
@@ -414,13 +414,12 @@ def _calc_probN(em):
                 elif matchtype == 1:  # Cigar String - Insertion to reference
                     # (insertion(s) in read relative to reference when aligned)
                     #Add weight for an insertion after pos+ref_i in reference sequence, subtract 1 since ref_i was already incremented past
-                    prob_indels_single[pos + ref_i - 1, 1] += weight
+                    prob_indels_single[pos + ref_i - 1, 1] += weight * matchlen
                     i -= matchlen
                 elif matchtype == 2:  # Cigar String - Deletion from the reference
                     # (gaps in read relative to reference when aligned)
-                    for k in range(matchlen): #increment ref_i for each deleted base
-                        prob_indels_single[pos + ref_i, 2] += weight #Add weight for a deletion at pos+ref_i in reference sequence
-                        ref_i += 1
+                    prob_indels_single[pos + ref_i, 2] += weight * matchlen #Add weight for a deletion at pos+ref_i in reference sequence
+                    ref_i += matchlen
                 else:
                     logger.critical("ProbN Failure: Invalid Cigar String with "
                                     "header value of %i" % (matchlen))
@@ -448,13 +447,12 @@ def _calc_probN(em):
                     # (i.e. need to insert gap(s) in reference seq to align)
                     # Add weight for an insertion after pos+ref_i in reference sequence,
                     # subtract 1 since ref_i was already incremented past
-                    prob_indels_single[pos + ref_i - 1, 1] += weight  
+                    prob_indels_single[pos + ref_i - 1, 1] += weight * matchlen
                     i += matchlen    # move index in read 
                 elif matchtype == 2:  # Cigar String - Deletion from the reference
                     # (i.e. need to insert gap(s) in read to align)
-                    for k in range(matchlen): #increment ref_i for each deleted base
-                        prob_indels_single[pos + ref_i, 2] += weight #Add weight for a deletion at pos+ref_i in reference sequence
-                        ref_i += 1
+                    prob_indels_single[pos + ref_i, 2] += weight * matchlen #Add weight for a deletion at pos+ref_i in reference sequence
+                    ref_i += matchlen
                 else:
                     logger.critical("ProbN Failure: Invalid Cigar String with "
                                     "header value of %i" % (matchlen))
