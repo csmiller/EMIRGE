@@ -173,13 +173,7 @@ def _calc_likelihood(em):
             pos = bamfile_data[alignedread_i, 4]
             is_reverse= bamfile_data[alignedread_i, 5]
 
-            #probN_single  = probN[seq_i]  # probably slow!! (list access)
-            # probN_single = PyList_GET_ITEM(probN, seq_i)
-            
-    # check indents here:           
-            #numeric_bases_single = numeric_bases[read_i] # needed in casey's code below, where from?
             numeric_bases_single = reads[read_i,pair_i] # and why are we calling this numeric bases better as reads_single?
-            #qualints_single      = qualints[read_i]   # where this needs to be qualints = self.quals  ?
             quals_single = quals[read_i,pair_i]
             probN_single = probN[seq_i]
             prob_indels_single   = prob_indels[seq_i]  
@@ -256,36 +250,6 @@ def _calc_likelihood(em):
                     
                     p += log(s)
             
-    
-# original code:
-#            if is_reverse:
-#                # This code is redundant, but by basically manually inlining everything here in the special reverse-complement case, I gain some speed
-#                for i in range(rlen):
-#                    ii = rlen-1-i
-#                    s = 0.0
-#                    for j in range(4):
-#                        if complement_numeric_base(reads[read_i, pair_i, ii]) == j:   # this is called base, set 1-P
-#                            # s += (1. - error_p_i) * probN[pos + i, j]
-#                            s += ( qual2one_minus_p[quals[read_i, pair_i, ii]] * probN_single[pos + i, j] )    # lookup table
-#                        else:                       # this is not the called base, so set to P/3
-#                            # s += (error_p_i / 3 ) * probN[pos + i, j]
-#                            s += ( qual2p_div_3[quals[read_i, pair_i, ii]] * probN_single[pos + i, j] )          # lookup table
-#                    p += log(s)
-#
-#            else: # not reverse
-#                for i in range(rlen):
-#                    s = 0.0
-#                    for j in range(4):
-#                        if reads[read_i, pair_i, i] == j:   # this is called base, set 1-P
-#                            # s += (1. - error_p_i) * probN[pos + i, j]
-#                            s += ( qual2one_minus_p[quals[read_i, pair_i, i]] * probN_single[pos + i, j] )    # lookup table
-#                        else:                       # this is not the called base, so set to P/3
-#                            # s += (error_p_i / 3 ) * probN[pos + i, j]
-#                            s += ( qual2p_div_3[quals[read_i, pair_i, i]] * probN_single[pos + i, j] )          # lookup table
-#                    p += log(s)
-#            
-        
-        
             if pair_collected:
                 result = c_pow(M_E, p)
     
@@ -421,31 +385,8 @@ def _calc_probN(em):
                     else: # found it
                         weight = posteriors_data[mid]
                         break
-                # assert weight == posteriors[seq_i, read_i], "%s vs %s"%(weight, posteriors[seq_i, read_i])  # DEBUG.  Make sure I'm doing this right, since no error checking otherwise
-                
- # original code:       
-#        if is_reverse:
-#           # manually inline reverse complement loop here.  It's redundant, but it's all in the name of speed.
-#            for i in range(rlen):  
-#                ii = rlen-1-i # the index to the base given that this seq is reversed
-#                for j in range(4):
-#                    if complement_numeric_base(reads[read_i, pair_i, ii]) == j:   # this is called base, add (1-P) * weight
-#                        probN_single[pos + i, j] += ( qual2one_minus_p[quals[read_i, pair_i, ii]] * weight )
-#                    else:                       # this is not the called base, so add P/3 * weight
-#                        probN_single[pos + i, j] += ( qual2p_div_3[quals[read_i, pair_i, ii]] * weight )
-#
-#        else: # not reverse
-#            for i in range(rlen):
-#                for j in range(4):
-#                    if reads[read_i, pair_i, i] == j:   # this is called base, add (1-P) * weight
-#                        probN_single[pos + i, j] += ( qual2one_minus_p[quals[read_i, pair_i, i]] * weight )
-#                    else:                       # this is not the called base, so add P/3 * weight
-#                        probN_single[pos + i, j] += ( qual2p_div_3[quals[read_i, pair_i, i]] * weight )
-
-    
 
         numeric_bases_single = reads[read_i, pair_i]
-        #qualints_single      = qualints[read_i]  # check is this the same as quals above?
         quals_single = quals[read_i, pair_i]
         probN_single         = probN[seq_i]
         prob_indels_single   = prob_indels[seq_i]
@@ -624,18 +565,14 @@ def count_cigar_aln(char* query_seq, char* hit_seq,
     only includes columns where both sequences have mapped bases
     """
 
-    # cdef unsigned int query_i = query_start  # 0   # for global alignment, this used to always be zero.
-    # cdef unsigned int hit_i   = hit_start    # 0
     cdef int matches = 0
     cdef int aln_columns    = 0
     cdef int count
-    # cdef char aln_code  # doesn't work.  Expects integer
     cdef int i
     cdef int j
 
     for i in range(len(alncode_list)):
         count_a, aln_code = alncode_list[i]
-        # print >> sys.stderr, "***", count_a, aln_code, len(query_seq), len(query_unmapped_bases), len(hit_seq), len(hit_unmapped_bases)
         if not len(count_a):
             count = 1  # "As a special case, if n=1 then n is omitted"
         else:
@@ -643,8 +580,6 @@ def count_cigar_aln(char* query_seq, char* hit_seq,
 
         if aln_code == 'M':    # match (letter-letter column; could be mismatch)
             for j in range(count):
-                # print >> sys.stderr, "***", query_i+j, hit_i+j, query_seq[query_i+j], hit_seq[hit_i+j]
-                
                 if query_unmapped_bases[query_i+j] == 0:
                     if hit_unmapped_bases[hit_i+j] == 0:
                         aln_columns += 1
@@ -733,7 +668,6 @@ def process_bamfile(em, int ascii_offset):
     cdef unsigned int alignedread_i
     cdef unsigned int pos
     cdef unsigned int tid
-    # cdef char *refname # ??
     cdef unsigned int read_i
     cdef unsigned int seq_i
     cdef unsigned int new_seq_i
