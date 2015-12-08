@@ -126,7 +126,7 @@ class EM(object):
         # if two sequences evolve to be >= cluster_thresh identical
         # (via vsearch), then merge them. [0, 1.0]
         self.cluster_thresh = cluster_thresh
-        assert self.cluster_thresh >= 0 and self.cluster_thresh <= 1.0
+        assert 0 <= self.cluster_thresh <= 1.0
         self.expected_coverage_thresh = expected_coverage_thresh
         self.indel_thresh = indel_thresh
 
@@ -219,7 +219,7 @@ class EM(object):
             self.n_reads = io.FastqCountReads(self.reads1_filepath)
 
         log.info("Number of reads (or read pairs) in input file(s): %d"
-                 % (self.n_reads))
+                 % self.n_reads)
 
         # bool vector indicating whether read n was ever seen mapped
         self.reads_seen = numpy.zeros(self.n_reads, dtype=numpy.uint8)
@@ -1888,8 +1888,8 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
 
     # IF METAGENOMIC, DO PRE-MAPPING
-    if options.meta==True:
-        #do the premapping and then feed those saved reads in as reads1_filepath and reads2_filepath
+    if options.meta:
+        # do the premapping and then feed those saved reads in as reads1_filepath and reads2_filepath
         pre_mapping_dir = os.path.join(working_dir, "pre_mapping")
         do_premapping(pre_mapping_dir,options)
         options.fastq_reads_1=os.path.join(pre_mapping_dir, "pre_mapped_reads.1.fastq")
