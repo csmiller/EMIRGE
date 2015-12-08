@@ -412,10 +412,11 @@ class EM(object):
                     else:
                         pass
                 else:  # poll() returned something bad.
-                    print >> sys.stderr, "WARNING: Failed to compress initial mapping bamfile %s.\nWARNING: Failure with exit code: %s.\nWARNING: File remains uncompressed: %s"%(poll, self.initial_bam_filename_to_remove)
-                    self.initial_compress_process = None # don't bother in future
-
-
+                    log.warning("WARNING: Failed to compress initial mapping bamfile.\n"
+                                "WARNING: Failure with exit code: %s.\n"
+                                "WARNING: File remains uncompressed: %s"
+                                % (poll, self.initial_bam_filename_to_remove))
+                    self.initial_compress_process = None  # don't bother in future
 
         # now do a new mapping run for next iteration
         self.do_mapping(consensus_filename, nice = self.mapping_nice)
