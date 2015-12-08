@@ -284,7 +284,6 @@ class EM(object):
 
         self.n_sequences = len(self.sequence_name2sequence_i)
 
-        t_check = time()
         self.priors.append(numpy.zeros(self.n_sequences, dtype=numpy.float))
         self.likelihoods = sparse.coo_matrix(
             (self.n_sequences, self.n_reads), dtype=numpy.float
@@ -295,10 +294,10 @@ class EM(object):
 
         # TODO: is this necessary any more?
         # or is bookkeeping with probN good enough now.
-        self.probN = [None for x in range(self.n_sequences)]
+        self.probN = [None] * self.n_sequences
         # adjusted initialization to be same as probN as was done in emirge.py
-        self.prob_indels = [None for x in self.probN]
-        self.unmapped_bases = [None for x in self.probN]
+        self.prob_indels = [None] * self.n_sequences
+        self.unmapped_bases = [None] * self.n_sequences
         # need to calculate this each time? can't we set this once as
         # self.readlengths doesn't change with iters?
         self.mean_read_length = numpy.mean(self.readlengths)
@@ -306,7 +305,6 @@ class EM(object):
         # reset probN for valid sequences (from
         # current_reference_fasta_filename). is this still necessary?
         # Or do I keep probN bookkeeping in order already?
-        t_check = time()
         amplicon.reset_probN(self)  # also updates coverage values and culls via fraction of length covered, NEW: resets prob_indels as well
         # print >> sys.stderr, "DEBUG: reset_probN loop time: %s"%(timedelta(seconds = time()-t_check))
 
@@ -472,7 +470,6 @@ class EM(object):
         log.info("\tsnp_percentage_thresh = %.3f" % (self.snp_percentage_thresh))
 
         splitcount = 0
-        cullcount = 0
         of = file(outputfilename, 'w')
 
         times_split   = []              # DEBUG
@@ -559,8 +556,6 @@ class EM(object):
                    expected_coverage_minor >= self.expected_coverage_thresh:
                 # We split!
                 splitcount += 1
-                if self._VERBOSE:
-                    t0_split = time()
                 major_fraction_avg = 1.-minor_fraction_avg # if there's >=3 alleles, major allele keeps prob of other minors)
                 minor_bases   = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i][minor_indices])[:,-2]]) # -2 gets second most probable base
                 minor_consensus = consensus.copy()               # get a copy of the consensus
@@ -631,7 +626,8 @@ class EM(object):
                 # updating posteriors. for each seq-read pair with prob > 0, split prob out to major and minor seq.
                 new_cols = self.posteriors[-1].rows[seq_i] # col in coo format
                 new_read_probs  = [x * minor_fraction_avg for x in self.posteriors[-1].data[seq_i]]  # data in coo format
-                new_rows = [seq_i_minor for x in new_cols]  # row in coo format
+                new_rows = [seq_i_minor] * new_cols  # row in coo
+                # format
 
                 # add new read probs to cache of new read probs to add at end of loop
                 rows_to_add.extend(new_rows)
@@ -863,7 +859,6 @@ class EM(object):
         times = []  # DEBUG
         for row in csv.reader(file("%s.us.txt" % tmp_fastafilename), delimiter='\t'):
             # each row an alignment in userout file
-            t0 = time()
             # member == query
             member_name = row[0]
             seed_name = row[1]
@@ -875,16 +870,11 @@ class EM(object):
                 continue
 
             # decide if these pass the cluster_thresh *over non-gapped, mapped columns*
-            member_fasta_seq = tmp_fastafile.fetch(member_name)
-            seed_fasta_seq = tmp_fastafile.fetch(seed_name)
-            member_unmapped = self.unmapped_bases[member_seq_id]  # unmapped positions (default prob)
-            seed_unmapped = self.unmapped_bases[seed_seq_id]
             # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
             #   0     1     2   3   4   5  6    7
             member_start = int(row[4]) - 1  # printed as 1-based by vsearch now
             seed_start = int(row[6]) - 1
 
-            t0 = time()
             # print >> sys.stderr, "DEBUG", alnstring_pat.findall(row[3])
             aln_columns, matches = amplicon.count_cigar_aln(tmp_fastafile.fetch(seed_name),
                                                             tmp_fastafile.fetch(member_name),
@@ -896,8 +886,6 @@ class EM(object):
             ## print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
 
             # if alignment is less than 1000 bases, or identity over those 500+ bases is not above thresh, then continue
-            seed_n_mapped_bases = self.unmapped_bases[seed_seq_id].shape[0] - self.unmapped_bases[seed_seq_id].sum()
-            member_n_mapped_bases = self.unmapped_bases[member_seq_id].shape[0] - self.unmapped_bases[member_seq_id].sum()
 
             
             if (aln_columns < 500) \
@@ -1279,7 +1267,7 @@ class EM(object):
 
         return False
 
-    def calc_cutoff_threshold(self, max_reads_to_sample=100000):  # done at the end of the final iteration
+    def calc_cutoff_threshold(self):  # done at the end of the final iteration
         """
         calculate the minimum abundance that will represent average coverage specified in cov_thresh (default will be 20X)
         this value is used in post-processing steps to filter final EMIRGE fasta file
@@ -1301,7 +1289,7 @@ class EM(object):
         self.prob_min = (self.avg_emirge_seq_length*float(self.cov_thresh)) / (self.fragments_mapped*((int(self.paired_end)+1)*self.mean_read_length))
 
 
-def do_iterations(em, max_iter, save_every):
+def do_iterations(em, max_iter):
     """
     an EM object is passed in, so that one could in theory start from a saved state
     this should be moved into the EM object.
