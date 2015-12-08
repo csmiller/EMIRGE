@@ -1829,18 +1829,22 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         # find last good directory
         pat = re.compile(r'iter.([0-9]{2,})$')
         current_i = -1
-        # basically, this code just finds the second to last directory available and calls that the last successfully completed directory.  If the sam file is not zipped, because the failure happened during zipping, it zips it up.
+        # basically, this code just finds the second to last directory
+        # available and calls that the last successfully completed directory.
+        # If the sam file is not zipped, because the failure happened during
+        # zipping, it zips it up.
         for lsname in sorted(os.listdir(working_dir)):
-            if os.isdir(lsname):
-                try:
-                    this_i = int(pat.search(lsname).groups()[0])
-                except AttributeError: # no match
+            if not os.isdir(lsname): continue
+            try:
+                this_i = int(pat.search(lsname).groups()[0])
+            except AttributeError:  # no match
+                continue
+            if this_i > current_i:
+                if not os.path.exists(os.path.join(working_dir,
+                                                   "iter.%02i" % this_i + 1)):
                     continue
-                if this_i > current_i:
-                    if not os.path.exists(os.path.join(working_dir, "iter.%02"%this_i+1)):
-                        continue
-                    else:
-                        pass # MARK -- need to finish
+                else:
+                    pass  # MARK -- need to finish
 
 
     # NORMAL case
