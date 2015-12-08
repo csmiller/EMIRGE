@@ -1193,6 +1193,7 @@ class EM(object):
         return int(stdout_string)
 
     def get_frags_mapped_bt1(self, stderr_string):
+        r = ""
         try:
             r = re.findall(r'Reported ([0-9]+) (paired-end )?alignments', stderr_string)
             if r[0][1] != '':  # "paired-end" string matched -- two lines in samfile per paired-end aln
@@ -1214,6 +1215,7 @@ class EM(object):
                 12533 (25.46%) aligned concordantly >1 times
         100.00% overall alignment rate
 """
+        r = ""
         try:
             r = re.findall(r'([0-9]+) reads;', stderr_string)
             rt = re.findall(r'([0-9]+\.[0-9]+)% overall', stderr_string)
