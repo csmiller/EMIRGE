@@ -413,9 +413,9 @@ class EM(object):
                     else:
                         pass
                 else:  # poll() returned something bad.
-                    log.warning("WARNING: Failed to compress initial mapping bamfile.\n"
-                                "WARNING: Failure with exit code: %s.\n"
-                                "WARNING: File remains uncompressed: %s"
+                    log.warning("Failed to compress initial mapping bamfile.\n"
+                                "Failure with exit code: %s.\n"
+                                "File remains uncompressed: %s"
                                 % (poll, self.initial_bam_filename_to_remove))
                     self.initial_compress_process = None  # don't bother in future
 
