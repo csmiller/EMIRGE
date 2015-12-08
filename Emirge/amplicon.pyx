@@ -91,7 +91,7 @@ cpdef inline unsigned char complement_numeric_base(unsigned char c):
 
 
 @cython.boundscheck(False)
-def _calc_likelihood(em):
+def calc_likelihood(em):
     """
     Cython helper function with typed data structures, fast looping.
     """
@@ -264,7 +264,7 @@ def _calc_likelihood(em):
     em.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), em.likelihoods.shape, dtype=em.likelihoods.dtype).tocsr()
 
 @cython.boundscheck(False)
-def _calc_probN(em):
+def calc_probN(em):
     """
     helper function to emirge_amplicon.py calc_probN
     
@@ -510,7 +510,7 @@ def _calc_probN(em):
 
 # will I want to add @cython.boundscheck(False) ?
 @cython.boundscheck(False)
-def _calc_posteriors(em):
+def calc_posteriors(em):
     """
     Calculates Pr(S|R) for all sequence read pairs
     requires that the likelihood and priors are already calculated.

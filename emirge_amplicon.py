@@ -61,7 +61,7 @@ from subprocess import Popen, PIPE, check_call
 from time import ctime, time
 from datetime import timedelta
 import cPickle
-import Emirge.amplicon as _emirge
+import Emirge.amplicon as amplicon
 from Bio import SeqIO
 import multiprocessing
 from emirge_rename_fasta import rename
@@ -231,7 +231,7 @@ class EM(object):
         self.quals = numpy.empty_like(self.reads)
         self.readlengths = numpy.empty((self.n_reads, 2), dtype=numpy.uint16)
         # read through reads file again, fill these.
-        _emirge.populate_reads_arrays(self)
+        amplicon.populate_reads_arrays(self)
 
     @log.timed("Reading bam file")
     def read_bam(self, bam_filename, reference_fasta_filename):
@@ -279,7 +279,7 @@ class EM(object):
         #  self.bamfile_data  numpy array
         #     with (seq_i, read_i, pair_i, rlen, pos, is_reverse)
         #  self.cigars
-        _emirge.process_bamfile(self, BOWTIE_ASCII_OFFSET)
+        amplicon.process_bamfile(self, BOWTIE_ASCII_OFFSET)
 
         self.n_sequences = len(self.sequence_name2sequence_i)
 
@@ -306,7 +306,7 @@ class EM(object):
         # current_reference_fasta_filename). is this still necessary?
         # Or do I keep probN bookkeeping in order already?
         t_check = time()
-        _emirge.reset_probN(self)  # also updates coverage values and culls via fraction of length covered, NEW: resets prob_indels as well
+        amplicon.reset_probN(self)  # also updates coverage values and culls via fraction of length covered, NEW: resets prob_indels as well
         # print >> sys.stderr, "DEBUG: reset_probN loop time: %s"%(timedelta(seconds = time()-t_check))
 
         for d in [self.priors, self.posteriors]:
@@ -884,13 +884,13 @@ class EM(object):
 
             t0 = time()
             # print >> sys.stderr, "DEBUG", alnstring_pat.findall(row[3])
-            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name),
-                                                           tmp_fastafile.fetch(member_name),
-                                                           self.unmapped_bases[seed_seq_id],
-                                                           self.unmapped_bases[member_seq_id],
-                                                           seed_start,
-                                                           member_start,
-                                                           alnstring_pat.findall(row[3]))
+            aln_columns, matches = amplicon.count_cigar_aln(tmp_fastafile.fetch(seed_name),
+                                                            tmp_fastafile.fetch(member_name),
+                                                            self.unmapped_bases[seed_seq_id],
+                                                            self.unmapped_bases[member_seq_id],
+                                                            seed_start,
+                                                            member_start,
+                                                            alnstring_pat.findall(row[3]))
             ## print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
 
             # if alignment is less than 1000 bases, or identity over those 500+ bases is not above thresh, then continue
@@ -1240,7 +1240,7 @@ class EM(object):
         self.calc_probN()   # (handles initial iteration differently within this method)
 
         # Cython function for heavy lifting.
-        _emirge._calc_likelihood(self)
+        amplicon.calc_likelihood(self)
 
     @log.timed("Calculating Pr(N=n) for iteration {self.iteration_i}")
     def calc_probN(self):
@@ -1257,11 +1257,11 @@ class EM(object):
         """
 
         # here do looping in Cython (this loop is about 95% of the time in this method on test data):
-        _emirge._calc_probN(self)
+        amplicon.calc_probN(self)
 
     @log.timed("Calculating posteriors for iteration {self.iteration_i}")
     def calc_posteriors(self):
-        _emirge._calc_posteriors(self)
+        amplicon.calc_posteriors(self)
 
     def iterations_done(self):
         """
@@ -1811,7 +1811,7 @@ Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
 Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments.
 PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
-    sys.stdout.write("imported _emirge C functions from: %s\n"%(_emirge.__file__))
+    sys.stdout.write("imported _emirge C functions from: %s\n" % (amplicon.__file__))
     sys.stdout.write("Command:\n")
     sys.stdout.write(' '.join([__file__]+argv))
     sys.stdout.write('\n\n')
