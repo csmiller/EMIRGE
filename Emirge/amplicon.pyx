@@ -414,12 +414,16 @@ def _calc_probN(em):
                 elif matchtype == 1:  # Cigar String - Insertion to reference
                     # (insertion(s) in read relative to reference when aligned)
                     #Add weight for an insertion after pos+ref_i in reference sequence, subtract 1 since ref_i was already incremented past
-                    prob_indels_single[pos + ref_i - 1, 1] += weight * matchlen
+                    prob_indels_single[pos + ref_i - 1 , 1] += weight
+                    if matchlen > prob_indels_single[pos + ref_i - 1 , 3]:
+                         prob_indels_single[pos + ref_i - 1 , 3] = matchlen
                     i -= matchlen
                 elif matchtype == 2:  # Cigar String - Deletion from the reference
                     # (gaps in read relative to reference when aligned)
-                    prob_indels_single[pos + ref_i, 2] += weight * matchlen #Add weight for a deletion at pos+ref_i in reference sequence
-                    ref_i += matchlen
+                    for k in range(matchlen):
+                        prob_indels_single[pos + ref_i, 2] += weight #Add weight for a deletion at pos+ref_i in reference sequence
+                        probN_single[pos+ref_i,4]+= weight  #Put the same weight in the probN matrix for evalution against the other bases
+                        ref_i += 1
                 else:
                     logger.critical("ProbN Failure: Invalid Cigar String with "
                                     "header value of %i" % (matchlen))
@@ -447,12 +451,16 @@ def _calc_probN(em):
                     # (i.e. need to insert gap(s) in reference seq to align)
                     # Add weight for an insertion after pos+ref_i in reference sequence,
                     # subtract 1 since ref_i was already incremented past
-                    prob_indels_single[pos + ref_i - 1, 1] += weight * matchlen
+                    prob_indels_single[pos + ref_i - 1, 1] += weight
+                    if matchlen > prob_indels_single[pos + ref_i - 1 , 3]:
+                         prob_indels_single[pos + ref_i - 1 , 3] = matchlen
                     i += matchlen    # move index in read 
                 elif matchtype == 2:  # Cigar String - Deletion from the reference
                     # (i.e. need to insert gap(s) in read to align)
-                    prob_indels_single[pos + ref_i, 2] += weight * matchlen #Add weight for a deletion at pos+ref_i in reference sequence
-                    ref_i += matchlen
+                    for k in range(matchlen):
+                        prob_indels_single[pos + ref_i, 2] += weight #Add weight for a deletion at pos+ref_i in reference sequence
+                        probN_single[pos+ref_i,4]+= weight  #Put the same weight in the probN matrix for evalution against the other bases
+                        ref_i += 1
                 else:
                     logger.critical("ProbN Failure: Invalid Cigar String with "
                                     "header value of %i" % (matchlen))
@@ -655,11 +663,13 @@ def process_bamfile(em, int ascii_offset):
     # TODO: any Cython tricks with string-->int dictionaries (looks like maybe in pxd)
     cdef dict sequence_name2sequence_i = em.sequence_name2sequence_i
     cdef list sequence_i2sequence_name = em.sequence_i2sequence_name
+    cdef list refseq_lengths = em.refseq_lengths
 
     cdef np.ndarray[np.uint32_t, ndim=2] bamfile_data
     bamfile_data = np.empty((em.n_alignments, 6), dtype=np.uint32)
     cdef list cigars = []  # it's an empty list stores cigartuples from pysam alignments
     cigars = range(bamfile_data.shape[0])  # make same size as bamfile_data
+    cdef list base_coverages = em.base_coverages
     
     cdef int i                          # generic counter
 
@@ -690,7 +700,7 @@ def process_bamfile(em, int ascii_offset):
     # dictionary lookup for each and every alignedread
     cdef np.ndarray[np.uint32_t, ndim=1] tid2seq_i = np.zeros(len(bamfile.references), dtype=np.uint32)
     cdef np.ndarray[np.uint8_t, ndim=1] tid_mapped = np.zeros(len(bamfile.references), dtype=np.uint8)
-    cdef np.ndarray[np.uint32_t, ndim=1] refseq_length = np.zeros(len(bamfile.lengths), dtype=np.uint32)    
+    #cdef np.ndarray[np.uint32_t, ndim=1] refseq_lengths = np.zeros(len(bamfile.lengths), dtype=np.uint32)
     
     for alignedread in bamfile:
         tid_mapped[alignedread.tid] = 1
@@ -698,6 +708,7 @@ def process_bamfile(em, int ascii_offset):
     bamfile = pysam.Samfile(em.current_bam_filename, mode)  # reopen file to reset.  seek(0) has problems? 
 
     new_seq_i = len(sequence_i2sequence_name)
+    print "number of seq_i is %s"%new_seq_i
     for tid, refname in enumerate(bamfile.references):
         # assert bamfile.getrname(tid) == refname # this is true
         print "length of reference seq %s is %s"%(refname,samfile_lengths[tid])
@@ -708,28 +719,29 @@ def process_bamfile(em, int ascii_offset):
                 sequence_name2sequence_i[refname] =  seq_i
                 sequence_i2sequence_name.append(refname)
                 em.base_coverages.append(np.zeros(samfile_lengths[tid], dtype=np.uint32))
+                refseq_lengths.append(samfile_lengths[tid])
             else:
                 seq_i = sequence_name2sequence_i[refname]
             tid2seq_i[tid] = seq_i
-            refseq_length[seq_i] = samfile_lengths[tid]
+            refseq_lengths[seq_i] = samfile_lengths[tid]
             
         
     # reset this here to be size of n_sequences
-    em.coverage = np.zeros(len(sequence_name2sequence_i), dtype=np.uint32)  #Don't think we need this anymore.
-    cdef np.ndarray[np.uint32_t, ndim=1] coverage = em.coverage
+    #em.coverage = np.zeros(len(sequence_name2sequence_i), dtype=np.uint32)  #Don't think we need this anymore.
+    #cdef np.ndarray[np.uint32_t, ndim=1] coverage = em.coverage
 
     # and now keep temporary base_coverages in numpy array for speed below.
-    cdef list base_coverages = em.base_coverages  # list of arrays
+    print "size of base coverage list is: %s"%len(base_coverages)
     max_length = max(bamfile.lengths) 
     cdef np.ndarray[np.uint32_t, ndim=2] base_coverages_2d = np.zeros((len(base_coverages), max_length), dtype=np.uint32)
     
     for seq_i, base_coverage in enumerate(base_coverages):
         print "seq_i: %s"%seq_i
         print "seq_length of array: %s"%base_coverage.shape[0]
-        print "length of reference seq %s is %s"%(seq_i,refseq_length[seq_i])
+        print "length of reference seq %s is %s"%(seq_i,refseq_lengths[seq_i])
         print np.array_str(base_coverage)
-        if base_coverage.shape[0] != refseq_length[seq_i]:
-            em.base_coverages[seq_i] = np.zeros(refseq_length[seq_i],dtype=np.uint32) # make sure this is long enough to get full sequence info below
+        if base_coverage.shape[0] != refseq_lengths[seq_i]:
+            em.base_coverages[seq_i] = np.zeros(refseq_lengths[seq_i],dtype=np.uint32) # make sure this is long enough to get full sequence info below
         else:
             em.base_coverages[seq_i][:] = 0      
 
@@ -787,7 +799,7 @@ def process_bamfile(em, int ascii_offset):
         print np.array_str(base_coverages_2d[seq_i])
         base_coverage[:] = base_coverages_2d[seq_i][:base_coverage.shape[0]]
         print np.array_str(base_coverage)
-
+    em.base_coverages = base_coverages[:]
     
     cdef int n_reads_total = reads_mapped.shape[0]
     for i in range(n_reads_total):
@@ -832,8 +844,8 @@ def reset_probN(em):
             # else is a valid seq, so create empty probN matrix
             l = references_lengths[i]
             em.probN[seq_i] = np.zeros((l, 5), dtype=np.float)   #ATCG[other] --> 01234
-            em.prob_indels[seq_i] = np.zeros((l, 3), dtype=np.float)  #0 = match weight, 1 = insertion weight, 2 = deletion weight
-            em.coverage[seq_i] = em.coverage[seq_i] / float(l)  # Don't think we need this anymore
+            em.prob_indels[seq_i] = np.zeros((l, 4), dtype=np.float)  #0 = match weight, 1 = insertion weight, 2 = deletion weight, 3= insertion length
+            #em.coverage[seq_i] = em.coverage[seq_i] / float(l)  # Don't think we need this anymore
     bamfile.close()
 
     if em._VERBOSE:
