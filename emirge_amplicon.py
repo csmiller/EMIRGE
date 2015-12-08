@@ -541,9 +541,9 @@ class EM(object):
             expected_coverage_minor = ( self.priors[-1][seq_i] * minor_fraction_avg * self.n_reads_mapped * self.mean_read_length ) / self.probN[seq_i].shape[0]
             expected_coverage_major = ( self.priors[-1][seq_i] * (1-minor_fraction_avg) * self.n_reads_mapped * self.mean_read_length ) / self.probN[seq_i].shape[0]
 
-            if self.reads2_filepath is not None:   # multipy by 2 because n_reads_mapped is actually number of mapped pairs
-                expected_coverage_minor = expected_coverage_minor * 2.0
-                expected_coverage_major = expected_coverage_major * 2.0
+            if self.reads2_filepath is not None:  # multipy by 2 because n_reads_mapped is actually number of mapped pairs
+                expected_coverage_minor *= 2.0
+                expected_coverage_major *= 2.0
 
             # Deletions will override minor indices, so remove conflicting indices from minor_indices array:
             # if deletion_indices.shape[0] > 0:
