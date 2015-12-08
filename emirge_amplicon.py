@@ -215,7 +215,7 @@ class EM(object):
         else:
             # hidden option in main to avoid rewriting reads from big
             # files more than necessary if already has correct integer
-            # read neames, then simply count reads in file
+            # read names, then simply count reads in file
             self.n_reads = io.FastqCountReads(self.reads1_filepath)
 
         log.info("Number of reads (or read pairs) in input file(s): %d"
@@ -500,7 +500,7 @@ class EM(object):
             #     # prior will already be low (b/c of low coverage) and
             #     # because next round will have 0 mappings (no sequence
             #     # in reference file to map to), this seems
-            #     # unneccesary.
+            #     # unnecessary.
 
             #     # probNarray = None  # NOT PASSED BY REF, assignment is only local?
             #     self.probN[seq_i] = None
@@ -1579,7 +1579,8 @@ def post_process(em, working_dir):
 
     check_call(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
 
-    #now meging cluster abundances and writing out the fasta file with merged abundancance over cutoff
+    # now merging cluster abundances and writing out the fasta file with merged
+    # abundance over cutoff
     log.warning("Minimum abundance for estimated %.2dX coverage is %.6f"
                 % (em.cov_thresh, em.prob_min))
     clustered_fasta=os.path.join(working_dir,em.output_files_prefix+"_iter."'%02d'%em.max_iterations+"_"'%.6f'%em.prob_min+".fasta")
@@ -1623,7 +1624,7 @@ def post_process(em, working_dir):
 
 def dependency_check():
     """
-    check presense, versions of programs used in emirge
+    check presence, versions of programs used in emirge
     TODO: right now just checking vsearch, as the command line params
     and behavior are finicky and seem to change from version to
     version
@@ -1714,7 +1715,10 @@ def main(argv=sys.argv[1:]):
                          help="path to precomputed initial mapping (bam file).  If not provided, an initial mapping will be run for you.")
     group_opt.add_option("-p", "--snp_fraction_thresh",
                       type="float", default="0.04",
-                      help="If fraction of variants in a candidate sequence exceeds this threhold, then split the candidate into two sequences for next iteration.  See also --variant_fraction_thresh. (default: %default)")
+                      help="If fraction of variants in a candidate sequence "
+                           "exceeds this threshold, then split the candidate "
+                           "into two sequences for next iteration.  See also "
+                           "--variant_fraction_thresh. (default: %default)")
     group_opt.add_option("-v", "--variant_fraction_thresh",
                       type="float", default="0.1",
                       help="minimum probability of second most probable base at a site required in order to call site a variant.  See also --snp_fraction_thresh.  (default: %default)")
@@ -1776,9 +1780,21 @@ def main(argv=sys.argv[1:]):
     parser.add_option_group(group_opt)
     # # RESUME
     group_resume = OptionGroup(parser, "Resuming iterations",
-                              "These options allow you to resume from a previously interrupted run.  EMIRGE will look for the last good iteration and begin with the candidate SSU sequences and priors (current abundance estimates) from that iteration.  Currently, there is only one option associate with resuming iterations: --resume.  The following options cannot be changed from the inital command, and if supplied with --resume, are ignored: -1, -2, --fasta_db, --bowtie_db, --mapping")
+                               "These options allow you to resume from a "
+                               "previously interrupted run.  EMIRGE will look "
+                               "for the last good iteration and begin with the "
+                               "candidate SSU sequences and priors (current "
+                               "abundance estimates) from that iteration.  "
+                               "Currently, there is only one option associate "
+                               "with resuming iterations: --resume.  The "
+                               "following options cannot be changed from the "
+                               "initial command, and if supplied with "
+                               "--resume, are ignored: -1, -2, --fasta_db, "
+                               "--bowtie_db, --mapping")
     group_resume.add_option("-r", "--resume", action="store_true",
-                            help="Resume iterations with the priors and current SSU sequences from the last succesful iteration.")
+                            help="Resume iterations with the priors and "
+                                 "current SSU sequences from the last "
+                                 "successful iteration.")
     # parser.add_option_group(group_resume)
 
     # ACTUALLY PARSE ARGS
@@ -1875,10 +1891,11 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         else:
             if len(os.listdir(working_dir)) > 1:  # allow 1 file in case log file is redirected here.
                 print >> sys.stderr, os.listdir(working_dir)
-                parser.error("Directory not empty: %s\n"
-                             "It is recommended you run emirge in a new directory "
-                             "each run; delete this directory or specifiy a new one."
-                             % working_dir)
+                parser.error(
+                    "Directory not empty: %s\n"
+                    "It is recommended you run emirge in a new directory each "
+                    "run; delete this directory or specify a new one."
+                    % working_dir)
 
     # clean up options to be absolute paths
     for o in ["fastq_reads_1", "fastq_reads_2", "fasta_db", "bowtie_db", "mapping"]:
