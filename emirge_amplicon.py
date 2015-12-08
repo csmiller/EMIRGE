@@ -1042,32 +1042,35 @@ class EM(object):
 
         # these are used for single reads too.  Bowtie2 ignores the paired-end options when single reads are used
 
-        shared_bowtie_params = "-D 20 -R 3 -N 0 -L 20 -i S,1,0.50 -k 20 --no-unal --phred%d -t -p %s"%(\
-            self.reads_ascii_offset, 
-            self.n_cpus)
+        shared_bowtie_params = "-D 20 -R 3 -N 0 -L 20 -i S,1,0.50 -k 20 " \
+                               "--no-unal --phred%d -t -p %s" \
+                               % (self.reads_ascii_offset, self.n_cpus)
 
         #Build Bowtie2 command depending if reads2 was given in Emirge command line parameters
 
         if self.reads2_filepath is not None:
-            bowtie_command = "%s %s | %s bowtie2 %s -I %d -X %d --no-mixed --no-discordant -x %s -1 - -2 %s | samtools view -b -S - > %s 2> %s "%(\
-                cat_cmd,
-                self.reads1_filepath,
-                nicestring,
-                shared_bowtie_params,
-                minins, maxins,
-                bowtie_index,
-                self.reads2_filepath,
-                output_filename,
-                bowtie_logfile)
+            bowtie_command = "%s %s | %s bowtie2 %s -I %d -X %d --no-mixed " \
+                             "--no-discordant -x %s -1 - -2 %s | " \
+                             "samtools view -b -S - > %s 2> %s " \
+                             % (cat_cmd,
+                                self.reads1_filepath,
+                                nicestring,
+                                shared_bowtie_params,
+                                minins, maxins,
+                                bowtie_index,
+                                self.reads2_filepath,
+                                output_filename,
+                                bowtie_logfile)
         else: # single reads
-            bowtie_command = "%s %s | %s bowtie2 %s -x %s -U - | samtools view -b -S - > %s 2> %s "%(\
-                cat_cmd,
-                self.reads1_filepath,
-                nicestring,
-                shared_bowtie_params,
-                bowtie_index,
-                output_filename,
-                bowtie_logfile)
+            bowtie_command = "%s %s | %s bowtie2 %s -x %s -U - | " \
+                             "samtools view -b -S - > %s 2> %s " \
+                             %(cat_cmd,
+                               self.reads1_filepath,
+                               nicestring,
+                               shared_bowtie_params,
+                               bowtie_index,
+                               output_filename,
+                               bowtie_logfile)
 
         log.info("\tbowtie command:")
         log.info("\t%s" % bowtie_command)
@@ -1134,25 +1137,27 @@ class EM(object):
         samtools_cmd    = "samtools view -S -h -u -b -F 0x0004 -"  # -F instead of piping to awk?    |  awk '{if ($3!="*") print }'
 
         if self.reads2_filepath is not None:
-            bowtie_command = """%s %s | %s bowtie %s --minins %d --maxins %d %s -1 - -2 %s | %s > %s"""%(\
-                cat_cmd,
-                self.reads1_filepath,
-                nicestring,
-                shared_bowtie_params,
-                minins, maxins,
-                bowtie_index,
-                self.reads2_filepath,
-                samtools_cmd,
-                output_filename)
+            bowtie_command = "%s %s | " \
+                             "%s bowtie %s --minins %d --maxins %d %s " \
+                             "-1 - -2 %s | %s > %s" \
+                             %(cat_cmd,
+                               self.reads1_filepath,
+                               nicestring,
+                               shared_bowtie_params,
+                               minins, maxins,
+                               bowtie_index,
+                               self.reads2_filepath,
+                               samtools_cmd,
+                               output_filename)
         else:  # single reads
-            bowtie_command = """%s %s | %s bowtie %s %s - | %s > %s""" % ( \
-                cat_cmd,
-                self.reads1_filepath,
-                nicestring,
-                shared_bowtie_params,
-                bowtie_index,
-                samtools_cmd,
-                output_filename)
+            bowtie_command = "%s %s | %s bowtie %s %s - | %s > %s" \
+                             % (cat_cmd,
+                                self.reads1_filepath,
+                                nicestring,
+                                shared_bowtie_params,
+                                bowtie_index,
+                                samtools_cmd,
+                                output_filename)
 
         log.info("\tbowtie command:")
         log.info("\t%s" % bowtie_command)
