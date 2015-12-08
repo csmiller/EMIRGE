@@ -1881,16 +1881,16 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
                 else:
                     parser.error("--%s is required, but is not specified (try --help)"%(o))
 	
-	if not os.path.exists(working_dir):
+        if not os.path.exists(working_dir):
             os.mkdir(working_dir)
-        else:
-            if len(os.listdir(working_dir)) > 1:  # allow 1 file in case log file is redirected here.
-                print >> sys.stderr, os.listdir(working_dir)
-                parser.error(
-                    "Directory not empty: %s\n"
-                    "It is recommended you run emirge in a new directory each "
-                    "run; delete this directory or specify a new one."
-                    % working_dir)
+        elif len(os.listdir(working_dir)) > 1:
+            # allow 1 file in case log file is redirected here.
+            print >> sys.stderr, os.listdir(working_dir)
+            parser.error(
+                "Directory not empty: %s\n"
+                "It is recommended you run emirge in a new directory each run; "
+                "delete this directory or specify a new one."
+                % working_dir)
 
     # clean up options to be absolute paths
     for o in ["fastq_reads_1", "fastq_reads_2", "fasta_db", "bowtie_db", "mapping"]:
