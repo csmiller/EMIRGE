@@ -49,25 +49,26 @@ Subsurface Sediments.
 PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 """
 
-import sys
+import cPickle
+import csv
+import multiprocessing
 import os
 import re
-import csv
+import sys
+from datetime import timedelta
 from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
-import pysam
-import numpy
-from scipy import sparse
 from subprocess import Popen, PIPE, check_call
 from time import ctime, time
-from datetime import timedelta
-import cPickle
-import Emirge.amplicon as amplicon
-from Bio import SeqIO
-import multiprocessing
-from emirge_rename_fasta import rename
-from Emirge.pykseq import Kseq
-from Emirge import io, log
 
+import Emirge.amplicon as amplicon
+import numpy
+import pysam
+from Bio import SeqIO
+from Emirge.pykseq import Kseq
+from scipy import sparse
+
+from Emirge import io, log
+from emirge_rename_fasta import rename
 
 BOWTIE_l = 20
 BOWTIE_e = 300
