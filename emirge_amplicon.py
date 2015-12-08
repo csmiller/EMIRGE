@@ -1277,7 +1277,7 @@ class EM(object):
         self.final_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.max_iterations))
         bam_filename = [fn for fn in os.listdir(self.iterdir) if fn.endswith('.bam') and fn.startswith("bowtie.iter.%02d"%self.max_iterations)]
         assert len(bam_filename) == 1, "ERROR: more than one valid bam file found in %s"%(self.final_iterdir)
-	bam_filename = os.path.join(self.final_iterdir, bam_filename[0])
+        bam_filename = os.path.join(self.final_iterdir, bam_filename[0])
         bamfile = pysam.Samfile(bam_filename, "rb")
         self.avg_emirge_seq_length = numpy.mean(bamfile.lengths)
         # self.mean_read_length = numpy.mean(self.readlengths)
