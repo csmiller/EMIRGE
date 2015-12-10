@@ -156,6 +156,7 @@ class EM(object):
         self.sequence_name2sequence_i = {}
         # list index is iteration number:
         self.sequence_i2sequence_name = []
+        self.refseq_lengths = []
 
         # seq_i --> iteration first seen.  Useful for keeping track of
         # when a sequence first appeared, and not allowing merging of
@@ -178,8 +179,7 @@ class EM(object):
         # NOT YET IMPLEMENTED
         self.min_prior = None
 
-        # list of numpy arrays -- per base coverage values.
-        self.base_coverages = []
+        self.base_coverages = [] # list of numpy arrays -- per base coverage values.
         # EXPERIMENTAL:  Minimum coverage in order to be counted in
         #                min_length_coverage
         self.min_length_coverage_def = 1
@@ -243,6 +243,7 @@ class EM(object):
                 self.sequence_name2sequence_i   # a dict
                 self.read_name2read_i           # a dict
                 self.probN
+                self.refseq_lengths
 
         doesn't do anything with these anymore, they should be populated and
         stable with _emirge.populate_reads_arrays
@@ -273,7 +274,6 @@ class EM(object):
         self.current_reference_fasta_filename = reference_fasta_filename
         self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
         self.cigars = []  # list of pysam cigartuples
-
         # populate in cython:
         #  self.sequence_name2sequence_i
         #  self.sequence_i2sequence_name
@@ -283,6 +283,7 @@ class EM(object):
         amplicon.process_bamfile(self, BOWTIE_ASCII_OFFSET)
 
         self.n_sequences = len(self.sequence_name2sequence_i)
+        print "after bamfile, n_sequences is: %s"%self.n_sequences
 
         self.priors.append(numpy.zeros(self.n_sequences, dtype=numpy.float))
         self.likelihoods = sparse.coo_matrix(
@@ -508,20 +509,22 @@ class EM(object):
             title = self.sequence_i2sequence_name[seq_i]
             consensus = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:, -1]])
 
-            ## check for deletion, collect deletion sites:
-            #deletion_threshold  = self.indel_thresh
-            #prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
-            #del_hits=[]
-            #for base_i in range (prob_indels_single.shape[0]):
-            ## Eval if deletion exists at base position
-            ## Divides weight of deletion, by the sum of both deletions and matches
-            #    denominator = (prob_indels_single[base_i,0] + prob_indels_single[base_i,2])
-            #    if denominator < 0:
-            #        raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
-            #    else:
-            #        if (prob_indels_single[base_i,2] / denominator) > deletion_threshold:
-            #            del_hits.append(base_i)
-            # deletion_indices=numpy.array(del_hits)
+            # check for deletion, collect deletion sites:
+            deletion_threshold  = self.indel_thresh
+            prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
+            del_hits=[]
+            for base_i in range (prob_indels_single.shape[0]):
+            # Eval if deletion exists at base position
+            # Divides weight of deletion, by the sum of both deletions and matches
+                denominator = (prob_indels_single[base_i,0] + prob_indels_single[base_i,2])
+                if denominator < 0:
+                    raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
+                else:
+                    if (prob_indels_single[base_i,2] / denominator) > deletion_threshold:
+                        del_hits.append(base_i)
+                    else:
+                        self.probN[seq_i][base_i,4] = 0
+            deletion_indices=numpy.array(del_hits)
 
             # check for minor allele consensus, SPLIT sequence into two candidate sequences if passes thresholds.
             minor_indices = numpy.argwhere((self.probN[seq_i] >= self.snp_minor_prob_thresh).sum(axis=1) >= 2)[:, 0]
@@ -550,10 +553,10 @@ class EM(object):
             #                mi.append(i)
             #    minor_indices=numpy.array(mi)
 
-            #if (deletion_indices.shape[0] + minor_indices.shape[0]) / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
-            #       expected_coverage_minor >= self.expected_coverage_thresh:
-            if minor_indices.shape[0] / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
-                   expected_coverage_minor >= self.expected_coverage_thresh:
+            if (deletion_indices.shape[0])>0 or ((deletion_indices.shape[0] + minor_indices.shape[0]) / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
+                   expected_coverage_minor >= self.expected_coverage_thresh):
+            #if minor_indices.shape[0] / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
+                   #expected_coverage_minor >= self.expected_coverage_thresh:
                 # We split!
                 splitcount += 1
                 major_fraction_avg = 1.-minor_fraction_avg # if there's >=3 alleles, major allele keeps prob of other minors)
@@ -589,6 +592,8 @@ class EM(object):
                 assert len(self.sequence_i2sequence_name) == seq_i_minor + 1
                 self.sequence_name2sequence_i[m_title] = seq_i_minor
                 self.split_seq_first_appeared[seq_i] = self.iteration_i
+                self.refseq_lengths.append(consensus.shape[0])
+                assert len(self.refseq_lengths) == self.n_sequences
                 # how I adjust probN here for newly split seq doesn't really matter,
                 # as it is re-calculated next iter.
                 # this only matters for probN.pkl.gz file left behind for this iteration.
@@ -686,7 +691,6 @@ class EM(object):
     def eval_indels(self, seq_i, consensus, title):
         # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
         # OUT:   returns a list of single character bases as new consensus
-        deletion_threshold = self.indel_thresh
         insertion_threshold = self.indel_thresh
         new_cons = []
         prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
@@ -719,10 +723,11 @@ class EM(object):
                     continue
             # if summed weights of insertion is greater than sum of reads mapped nearby (at base on left flank of proposed insertion (because it's easy), i-1)
                 elif (prob_indels_single[base_i,1] / denominator) > insertion_threshold: 
-                    new_cons.append('N')
-                    log.info("Modified reference sequence %d (%s) with a single base "
-                             "insertion after base %d"
-                             % (seq_i, title, base_i))
+                    for i in range(int(prob_indels_single[base_i,3])+1):
+                        new_cons.append('N')
+                    log.info("Modified reference sequence %d (%s) with an "
+                             "insertion of %s bases after base %d"
+                             % (seq_i, title, str(int(prob_indels_single[base_i,3])),base_i))
                 else:  # no insertion
                     continue
   
