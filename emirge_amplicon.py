@@ -205,13 +205,12 @@ class EM(object):
         self.temporary_files = []  # to remove at end of run
 
         if rewrite_reads:
-            (self.reads1, self.n_reads) = \
-                io.ReindexReads(self.reads1_filepath)
+            (self.reads1, self.n_reads) = io.ReindexReads(self.reads1_filepath)
             self.reads1_filepath = self.reads1.name
             if self.paired_end:
-                (self.reads2, dummy) = \
-                    io.ReindexReads(self.reads2_filepath)
+                (self.reads2, rn_reads) = io.ReindexReads(self.reads2_filepath)
                 self.reads2_filepath = self.reads2.name
+                assert rn_reads == self.n_reads
         else:
             # hidden option in main to avoid rewriting reads from big
             # files more than necessary if already has correct integer
