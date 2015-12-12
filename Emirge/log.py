@@ -27,7 +27,7 @@ critical = CRITICAL
 log = LOG
 
 
-def setup(quiet, debug):
+def setup(quiet=False, debug=False):
     logger = logging.getLogger()
     if debug:
         logger.setLevel(logging.DEBUG)
