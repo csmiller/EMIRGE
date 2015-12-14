@@ -166,6 +166,9 @@ class EM(object):
         self.n_reads = 0
         self.n_reads_mapped = 0
         self.n_sequences = 0
+        
+        self.num_seqs = 0 #this is used in sequence clustering - might need 
+        #to rename it for clarity
 
         # other constants, potentially changeable, tunable later,
         # or could incorporate into probabilistic model:
@@ -379,7 +382,7 @@ class EM(object):
 
         # now write a new fasta file.  Cull sequences below self.min_depth
         consensus_filename = os.path.join(self.iterdir, "iter.%02d.cons.fasta"%(self.iteration_i))
-        self.write_consensus(consensus_filename)    # culls and splits
+        self.write_consensus(consensus_filename,reference_fasta_filename)    # culls and splits
         #if self.iteration_i == self.max_iterations:
         self.cluster_sequences(consensus_filename)  # merges sequences that have evolved to be the same (VSEARCH)
 
@@ -454,7 +457,7 @@ class EM(object):
         self.priors[-1] = numpy.asarray(self.posteriors[-1].sum(axis = 1)).flatten() / self.posteriors[-1].sum()
 
     @log.timed("Writing consensus for iteration {self.iteration_i}")
-    def write_consensus(self, outputfilename):
+    def write_consensus(self, outputfilename, reference_fasta_filename):
         """
         writes a consensus, taking the most probable base at each position, according to current
         values in Pr(N=n) (self.probN)
@@ -472,11 +475,12 @@ class EM(object):
         splitcount = 0
         cullcount  = 0
         of = file(outputfilename, 'w')
+        tmp_fastafilename = outputfilename + ".tmp.fasta" 
+        of_tmp = file(tmp_fastafilename,'w')
 
         times_split   = []              # DEBUG
         times_posteriors   = []              # DEBUG
         seqs_to_process = len(self.probN) # DEBUG
-        print "seqs to process = %s"%seqs_to_process
 
         i2base = self.i2base
         rows_to_add = []                # these are for updating posteriors at end with new minor strains
@@ -485,7 +489,8 @@ class EM(object):
         probNtoadd  = []  # for newly split out sequences
 
         self.posteriors[-1] = self.posteriors[-1].tolil()  # just to make sure this is in row-access-friendly format
-
+        reference_fastafile = pysam.Fastafile(reference_fasta_filename)
+        self.num_seqs=0
         loop_t0 = time()
         for seq_i in range(len(self.probN)):
             seq_i_t0 = time()
@@ -508,9 +513,10 @@ class EM(object):
             # else passes culling thresholds
             title = self.sequence_i2sequence_name[seq_i]
             consensus = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
+            orig_bases = numpy.array(reference_fastafile.fetch(title).lower(), dtype='c')
 
             # check for deletion, collect deletion sites:
-            deletion_threshold  = self.indel_thresh
+            deletion_threshold  = self.indel_thresh/2 #need to decide relative weight of competing insertions/deletions
             prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
             del_hits=[]
             for base_i in range (prob_indels_single.shape[0]):
@@ -553,7 +559,7 @@ class EM(object):
             #                mi.append(i)
             #    minor_indices=numpy.array(mi)
 
-            if (deletion_indices.shape[0])>0 or ((deletion_indices.shape[0] + minor_indices.shape[0]) / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
+            if (deletion_indices.shape[0])>0 or (((deletion_indices.shape[0] + minor_indices.shape[0])) / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
                    expected_coverage_minor >= self.expected_coverage_thresh):
             #if minor_indices.shape[0] / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
                    #expected_coverage_minor >= self.expected_coverage_thresh:
@@ -642,16 +648,24 @@ class EM(object):
 
                 # write out minor strain consensus
                 of.write(">%s\n"%(m_title))
-                minor_consensus = self.eval_indels(seq_i, minor_consensus, m_title) # added for indels
+                of_tmp.write(">%s\n"%(m_title))
+                minor_consensus = self.eval_indels(seq_i, minor_consensus, m_title,orig_bases,mask="soft") # added for indels
                 of.write("%s\n"%("".join(minor_consensus)))
+                of_tmp.write("%s\n"%("".join(minor_consensus)))
+                self.unmapped_bases.append(numpy.zeros(len(consensus),dtype=numpy.uint8))
+                print "new sequence %s is length %s"%(title,len(consensus))
+                self.num_seqs+=1
                 log.info("splitting sequence %d (%s) to %d (%s)...\n"
                          % (seq_i, title, seq_i_minor, m_title))
                 times_split.append(time()-seq_i_t0)
 
             # now write major strain consensus, regardless of whether there was a minor strain consensus
             of.write(">%s\n"%(title))
-            consensus = self.eval_indels(seq_i, consensus, title)  # added for indels
+            of_tmp.write(">%s\n"%(title))
+            consensus = self.eval_indels(seq_i, consensus, title, orig_bases,mask="soft")  # added for indels
             of.write("%s\n"%("".join(consensus)))
+            of_tmp.write("%s\n"%("".join(consensus)))
+            self.num_seqs+=1
 
         # END LOOP
         loop_t_total = time() - loop_t0
@@ -682,12 +696,14 @@ class EM(object):
             log.info("Average time for non-split sequences: [%.6f seconds]"
                  %((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
 
-    def eval_indels(self, seq_i, consensus, title):
+    def eval_indels(self, seq_i, consensus, title, orig_bases,mask):
         # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
         # OUT:   returns a list of single character bases as new consensus
         insertion_threshold = self.indel_thresh
         new_cons = []
         prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
+        unmapped_bases_single = self.unmapped_bases[seq_i]
+        del_count = 0
         for base_i in range (prob_indels_single.shape[0]):
             # Eval if deletion exists at base position
             # Divides weight of deletion, by the sum of both deletions and matches
@@ -700,24 +716,30 @@ class EM(object):
                 new_cons.append(consensus[base_i])
 
             else:
-                if consensus[base_i] != "D":
+                if unmapped_bases_single[base_i] == 1:
+                    if mask == "hard":
+                        new_cons.append("N")
+                    elif mask == "soft":
+                        new_cons.append(orig_bases[base_i]) # return to original base if unmapped / ambiguous
+                
+                elif consensus[base_i] != "D":
                     new_cons.append(consensus[base_i]) # not deleted
-                #if (prob_indels_single[base_i,2]) == 0:  # no evidence for deletion
-                    #new_cons.append(consensus[base_i]) # not deleted
-                #elif (prob_indels_single[base_i,2] / denominator) < deletion_threshold: #doesn't meet criteria for deletion
-                 #   new_cons.append(consensus[base_i]) # not deleted
+                
                 else:
                     # delete (add nothing to new consensus)
                     log.info("Modified reference sequence %d (%s) with a deletion of base %d "
                              % (seq_i, title, base_i))
+                    del_count+=1
     
-
+            # Keep insertions in seqs without deletions - DEBUG
+                if del_count >0:
+                    continue
             # Eval if insertion exists after base position
-                if (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
+                elif (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
                     continue
             # if summed weights of insertion is greater than sum of reads mapped nearby (at base on left flank of proposed insertion (because it's easy), i-1)
                 elif (prob_indels_single[base_i,1] / denominator) > insertion_threshold: 
-                    for i in range(int(prob_indels_single[base_i,3])+1):
+                    for i in range(int(prob_indels_single[base_i,3])):
                         new_cons.append('N')
                     log.info("Modified reference sequence %d (%s) with an "
                              "insertion of %s bases after base %d"
@@ -726,46 +748,6 @@ class EM(object):
                     continue
   
         return new_cons
-
-    def write_consensus_with_mask(self, reference_fastafilename, output_fastafilename, mask):
-        """
-        write a consensus sequence to output_fastafilename for each
-        sequence in probN where unmapped bases are replaced with:
-          mask == "hard"  --> N
-          mask == "soft"  --> lowercase letters
-        If masking with soft bases, use reference_fastafilename for bases to use for unmapped bases.
-        this is useful prior to vsearch clustering.
-
-        OUT: number of sequences processed
-        """
-        n_seqs = 0
-        i2base_get = self.i2base.get # for speed
-        of = file(output_fastafilename, 'w')
-        reference_fastafile = pysam.Fastafile(reference_fastafilename)
-        
-        for seq_i in range(len(self.probN)):
-            if self.probN[seq_i] is None:
-                continue
-            title = self.sequence_i2sequence_name[seq_i]
-            consensus = numpy.array([i2base_get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
-            orig_bases = numpy.array(reference_fastafile.fetch(title).lower(), dtype='c')
-            # now replace consensus bases with no read support with N
-            # unmapped_indices = numpy.where(self.unmapped_bases[seq_i] == 1)
-            unmapped_indices = numpy.where(consensus == "N")
-            if mask == "hard":
-                consensus[unmapped_indices] = 'N'
-            elif mask == "soft":
-                for unmapped_i in unmapped_indices[0]:
-                    consensus[unmapped_i] = orig_bases[unmapped_i] # return to original base if unmapped / ambiguous
-                # consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
-            else:
-                raise ValueError, "Invalid valud for mask: %s (choose one of {soft, hard}"%mask
-            of.write(">%s\n"%(title))
-            of.write("%s\n"%("".join(consensus)))
-            n_seqs += 1
-        of.close()
-
-        return n_seqs
 
     def cluster_sequences(self, fastafilename):
         """
@@ -803,7 +785,7 @@ class EM(object):
         # positions aligned to these bases in the identity calculation
 
         tmp_fastafilename = fastafilename + ".tmp.fasta"
-        num_seqs = self.write_consensus_with_mask(fastafilename, tmp_fastafilename, mask="soft")
+        #num_seqs = self.write_consensus_with_mask(fastafilename, tmp_fastafilename, mask="soft")
         tocleanup.append(tmp_fastafilename)
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         tocleanup.append("%s.fai"%(tmp_fastafilename))
@@ -825,16 +807,16 @@ class EM(object):
 
         # if em.iteration_i > 10:
         # num_seqs = len([x for x in self.probN if x is not None])
-        assert num_seqs == len([x for x in self.probN if x is not None])
-        if num_seqs < 1000:
+        assert self.num_seqs == len([x for x in self.probN if x is not None])
+        if self.num_seqs < 1000:
             sens_string = "--maxaccepts 16 --maxrejects 256"
-        if num_seqs < 500:
+        if self.num_seqs < 500:
             sens_string = "--maxaccepts 32 --maxrejects 256"
-        if num_seqs < 150:
+        if self.num_seqs < 150:
             algorithm="-usearch_global"
             sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
         # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
-        if num_seqs < 50:
+        if self.num_seqs < 50:
             algorithm="-usearch_global"
             sens_string = "-fulldp"
 
@@ -869,7 +851,12 @@ class EM(object):
             seed_seq_id = self.sequence_name2sequence_i.get(seed_name)
             if member_seq_id in already_removed or seed_seq_id in already_removed:
                 continue
-
+            #if sequences are different lengths, can't be 100% ID right? So continue
+            if self.unmapped_bases[member_seq_id].shape[0] != self.unmapped_bases[seed_seq_id].shape[0]:
+                continue
+            if len(alnstring_pat.findall(row[3])) > 1:
+                continue # problem dealing with array lengths in _emirge.count_cigar_aln, so bypassing for now
+                #not sure if this is right approach, but should be excluding non-identical sequences (where cigarstring indicates D or I)
             # decide if these pass the cluster_thresh *over non-gapped, mapped columns*
             member_fasta_seq = tmp_fastafile.fetch(member_name)
             seed_fasta_seq   = tmp_fastafile.fetch(seed_name)
@@ -910,7 +897,7 @@ class EM(object):
             if seed_first_appeared is not None and self.iteration_i - seed_first_appeared <= minimum_residence_time:
                 continue
 
-            if num_seqs < 50:
+            if self.num_seqs < 50:
                 log.info("\t\t%s|%s vs %s|%s %.3f over %s aligned columns"
                          "(vsearch %%ID: %s)"
                          % (member_seq_id, member_name, seed_seq_id, seed_name,
@@ -970,7 +957,8 @@ class EM(object):
         # write new fasta file with only new sequences
         log.info("Writing new fasta file for iteration %d" % (self.iteration_i))
         tmp_fastafile.close()
-        tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
+        #tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
+        # file above not being found, why not written now?
         recordstrings=""
         num_seqs = 0
         for record in io.FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
@@ -986,7 +974,7 @@ class EM(object):
         # clean up.  quite important, actually, to remove old fai index files.
         for fn in tocleanup:
             os.remove(fn)
-
+            
         log.info("\tremoved %d sequences after merging" % (nummerged))
         log.info("\tsequences remaining for iteration %02d: %d"
              % (self.iteration_i, num_seqs))
