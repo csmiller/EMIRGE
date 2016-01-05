@@ -20,8 +20,6 @@ class Mapper(object):
             fwd_reads = File(fwd_reads)
         if isinstance(rev_reads, str):
             rev_reads = File(rev_reads)
-        # if isinstance(candidates, str):
-        #     candidates = File(candidates)
 
         self.candidates = candidates
         self.phred33 = phred33
@@ -68,6 +66,8 @@ class Bowtie2(Mapper):
 
     def prefilter_reads(self):
         """Pre-filters read file to include only reads aligning to seed data"""
+
+        # prepare bowtie2 command
         cmd = self.make_basecmd()
         cmd += [
             "--very-sensitive-local",
@@ -76,6 +76,8 @@ class Bowtie2(Mapper):
         ]
         Prefilter = make_pipe("prefilter", cmd)
 
+        # run bowtie2 prefiltering command, use pysam to parse matching
+        # read names from output into set 'keepers'
         keepers = set()
         i = 0
         with Prefilter(None) as p:
@@ -87,6 +89,8 @@ class Bowtie2(Mapper):
 
         INFO("Found %i sequences" % len(keepers))
 
+        # replace forward read file with temporary file containing only
+        # matching reads
         with self.fwd_reads.reader() as reads:
             self.fwd_reads = filter_fastq(reads, keepers)
         with self.rev_reads.reader() as reads:
