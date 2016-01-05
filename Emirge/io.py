@@ -465,15 +465,17 @@ def filter_fastq(infile, readnames, outfile=None):
     if outfile is None:
         outfile = NamedTemporaryFile(suffix="filtered.fq")
 
+    matches = reads = 0
     for line in infile:
-        if line[1:].strip() in readnames:
+        if line[1:].strip().split("/")[0] in readnames:
             outfile.write(line)
             for n in range(3):
                 outfile.write(infile.next())
+            matches += 1
         else:
             for n in range(3):
                 infile.next()
+        reads += 1
 
     outfile.seek(0)
-
-    return outfile
+    return outfile, reads, matches

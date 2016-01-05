@@ -17,3 +17,10 @@ def test_bt2_prefilter():
     assert_equal(io.fastq_count_reads(bt2.fwd_reads), 50000)
     assert_equal(io.fastq_count_reads(bt2.rev_reads), 50000)
 
+def test_bt2_prefilter_noreindex():
+    bt2 = mapping.Bowtie2(cand_file, read_file_1, read_file_2,
+                          phred33=True, reindex=False)
+    bt2.prefilter_reads()
+    assert_equal(io.fastq_count_reads(bt2.fwd_reads), 50000)
+    assert_equal(io.fastq_count_reads(bt2.rev_reads), 50000)
+

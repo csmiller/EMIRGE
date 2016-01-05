@@ -26,14 +26,11 @@ class Mapper(object):
         self.threads = threads
 
         if reindex:
-            self.fwd_reads = EnumerateReads(fwd_reads)
+            fwd_reads = EnumerateReads(fwd_reads)
             if rev_reads:
-                self.rev_reads = EnumerateReads(rev_reads)
-        else:
-            self.fwd_reads = open(fwd_reads, "r")
-            if rev_reads:
-                self.rev_reads = open(rev_reads, "r")
+                rev_reads = EnumerateReads(rev_reads)
 
+        self.fwd_reads, self.rev_reads = fwd_reads, rev_reads
 
 class Bowtie2(Mapper):
     def __init__(self, *args, **kwargs):
@@ -87,14 +84,29 @@ class Bowtie2(Mapper):
                         keepers.add(read.query_name)
                     i+=1
 
-        INFO("Found %i sequences" % len(keepers))
+        INFO("Pre-Mapping: mapper found %i matches" % len(keepers))
 
         # replace forward read file with temporary file containing only
         # matching reads
         with self.fwd_reads.reader() as reads:
-            self.fwd_reads = filter_fastq(reads, keepers)
-        with self.rev_reads.reader() as reads:
-            self.rev_reads = filter_fastq(reads, keepers)
+            self.fwd_reads, fwd_count, fwd_matches  = \
+                filter_fastq(reads, keepers)
+
+        # if we have a reverse read file, do the same for that
+        if self.rev_reads is not None:
+            with self.rev_reads.reader() as reads:
+                self.rev_reads, rev_count, rev_matches = \
+                    filter_fastq(reads, keepers)
+
+            # number of reads and must be identical for forward and reverse
+            assert fwd_count == rev_count
+            assert fwd_matches == rev_matches
+
+        INFO("Pre-Mapping: {} out of {} reads remaining"
+             .format(fwd_count, fwd_matches))
+
+    def map_reads(self):
+        pass
 
 
 class Bowtie(Mapper):
