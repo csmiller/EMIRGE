@@ -45,18 +45,20 @@ class Bowtie2(Mapper):
     def make_basecmd(self):
         cmd = [
             self.binary,
-            "-p", str(self.threads)
+            "-p", str(self.threads),
+            "-x", self.candidates,
         ]
+
         if self.rev_reads:
             cmd += [
                 "-1", self.fwd_reads,
                 "-2", self.rev_reads,
-                "-x", self.candidates,
             ]
         else:
             cmd += [
-                "-U", self.fwd_reads
+                "-U", self.fwd_reads,
             ]
+
         if self.phred33:
             cmd += ["--phred33"]
         else:
