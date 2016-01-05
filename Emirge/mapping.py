@@ -103,7 +103,7 @@ class Bowtie2(Mapper):
             assert fwd_matches == rev_matches
 
         INFO("Pre-Mapping: {} out of {} reads remaining"
-             .format(fwd_count, fwd_matches))
+             .format(fwd_matches, fwd_count))
 
     def map_reads(self):
         pass
