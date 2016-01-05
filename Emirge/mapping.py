@@ -1,12 +1,9 @@
 """implement mappers"""
 
-from subprocess import Popen, check_call
-
 import pysam
 
-from Emirge.io import NamedPipe, EnumerateReads, filter_fastq, File, make_pipe
-from Emirge.log import DEBUG, ERROR, INFO
-from tempfile import TemporaryFile, NamedTemporaryFile
+from Emirge.io import EnumerateReads, filter_fastq, File, make_pipe
+from Emirge.log import INFO, DEBUG
 
 
 class Mapper(object):
