@@ -203,7 +203,7 @@ def calc_likelihood(em):
                             i -= 1
                             
                     elif matchtype == 1:  # Cigar String - Insertion to reference
-                        for k in range(matchlen): #increment i for each inserted base, and calc prob(n) for each base
+                        for k in range(matchlen): #increment i for each inserted base
                             i -= 1
                             
                     elif matchtype == 2:  # Cigar String - Deletion from the reference
@@ -496,7 +496,7 @@ def calc_probN(em):
 
         for i in range(probN_single.shape[0]):
             base_sum = 0
-            for j in range(4):
+            for j in range(5): #upping this to 5 from 4 because we should consider weight for a deletion as a read mapping
                 base_sum = base_sum + probN_single[i, j]
             # if no mappings, give 1. - em.DEFAULT_ERROR to existing reference base and em.DEFAULT_ERROR / 3 to everyone else.
             if base_sum == 0:
@@ -508,7 +508,7 @@ def calc_probN(em):
                     else:
                         probN_single[i, j] = p_div_3
             else: # has mappings.  adjust probs.
-                for j in range(4):
+                for j in range(5): #as above, increased this to include deletion mappings
                     probN_single[i, j] = probN_single[i, j] / base_sum
         em.unmapped_bases[seq_i] = unmapped_bases.copy()
 
@@ -708,10 +708,8 @@ def process_bamfile(em, int ascii_offset):
     bamfile = pysam.Samfile(em.current_bam_filename, mode)  # reopen file to reset.  seek(0) has problems? 
 
     new_seq_i = len(sequence_i2sequence_name)
-    print "number of seq_i is %s"%new_seq_i
     for tid, refname in enumerate(bamfile.references):
         # assert bamfile.getrname(tid) == refname # this is true
-        print "length of reference seq %s is %s"%(refname,samfile_lengths[tid])
         if tid_mapped[tid] == 1:
             if not sequence_name2sequence_i.has_key(refname):  # new sequence we haven't seen before
                 seq_i = new_seq_i
@@ -731,19 +729,11 @@ def process_bamfile(em, int ascii_offset):
     #cdef np.ndarray[np.uint32_t, ndim=1] coverage = em.coverage
 
     # and now keep temporary base_coverages in numpy array for speed below.
-    print "size of base coverage list is: %s"%len(base_coverages)
     max_length = max(bamfile.lengths) 
     cdef np.ndarray[np.uint32_t, ndim=2] base_coverages_2d = np.zeros((len(base_coverages), max_length), dtype=np.uint32)
     
     for seq_i, base_coverage in enumerate(base_coverages):
-        print "seq_i: %s"%seq_i
-        print "seq_length of array: %s"%base_coverage.shape[0]
-        print "length of reference seq %s is %s"%(seq_i,refseq_lengths[seq_i])
-        print np.array_str(base_coverage)
-        if base_coverage.shape[0] != refseq_lengths[seq_i]:
-            em.base_coverages[seq_i] = np.zeros(refseq_lengths[seq_i],dtype=np.uint32) # make sure this is long enough to get full sequence info below
-        else:
-            em.base_coverages[seq_i][:] = 0      
+        em.base_coverages[seq_i] = np.zeros(max_length,dtype=np.uint32)
 
     # Now actually iterate through alignments
     alignedread_i = 0
@@ -793,12 +783,7 @@ def process_bamfile(em, int ascii_offset):
 
     # get base_coverages back in list:
     for seq_i, base_coverage in enumerate(base_coverages):
-        print "base coverage array size is %s"%base_coverage.shape[0]
-        print "2d array size is %s"%len(base_coverages_2d[seq_i])
-        print np.array_str(base_coverage)
-        print np.array_str(base_coverages_2d[seq_i])
         base_coverage[:] = base_coverages_2d[seq_i][:base_coverage.shape[0]]
-        print np.array_str(base_coverage)
     em.base_coverages = base_coverages[:]
     
     cdef int n_reads_total = reads_mapped.shape[0]
@@ -834,11 +819,12 @@ def reset_probN(em):
         seq_i = em.sequence_name2sequence_i.get(references_array[i])  
         if seq_i is not None:  # since not all seqs in header will be ones with mapped reads
             # CULLING: check for coverage > 0 across a % threshold of bases
-            percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.base_coverages[seq_i].shape[0]
+            #percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.base_coverages[seq_i].shape[0]
+            percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.refseq_lengths[seq_i]
             if percent_length_covered < length_thresh:
                 em.probN[seq_i] = None
                 em.prob_indels[seq_i] = None
-                em.coverage[seq_i] = 0
+                #em.coverage[seq_i] = 0
                 cullcount += 1
                 continue
             # else is a valid seq, so create empty probN matrix
