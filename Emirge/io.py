@@ -467,6 +467,11 @@ def filter_fastq(infile, readnames, outfile=None):
 
     matches = reads = 0
     for line in infile:
+        # fastq header lines are formatted as:
+        # @ followed by alphanumeric+dots, optionally followed by /1 or /2 to
+        # mark fwd/reverse reads, followed by line-end
+        # => skip first character, strip whitespace, consider only part before
+        #    first "/"
         if line[1:].strip().split("/")[0] in readnames:
             outfile.write(line)
             for n in range(3):
@@ -476,6 +481,8 @@ def filter_fastq(infile, readnames, outfile=None):
             for n in range(3):
                 infile.next()
         reads += 1
+        if reads < 10:
+            DEBUG("read {}: '{}'".format(reads, line))
 
     outfile.seek(0)
     return outfile, reads, matches
