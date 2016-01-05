@@ -81,10 +81,17 @@ class Bowtie2(Mapper):
             with pysam.AlignmentFile(p, "r") as sam:
                 for read in sam.fetch(until_eof=True):
                     if not read.is_unmapped:
-                        keepers.add(read.query_name)
+                        # if we have reverse, query name is reported w/o "/1"
+                        # or "/2" at the end, if we have only one read file,
+                        # the full identifier is kept, so remove everything
+                        # after a "/" before adding to keepers set:
+                        keepers.add(read.query_name.split("/")[0])
                     i+=1
 
         INFO("Pre-Mapping: mapper found %i matches" % len(keepers))
+
+        for i, keeper in zip(range(10), keepers):
+            DEBUG("keeper {}: '{}'".format(i, keeper))
 
         # replace forward read file with temporary file containing only
         # matching reads
