@@ -121,7 +121,7 @@ class Bowtie2(Mapper):
         maxins = insert_mean + 3*self.insert_sd
 
         index_file = os.path.join(workdir, "bt2_index")
-        self.build_index(fastafile, index_file)
+        self.prep_index(fastafile, index_file)
         log_file = os.path.join(workdir, "bt2.log")
 
         cmd = self.make_basecmd()

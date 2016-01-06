@@ -45,6 +45,6 @@ def test_bt2_prefilter_onlyfwd_noreindex():
 
 def test_bt2_build_index():
     tmp = io.TempDir()
-    mapping.Bowtie2.build_index(cand_file, os.path.join(tmp.name, "index"))
+    mapping.Bowtie2.prep_index(cand_file, os.path.join(tmp.name, "index"))
 
 
