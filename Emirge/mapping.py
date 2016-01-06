@@ -43,6 +43,7 @@ class Bowtie2(Mapper):
             self.binary,
             "-p", str(self.threads),
             "-x", self.candidates,
+            "-t",  # print timings
         ]
 
         if self.rev_reads:
