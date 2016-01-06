@@ -2,7 +2,7 @@
 
 import pysam
 
-from Emirge.io import EnumerateReads, filter_fastq, File, make_pipe
+from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe
 from Emirge.log import INFO, DEBUG
 
 
@@ -17,9 +17,9 @@ class Mapper(object):
         super(Mapper, self).__init__()
 
         if isinstance(fwd_reads, str):
-            fwd_reads = File(fwd_reads)
+            fwd_reads = decompressed(fwd_reads)
         if isinstance(rev_reads, str):
-            rev_reads = File(rev_reads)
+            rev_reads = decompressed(rev_reads)
 
         self.candidates = candidates
         self.phred33 = phred33
@@ -31,6 +31,7 @@ class Mapper(object):
                 rev_reads = EnumerateReads(rev_reads)
 
         self.fwd_reads, self.rev_reads = fwd_reads, rev_reads
+
 
 class Bowtie2(Mapper):
     def __init__(self, *args, **kwargs):
@@ -86,7 +87,7 @@ class Bowtie2(Mapper):
                         # the full identifier is kept, so remove everything
                         # after a "/" before adding to keepers set:
                         keepers.add(read.query_name.split("/")[0])
-                    i+=1
+                    i += 1
 
         INFO("Pre-Mapping: mapper found %i matches" % len(keepers))
 
@@ -96,7 +97,7 @@ class Bowtie2(Mapper):
         # replace forward read file with temporary file containing only
         # matching reads
         with self.fwd_reads.reader() as reads:
-            self.fwd_reads, fwd_count, fwd_matches  = \
+            self.fwd_reads, fwd_count, fwd_matches = \
                 filter_fastq(reads, keepers)
 
         # if we have a reverse read file, do the same for that
