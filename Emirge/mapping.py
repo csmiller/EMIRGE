@@ -1,8 +1,10 @@
 """implement mappers"""
 
 import pysam
+import os
 
-from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe
+from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
+    check_call
 from Emirge.log import INFO, DEBUG
 
 
@@ -70,7 +72,7 @@ class Bowtie2(Mapper):
         cmd = self.make_basecmd()
         cmd += [
             "--very-sensitive-local",
-            "-k1",  # report up to 1 alignments per read
+            "-k", "1",  # report up to 1 alignments per read
             "--no-unal",  # suppress SAM records for unaligned reads
         ]
         Prefilter = make_pipe("prefilter", cmd)
@@ -114,8 +116,45 @@ class Bowtie2(Mapper):
         INFO("Pre-Mapping: {} out of {} reads remaining"
              .format(fwd_matches, fwd_count))
 
-    def map_reads(self):
+    def map_reads(self, fastafile, workdir, insert_mean=1500, insert_sd=500):
+        minins = max((insert_mean - 3*insert_sd), 0)
+        maxins = insert_mean + 3*self.insert_sd
+
+        index_file = os.path.join(workdir, "bt2_index")
+        self.build_index(fastafile, index_file)
+        log_file = os.path.join(workdir, "bt2.log")
+
+        cmd = self.make_basecmd()
+        cmd += [
+            "-D", "20",  # number of extension attempts (15)
+            "-R", "3",  # try 3 sets of seeds (2)
+            "-N", "0",  # max 0 mismatches, can be 0 or 1 (0)
+            "-L", "20",  # length of seed substrings 4-31 (22)
+            "-i", "S,1,0.50",  # interval between seed substrings (S,1,1.15)
+            "-k", "20",  # report 20 alns per read
+            "--no-unal",  # suppress sam output for unaligned reads
+        ]
+
+        if self.rev_reads is not None:
+            cmd += [
+                "--minins", str(minins),  # minimum fragment length
+                "--maxins", str(maxins),  # maxinum fragment length
+                "--no-mixed",  # suppress unpaired alignments
+                "--no-discordant",  # suppress discordant alignments
+            ]
+
         pass
+
+    @staticmethod
+    def build_index(fastafile, indexbasename):
+        cmd = [
+            "bowtie2-build",
+            "--offrate", "3",  # "SA is sampled every 2^<int> BWT chars"
+            fastafile,
+            indexbasename
+        ]
+        check_call(cmd)
+        return indexbasename
 
 
 class Bowtie(Mapper):
