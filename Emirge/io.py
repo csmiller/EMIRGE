@@ -294,6 +294,16 @@ class File(FileLike):
         self.close()
 
 
+def _obj2str(obj):
+    if hasattr(obj, "name"):
+        return obj.name
+    elif isinstance(obj, FileLike):
+        raise Exception("what?")
+    return obj
+
+def _expand_args(args):
+    return [_obj2str(x) for x in args]
+
 class Popen(subprocess.Popen):
     """Convenience wrapper around subprocess.Popen
     - always has close_fds=True
@@ -301,19 +311,22 @@ class Popen(subprocess.Popen):
     - prints log when executing command
     """
     def __init__(self, args, *otherargs, **kwargs):
-        args = [self.obj2str(x) for x in args]
+        args = _expand_args(args)
         cmdline = " ".join([str(x) for x in args])
         INFO("Executing '{}'".format(cmdline))
         kwargs["close_fds"] = True
         super(Popen, self).__init__(args, *otherargs, **kwargs)
 
-    @staticmethod
-    def obj2str(obj):
-        if hasattr(obj, "name"):
-            return obj.name
-        elif isinstance(obj, FileLike):
-            raise Exception("what?")
-        return obj
+
+def check_call(args, *otherargs, **kwargs):
+    """Convenience wrapper around subprocess.check_call
+    - can have File objects as argument
+    - prints log when executing command
+    """
+    args = _expand_args(args)
+    cmdline = " ".join([str(x) for x in args])
+    INFO("Executing '{}'".format(cmdline))
+    return subprocess.check_call(args, *otherargs, **kwargs)
 
 
 class Pipe(FileLike):
