@@ -22,7 +22,7 @@ class IndexBuildFailure(Exception):
 
 
 class Mapper(object):
-    """Baseclass for read mapping.
+    """Base class for read mapping.
 
     Props:
         candidates -- fasta file containing reference sequences
@@ -44,7 +44,7 @@ class Mapper(object):
             rev_reads  -- reverse reads file, may be none for single ended
             phred33    -- true if quality encoded as phred33, false for 64
             threads    -- number of threads mappers should use
-            redindex   -- change read names to consecutive numbers
+            reindex   -- change read names to consecutive numbers
             workdir    -- (optional) designed work directory
         """
         super(Mapper, self).__init__()
@@ -118,13 +118,12 @@ class Bowtie2(Mapper):
             "-k", "1",  # report up to 1 alignments per read
             "--no-unal",  # suppress SAM records for unaligned reads
         ]
-        Prefilter = make_pipe("prefilter", cmd)
 
         # run bowtie2 prefiltering command, use pysam to parse matching
         # read names from output into set 'keepers'
         keepers = set()
         i = 0
-        with Prefilter(None) as p:
+        with make_pipe("prefilter", cmd)(None) as p:
             with pysam.AlignmentFile(p, "r") as sam:
                 for read in sam.fetch(until_eof=True):
                     if not read.is_unmapped:
@@ -163,14 +162,13 @@ class Bowtie2(Mapper):
     def map_reads(self, fastafile, workdir, insert_mean=1500, insert_sd=500):
         """Create bam file containing mappings for fastafile in workdir.
 
-        Args:
-            fastafile   -- target sequences
-            workdir     -- directory to hold bamfile
-            insert_mean -- mean insert size
-            insert_sd   -- stddev of insert size distribution
+        :param fastafile:   target sequences
+        :param workdir:     directory to hold bamfile
+        :param insert_mean: mean insert size
+        :param insert_sd:   stddev of insert size distribution
         """
         minins = max((insert_mean - 3 * insert_sd), 0)
-        maxins = insert_mean + 3 * self.insert_sd
+        maxins = insert_mean + 3 * insert_sd
 
         log_file = os.path.join(workdir, "bt2.log")
 
@@ -189,7 +187,7 @@ class Bowtie2(Mapper):
         if self.rev_reads is not None:
             cmd += [
                 "--minins", str(minins),  # minimum fragment length
-                "--maxins", str(maxins),  # maxinum fragment length
+                "--maxins", str(maxins),  # maximum fragment length
                 "--no-mixed",  # suppress unpaired alignments
                 "--no-discordant",  # suppress discordant alignments
             ]
@@ -198,28 +196,31 @@ class Bowtie2(Mapper):
 
     @staticmethod
     def have_index(indexname, fastafile=None):
-        """Check if an index indexname exists and is newer than fastafile."""
+        """Check if an index indexname exists and is newer than fastafile.
+
+        :param indexname: name of bowtie2 index
+        :param fastafile: name of corresponding fasta file
+        """
         suffixes = ["1.bt2", "2.bt2", "3.bt2", "4.bt2",
                     "rev.1.bt2", "rev.2.bt2"]
-        noaccess = []
-        tooold = []
+        no_access = []
+        too_old = []
         for suffix in suffixes:
-            fname = indexname + suffix
-            if not os.access(fname, os.R_OK):
-                noaccess.append(fname)
-            elif fastafile is not None and \
-                            os.path.getctime(fname) < os.path.getctime(
-                            fastafile):
-                tooold.append(fname)
+            file_name = indexname + suffix
+            if not os.access(file_name, os.R_OK):
+                no_access.append(file_name)
+            elif fastafile is not None:
+                if os.path.getctime(file_name) < os.path.getctime(fastafile):
+                    too_old.append(file_name)
 
-        if len(noaccess) == 0 and len(tooold) == 0:
+        if len(no_access) == 0 and len(too_old) == 0:
             return True
-        if len(noaccess) == len(suffixes):
+        if len(no_access) == len(suffixes):
             return False
-        if len(tooold) > 0:
+        if len(too_old) > 0:
             WARNING('Bowtie2 index for "{}" is out of date'.format(fastafile))
             return False
-        if len(noaccess) > 0:
+        if len(no_access) > 0:
             WARNING('No (or incomplete) Bowtie2 index found with basename "{'
                     '}"'.format(indexname))
             return False
@@ -228,14 +229,14 @@ class Bowtie2(Mapper):
         """Prepare index for fastafile. If indexname given, use that name.
 
         Check if an index exists for fastafile, and if not, build one. If
-        indexname is given, the index must be at that location. Otherwise,
-        it is expected/build either next to the fastafile or in the workdir.
+        indexname is given, the index must be at that location.
+        Otherwise, it is expected/build either next to the fastafile or in the
+        workdir.
 
-        Returns:
-            valid indexname
-
-        Raises:
-            IndexBuildFailure if unable to create an index
+        :param fastafile: full path of fasta file to index
+        :param indexname: name of index to create (optional)
+        :returns valid indexname
+        :raises  IndexBuildFailure if unable to create an index
         """
 
         if indexname is not None:
@@ -272,8 +273,9 @@ class Bowtie2(Mapper):
     def build_index(self, fastafile, indexname):
         """Build a index for fastafile named indexname.
 
-        Raises:
-            IndexBuildFailure if index build command failed
+        :param fastafile: fasta file to index
+        :param indexname: name of index to create
+        :raises IndexBuildFailure if index build command failed
         """
         if not os.access(fastafile, os.R_OK):
             raise IndexBuildFailure('Cannot read "{}"'.format(fastafile))
@@ -309,7 +311,7 @@ class Bwa(Mapper):
         self.binary = "bwa"
 
 
-class Bbmap(Mapper):
+class BBMap(Mapper):
     def __init__(self, *args, **kwargs):
-        super(Bbmap, self).__init__(*args, **kwargs)
+        super(BBMap, self).__init__(*args, **kwargs)
         self.binary = "bbmap.sh"
