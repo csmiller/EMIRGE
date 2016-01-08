@@ -18,7 +18,7 @@ UGGGGAAACCUGGAAUGUCCGGAGUAGUGUCCGGUGGCCCUGCCCUGAAUGUAUAGGGGU
 GUGGGUGGUAACGCGGGGAAGUGAAACAUCUUAGUACCCGUAGGAAGAGAAAACAAGUGU
 """
 
-# same sequence formated at 77 cols
+# same sequence formatted at 77 cols
 fasta_sample_77 = """>id123
 GUGCAAAGUUGUGUAGUGCGAUCGGUGGAUGCCUUGGCACCAAGAGCCGAUGAAGGACGUUGUGACCUGCGAUAAGC
 CCUGGGGAGUUGGUGAGCGAGCUGUGAUCCGGGGGUGUCCGAAUGGGGAAACCUGGAAUGUCCGGAGUAGUGUCCGG
@@ -49,6 +49,7 @@ def assert_re_match(regex, string):
 
 # === test functions ===
 
+# noinspection PyPep8Naming
 def test_Record_empty():
     record = io.Record()
     assert record.title == ""
@@ -56,11 +57,13 @@ def test_Record_empty():
     assert str(record) == ">\n\n"
 
 
+# noinspection PyPep8Naming
 def test_Record_formatting():
     record = io.Record(title="id123", sequence=sequence_sample)
     assert str(record) == fasta_sample_60
 
 
+# noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming,PyPep8Naming
 def test_FastIterator():
     n = 10
     fasta_file = StringIO(fasta_sample_77 * n)
@@ -73,40 +76,40 @@ def test_FastIterator():
 
 def cmp_reindexed_fq_files(orig, reindexed, nseq):
     orig.seek(0)
-    lineno = 0
-    for sline, dline in zip(orig, reindexed):
-        if lineno % 4 == 0:
-            assert_equal(dline.rstrip(), "@" + str(lineno/4))
+    line_no = 0
+    for src_line, dst_line in zip(orig, reindexed):
+        if line_no % 4 == 0:
+            assert_equal(dst_line.rstrip(), "@" + str(line_no/4))
         else:
-            assert_equal(dline, sline)
-        lineno += 1
-    assert_equal(nseq, lineno / 4)
+            assert_equal(dst_line, src_line)
+        line_no += 1
+    assert_equal(nseq, line_no / 4)
 
 
 def test_reindex_reads():
-    nlines = 4 * 1200
+    num_lines = 4 * 1200
 
     # prep input files
     src = NamedTemporaryFile()
     with open(read_file_1) as f:
-        for line, n in zip(f, range(0, nlines)):
+        for line, n in zip(f, range(0, num_lines)):
             src.write(line)
 
     src.flush()
 
     dst, n_reads = io.reindex_reads(src.name)
-    assert_equal(n_reads, nlines / 4)
+    assert_equal(n_reads, num_lines / 4)
     cmp_reindexed_fq_files(src, dst, n_reads)
 
 
 def test_reindex_reads_zipped():
-    nlines = 4 * 1200
+    num_lines = 4 * 1200
     # prep input files
     src = NamedTemporaryFile(suffix=".gz")
     zipper = Popen(["gzip", "-c"], stdin=PIPE, stdout=src)
 
     with open(read_file_1) as f:
-        for line, n in zip(f, range(0, nlines)):
+        for line, n in zip(f, range(0, num_lines)):
             zipper.stdin.write(line)
 
     zipper.stdin.close()
@@ -115,11 +118,12 @@ def test_reindex_reads_zipped():
 
     dst, n_reads = io.reindex_reads(src.name)
 
-    assert_equal(n_reads, nlines / 4)
+    assert_equal(n_reads, num_lines / 4)
     with open(read_file_1) as f:
         cmp_reindexed_fq_files(f, dst, n_reads)
 
 
+# noinspection PyPep8Naming
 def test_NamedPipe():
     pipe = io.NamedPipe()
     pipe_file = pipe.name
@@ -128,6 +132,7 @@ def test_NamedPipe():
     assert_false(io.ispipe(pipe_file))
 
 
+# noinspection PyPep8Naming
 def test_InputFileName():
     io.InputFileName(read_file_1, check=True)
     with assert_raises(Exception) as ex:
@@ -143,6 +148,7 @@ def test_InputFileName():
     assert_re_match(".*cannot be read.*", ex.exception.args[0])
 
 
+# noinspection PyPep8Naming
 def test_OutputFileName():
     io.OutputFileName("/tmp/valid_output_file_lkjad9k", check=True)
     with assert_raises(Exception) as ex:
@@ -181,38 +187,42 @@ def test_decompressed():
                 assert_equal(orig, test)
 
 
+# noinspection PyPep8Naming
 def test_EnumerateReads():
-    ereads = io.EnumerateReads(io.File(read_file_1))
+    enumerated_reads = io.EnumerateReads(io.File(read_file_1))
     i = 0
-    with ereads as reads:
-        for line in reads:
+    with enumerated_reads as reads:
+        for _ in reads:
             i += 1
-    with ereads as reads:
-        for line in reads:
+    with enumerated_reads as reads:
+        for _ in reads:
             i += 1
-    with ereads as reads, open(read_file_1) as orig_reads:
+    with enumerated_reads as reads, open(read_file_1) as orig_reads:
         cmp_reindexed_fq_files(orig_reads, reads, 50000)
 
 
+# noinspection PyPep8Naming
 def test_FastqCountReads():
     n_reads = io.fastq_count_reads(read_file_1)
     assert_equal(n_reads, 50000)
 
 
+# noinspection PyPep8Naming
 def test_Pipe_chained():
     data = io.File(read_file_1)
     with io.Gunzip(io.Gzip(data)) as f, open(read_file_1) as g:
-        for fline, gline in zip(f, g):
-            assert_equal(fline, gline)
+        for f_line, g_line in zip(f, g):
+            assert_equal(f_line, g_line)
 
 
-def test_Pipe_cmdsubst():
+# noinspection PyPep8Naming
+def test_Pipe_cmd_subst():
     cmd = ["cat", io.EnumerateReads(io.File(read_file_1)),
            io.EnumerateReads(io.File(read_file_1))]
     pipe = io.make_pipe("test", cmd)
     i = 0
     with pipe(None) as f:
-        for line in f:
+        for _ in f:
             i += 1
 
     assert_equal(i, 400000)
