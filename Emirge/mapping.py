@@ -1,4 +1,8 @@
-"""implement mappers"""
+"""Read mapping module
+
+This module abstracts from the various read mapping tools.
+"""
+from subprocess import CalledProcessError
 
 import pysam
 import os
@@ -9,13 +13,31 @@ from Emirge.log import INFO, DEBUG
 
 
 class Mapper(object):
-    def __init__(self,
-                 candidates,
-                 fwd_reads,
-                 rev_reads=None,
-                 phred33=False,
-                 threads=8,
-                 reindex=True):
+    """Baseclass for read mapping.
+
+    Props:
+        candidates -- fasta file containing reference sequences
+        fwd_reads  -- forward reads file (may be changed by filtering)
+        rev_reads  -- None or as fwd_reads
+        phred33    -- use phred33 quality encoding if true, phred64 otherwise
+        threads    -- number of threads mappers may use
+        reindex    -- True if reads should be renamed to consecutive numbers
+        workdir    -- directory to hold generated files
+    """
+
+    def __init__(self, candidates, fwd_reads, rev_reads=None, phred33=False,
+                 threads=8, reindex=True, workdir=None):
+        """Create new mapper.
+
+        Args:
+            candidates -- fasta file containing reference sequences
+            fwd_reads  -- forward reads file
+            rev_reads  -- reverse reads file, may be none for single ended
+            phred33    -- true if quality encoded as phred33, false for 64
+            threads    -- number of threads mappers should use
+            redindex   -- change read names to consecutive numbers
+            workdir    -- (optional) designed work directory
+        """
         super(Mapper, self).__init__()
 
         if isinstance(fwd_reads, str):
@@ -36,11 +58,14 @@ class Mapper(object):
 
 
 class Bowtie2(Mapper):
+    """Handle read mapping with Bowtie2."""
+
     def __init__(self, *args, **kwargs):
         super(Bowtie2, self).__init__(*args, **kwargs)
         self.binary = "bowtie2"
 
     def make_basecmd(self):
+        """Create array with common arguments to run bowtie2."""
         cmd = [
             self.binary,
             "-p", str(self.threads),
@@ -66,7 +91,11 @@ class Bowtie2(Mapper):
         return cmd
 
     def prefilter_reads(self):
-        """Pre-filters read file to include only reads aligning to seed data"""
+        """Pre-filter reads using candidates.
+
+        Switches the fwd/rev_reads property to a temporary file holding only
+        reads mapping (loosely) to the candidates file
+        """
 
         # prepare bowtie2 command
         cmd = self.make_basecmd()
@@ -117,8 +146,16 @@ class Bowtie2(Mapper):
              .format(fwd_matches, fwd_count))
 
     def map_reads(self, fastafile, workdir, insert_mean=1500, insert_sd=500):
-        minins = max((insert_mean - 3*insert_sd), 0)
-        maxins = insert_mean + 3*self.insert_sd
+        """Create bam file containing mappings for fastafile in workdir.
+
+        Args:
+            fastafile   -- target sequences
+            workdir     -- directory to hold bamfile
+            insert_mean -- mean insert size
+            insert_sd   -- stddev of insert size distribution
+        """
+        minins = max((insert_mean - 3 * insert_sd), 0)
+        maxins = insert_mean + 3 * self.insert_sd
 
         index_file = os.path.join(workdir, "bt2_index")
         self.prep_index(fastafile, index_file)
