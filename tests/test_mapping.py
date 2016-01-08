@@ -1,10 +1,13 @@
 """Test mapping code"""
 
 import os
+from tempfile import TemporaryFile
 
 from nose.tools import assert_equal
+from shutil import copy
 
 from Emirge import mapping, io, log
+from Emirge.io import TempDir
 
 log.setup(debug=True)
 
@@ -44,7 +47,9 @@ def test_bt2_prefilter_onlyfwd_noreindex():
 
 
 def test_bt2_build_index():
-    tmp = io.TempDir()
-    mapping.Bowtie2.prep_index(cand_file, os.path.join(tmp.name, "index"))
-
-
+    tmpdir = TempDir()
+    tmpfasta = os.path.join(tmpdir.name, "test.fasta")
+    copy(cand_file, tmpfasta)
+    bt2 = mapping.Bowtie2(cand_file, read_file_1,
+                          phred33=True, reindex=False)
+    bt2.prep_index(tmpfasta)

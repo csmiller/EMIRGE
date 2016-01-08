@@ -2,14 +2,23 @@
 
 This module abstracts from the various read mapping tools.
 """
+import os
 from subprocess import CalledProcessError
 
 import pysam
-import os
 
+import Emirge.log as log
 from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
-    check_call
-from Emirge.log import INFO, DEBUG
+    check_call, TempDir, File
+from Emirge.log import INFO, DEBUG, WARNING
+
+
+class IndexBuildFailure(Exception):
+    """
+    Exception raised when something went wrong trying to build
+    the mapping index
+    """
+    pass
 
 
 class Mapper(object):
@@ -73,7 +82,6 @@ class Bowtie2(Mapper):
         cmd = [
             self.binary,
             "-p", str(self.threads),
-            "-x", self.candidates,
             "-t",  # print timings
         ]
 
@@ -105,6 +113,7 @@ class Bowtie2(Mapper):
         # prepare bowtie2 command
         cmd = self.make_basecmd()
         cmd += [
+            "-x", self.prep_index(self.candidates),  # index
             "--very-sensitive-local",
             "-k", "1",  # report up to 1 alignments per read
             "--no-unal",  # suppress SAM records for unaligned reads
@@ -163,12 +172,11 @@ class Bowtie2(Mapper):
         minins = max((insert_mean - 3 * insert_sd), 0)
         maxins = insert_mean + 3 * self.insert_sd
 
-        index_file = os.path.join(workdir, "bt2_index")
-        self.prep_index(fastafile, index_file)
         log_file = os.path.join(workdir, "bt2.log")
 
         cmd = self.make_basecmd()
         cmd += [
+            "-x", self.prep_index(fastafile),  # index
             "-D", "20",  # number of extension attempts (15)
             "-R", "3",  # try 3 sets of seeds (2)
             "-N", "0",  # max 0 mismatches, can be 0 or 1 (0)
@@ -186,18 +194,107 @@ class Bowtie2(Mapper):
                 "--no-discordant",  # suppress discordant alignments
             ]
 
-        pass
+        assert False, "TODO: complete function"
 
     @staticmethod
-    def build_index(fastafile, indexbasename):
+    def have_index(indexname, fastafile=None):
+        """Check if an index indexname exists and is newer than fastafile."""
+        suffixes = ["1.bt2", "2.bt2", "3.bt2", "4.bt2",
+                    "rev.1.bt2", "rev.2.bt2"]
+        noaccess = []
+        tooold = []
+        for suffix in suffixes:
+            fname = indexname + suffix
+            if not os.access(fname, os.R_OK):
+                noaccess.append(fname)
+            elif fastafile is not None and \
+                            os.path.getctime(fname) < os.path.getctime(
+                            fastafile):
+                tooold.append(fname)
+
+        if len(noaccess) == 0 and len(tooold) == 0:
+            return True
+        if len(noaccess) == len(suffixes):
+            return False
+        if len(tooold) > 0:
+            WARNING('Bowtie2 index for "{}" is out of date'.format(fastafile))
+            return False
+        if len(noaccess) > 0:
+            WARNING('No (or incomplete) Bowtie2 index found with basename "{'
+                    '}"'.format(indexname))
+            return False
+
+    def prep_index(self, fastafile, indexname=None):
+        """Prepare index for fastafile. If indexname given, use that name.
+
+        Check if an index exists for fastafile, and if not, build one. If
+        indexname is given, the index must be at that location. Otherwise,
+        it is expected/build either next to the fastafile or in the workdir.
+
+        Returns:
+            valid indexname
+
+        Raises:
+            IndexBuildFailure if unable to create an index
+        """
+
+        if indexname is not None:
+            # we have an index name, check if it exists or build a new one
+            if not self.have_index(indexname, fastafile):
+                self.build_index(fastafile, indexname)
+        else:  # we have no indexname
+            locations = [
+                fastafile[:-6],  # fasta w/o ".fasta"
+                os.path.join(self.workdir.name,
+                             os.path.basename(fastafile))[:-6]
+            ]
+
+            # check for existing indices
+            for name in locations:
+                if self.have_index(name, fastafile):
+                    return name
+
+            # try building new index
+            last_exception = None
+            for name in locations:
+                try:
+                    self.build_index(fastafile, name)
+                except IndexBuildFailure as e:
+                    last_exception = e
+                else:
+                    indexname = name
+                    break
+            if last_exception is not None:
+                raise last_exception
+        return indexname
+
+    @log.timed("Building Bowtie 2 index {fastafile} from {indexname}")
+    def build_index(self, fastafile, indexname):
+        """Build a index for fastafile named indexname.
+
+        Raises:
+            IndexBuildFailure if index build command failed
+        """
+        if not os.access(fastafile, os.R_OK):
+            raise IndexBuildFailure('Cannot read "{}"'.format(fastafile))
         cmd = [
             "bowtie2-build",
             "--offrate", "3",  # "SA is sampled every 2^<int> BWT chars"
             fastafile,
-            indexbasename
+            indexname
         ]
-        check_call(cmd)
-        return indexbasename
+
+        # TODO: this file will cause TempDir to remain. Should it be deleted?
+        logfile = os.path.join(self.workdir.name,
+                               os.path.basename(fastafile) + "_bt2_build.log")
+
+        try:
+            with File(logfile).writer() as out:
+                check_call(cmd, stdout=out)
+        except CalledProcessError as e:
+            raise IndexBuildFailure(e.args)
+
+        return indexname
 
 
 class Bowtie(Mapper):
