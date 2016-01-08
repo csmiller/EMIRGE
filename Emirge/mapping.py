@@ -94,6 +94,7 @@ class Bowtie2(Mapper):
 
         return cmd
 
+    @log.timed("Pre-Filtering reads")
     def prefilter_reads(self):
         """Pre-filter reads using candidates.
 
@@ -149,6 +150,7 @@ class Bowtie2(Mapper):
         INFO("Pre-Mapping: {} out of {} reads remaining"
              .format(fwd_matches, fwd_count))
 
+    @log.timed('Mapping reads to "{fastafile}"')
     def map_reads(self, fastafile, workdir, insert_mean=1500, insert_sd=500):
         """Create bam file containing mappings for fastafile in workdir.
 
