@@ -56,6 +56,10 @@ class Mapper(object):
 
         self.fwd_reads, self.rev_reads = fwd_reads, rev_reads
 
+        if workdir is None:
+            workdir = TempDir()
+        self.workdir = workdir
+
 
 class Bowtie2(Mapper):
     """Handle read mapping with Bowtie2."""
