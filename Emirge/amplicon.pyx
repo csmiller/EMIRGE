@@ -666,6 +666,7 @@ def process_bamfile(em, int ascii_offset):
     cdef list refseq_lengths = em.refseq_lengths
 
     cdef np.ndarray[np.uint32_t, ndim=2] bamfile_data
+    # TODO: replace em.n_alignments with bamfile.mapped
     bamfile_data = np.empty((em.n_alignments, 6), dtype=np.uint32)
     cdef list cigars = []  # it's an empty list stores cigartuples from pysam alignments
     cigars = range(bamfile_data.shape[0])  # make same size as bamfile_data
