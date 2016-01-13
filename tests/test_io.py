@@ -49,7 +49,6 @@ def assert_re_match(regex, string):
 
 # === test functions ===
 
-# noinspection PyPep8Naming
 def test_Record_empty():
     record = io.Record()
     assert record.title == ""
@@ -57,13 +56,11 @@ def test_Record_empty():
     assert str(record) == ">\n\n"
 
 
-# noinspection PyPep8Naming
 def test_Record_formatting():
     record = io.Record(title="id123", sequence=sequence_sample)
     assert str(record) == fasta_sample_60
 
 
-# noinspection PyPep8Naming,PyPep8Naming,PyPep8Naming,PyPep8Naming
 def test_FastIterator():
     n = 10
     fasta_file = StringIO(fasta_sample_77 * n)
