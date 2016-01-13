@@ -53,3 +53,10 @@ def test_bt2_build_index():
     bt2 = mapping.Bowtie2(cand_file, read_file_1,
                           phred33=True, reindex=False)
     bt2.prep_index(tmpfasta)
+
+
+def test_bt2_map_reads():
+    tmpdir = TempDir()
+    bt2 = mapping.Bowtie2(cand_file, read_file_1, read_file_2,
+                          phred33=True, reindex=True)
+    bt2.map_reads(cand_file, tmpdir.name)
