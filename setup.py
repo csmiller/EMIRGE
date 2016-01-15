@@ -251,6 +251,7 @@ setup(
     cmdclass=cmdclass,
     packages=find_packages(exclude=['tests', 'tests.*']),
     test_suite='nose.collector',
+    tests_require=["nose"],
     license="GPLv3+",
     keywords=["rRNA", "EM"],
     install_requires=["numpy", "pysam", "scipy", "biopython"],
