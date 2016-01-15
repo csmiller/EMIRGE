@@ -348,12 +348,12 @@ class NamedPipe(File):
 def _obj2str(obj):
     if hasattr(obj, "name"):
         return obj.name
-    elif isinstance(obj, FileLike):
-        raise Exception("what?")
     return obj
+
 
 def _expand_args(args):
     return [_obj2str(x) for x in args]
+
 
 class Popen(subprocess.Popen):
     """Convenience wrapper around subprocess.Popen
