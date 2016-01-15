@@ -148,7 +148,7 @@ class Bowtie2(Mapper):
         keepers = set()
         i = 0
         with make_pipe("prefilter", cmd)(None) as p:
-            with pysam.AlignmentFile(p, "r") as sam:
+            with pysam.AlignmentFile(FileObjWrapper(p), "r") as sam:
                 for read in sam.fetch(until_eof=True):
                     if not read.is_unmapped:
                         # if we have reverse, query name is reported w/o "/1"
