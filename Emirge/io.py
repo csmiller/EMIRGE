@@ -366,6 +366,7 @@ class Popen(subprocess.Popen):
         cmdline = " ".join([str(x) for x in args])
         INFO("Executing '{}'".format(cmdline))
         kwargs["close_fds"] = True
+        DEBUG("KWARGS {}".format(repr(kwargs)))
         super(Popen, self).__init__(args, *otherargs, **kwargs)
 
 
