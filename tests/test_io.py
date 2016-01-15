@@ -1,17 +1,19 @@
 """Tests functions in Emirge.io"""
 
-import re
 import os
+import re
 from StringIO import StringIO
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
 
-from Emirge import io
 from nose.tools import assert_true, assert_false, assert_equal, assert_raises
+
+from Emirge import io
 
 # === FASTA test data ===
 
 # sequence formatted at 60 cols
+from Emirge.log import WARNING
 
 fasta_sample_60 = """>id123
 GUGCAAAGUUGUGUAGUGCGAUCGGUGGAUGCCUUGGCACCAAGAGCCGAUGAAGGACGU
@@ -178,7 +180,15 @@ def test_decompressed():
 
     for compressor, suffix in methods:
         src = NamedTemporaryFile(suffix="."+suffix)
-        zipper = io.Popen([compressor, "-c"], stdin=PIPE, stdout=src).stdin
+        try:
+            zipper = io.Popen([compressor, "-c"], stdin=PIPE, stdout=src).stdin
+        except OSError as e:
+            if e.errno == 2:  # ENOENT
+                if io.command_avail(compressor):
+                    raise
+            WARNING('Command "{}" not found. Skipping test.'.format(compressor))
+            continue
+
         zipper.writelines(data)
         zipper.close()
         src.flush()
