@@ -13,6 +13,11 @@ from Emirge.log import ERROR, DEBUG, INFO, timed
 PIPE = subprocess.PIPE
 
 
+class FileError(Exception):
+    """Raised when file operations fail"""
+    pass
+
+
 def ispipe(path):
     """Checks if file at @path is a pipe"""
     try:
