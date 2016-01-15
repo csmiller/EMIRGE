@@ -6,9 +6,11 @@ import weakref
 import stat
 from tempfile import NamedTemporaryFile, mkdtemp
 import subprocess
-from subprocess import CalledProcessError, check_call, PIPE
 
 from Emirge.log import ERROR, DEBUG, INFO, timed
+
+
+PIPE = subprocess.PIPE
 
 
 def ispipe(path):
@@ -90,7 +92,7 @@ def reindex_reads(reads_filepath):
                         'END { print nr > "%s" }'
                         % tmp_n_reads_file_path.name],
                        stdin=src, stdout=new_reads_filepath)
-        except CalledProcessError:
+        except subprocess.CalledProcessError:
             ERROR("awk rewrite of reads failed! Is awk installed?")
             raise
 
