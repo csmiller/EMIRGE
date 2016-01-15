@@ -382,98 +382,94 @@ def check_call(args, *otherargs, **kwargs):
 
 
 class Pipe(FileLike):
+    """Base class for canned external commands
+
+    To create a canned command, override Pipe.cmd by subclassing or use
+    make_pipe().
+
+    The cmd-string may contain:
+     - strings (of course)
+     - subclasses of FileLike (such as other Pipe objects)
+     - objects that have a name property
+
+    Pipe's are run using the with construct. During execution, the pipe acts
+    as an open file.
+    """
+
     cmd = None
 
-    def __init__(self, infile=PIPE, outfile=PIPE):
+    def __init__(self, stdin=None, stdout=PIPE, stderr=None):
+        """
+        Default is to read from stdout
+        """
         super(Pipe, self).__init__()
-        if isinstance(infile, FileLike):
-            self.__input = infile.reader()
-        else:
-            self.__input = infile
 
-        if isinstance(outfile, FileLike):
-            self.__output = outfile.writer()
-        else:
-            self.__output = outfile
+        self.stdpipes = dict(stdin=stdin, stdout=stdout, stderr=stderr)
+
+        if isinstance(stdin, FileLike):
+            stdin.reader()
+        if isinstance(stdout, FileLike):
+            stdout.writer()
+        if isinstance(stderr, FileLike):
+            stderr.writer()
 
         self.__proc = None
-        self.closed = True
-        self.__input_entered = None
-        self.__output_entered = None
         self.__tmppipe = None
+        self.__to_exit = []
 
     def __enter__(self):
-        to_close = []
-        # enter input
-        if isinstance(self.__input, FileLike):
-            self.__input_entered = self.__input.__enter__().fileno()
-        elif hasattr(self.__input, "name"):
-            self.__input_entered = open(self.__input.name, "rb+")
-            to_close.append(self.__input_entered)
-        else:
-            self.__input_entered = self.__input
+        fds = {}
+        unbound = None
+        for pname, pipe in self.stdpipes.iteritems():
+            if pipe == PIPE:
+                if self.__tmppipe:
+                    pipe = self.__tmppipe
+                else:
+                    unbound = pname
+            if isinstance(pipe, FileLike):
+                pipe.__enter__()
+            fds[pname] = pipe
 
-        # enter ouput
-        if isinstance(self.__output, FileLike):
-            self.__output_entered = self.__output.__enter__().fileno()
-        elif isinstance(self.__output, NamedPipe):
-            self.__output_entered = open(self.__output.name, "wb+")
-            to_close.append(self.__output_entered)
-        else:
-            self.__output_entered = self.__output
-
-        # replace Pipe objects with named pipes
+        # enter and replace pipe objects in command line
         args = [x.enter_as_named_pipe() if isinstance(x, Pipe) else x
                 for x in self.cmd]
 
-        self.__proc = Popen(args, close_fds=True,
-                            stdin=self.__input_entered,
-                            stdout=self.__output_entered)
+        self.__proc = Popen(args, close_fds=True, **fds)
 
-        for f in to_close:
-            f.close()
+        try:
+            self.stdpipes["stdin"].close()
+        except AttributeError:
+            pass
 
-        if self.__input == PIPE:
-            self.infile = self.__proc.stdin
-        if self.__output == PIPE:
-            self.outfile = self.__proc.stdout
-        self.closed = False
+        if self.__tmppipe is not None:
+            self.__tmppipe.close()
+
+        if unbound is not None:
+            self._setFileObj(getattr(self.__proc, unbound))
 
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if isinstance(self.__output, FileLike):
-            self.__output.__exit__(exc_type, exc_val, exc_tb)
-        if isinstance(self.__input, FileLike):
-            self.__input.__exit__(exc_type, exc_val, exc_tb)
+        # call other exits:
+        for pname, pipe in self.stdpipes.iteritems():
+            if isinstance(pipe, FileLike):
+                pipe.__exit__(exc_type, exc_val, exc_tb)
         for x in self.cmd:
             if isinstance(x, Pipe):
                 x.__exit__(exc_type, exc_val, exc_tb)
-        self.closed = True
-        self.__tmppipe = None
+        if self.__tmppipe is not None:
+            self.__tmppipe.__exit__(exc_type, exc_val, exc_tb)
+            self.__tmppipe = None
+
+        self.close()
         self.__proc.wait()
-        del self.__proc
         self.__proc = None
-        del self.outfile
-        self.outfile = None
-        self.infile = None
 
     def enter_as_named_pipe(self):
-        if self.__input == PIPE:
-            self.__input = NamedPipe(suffix=type(self).__name__)
-            self.__tmppipe = self.__input
-            self.__enter__()
-            self.__input == PIPE
-        elif self.__output == PIPE:
-            self.__output = NamedPipe(suffix=type(self).__name__)
-            self.__tmppipe = self.__output
-            self.__enter__()
-            self.__output = PIPE
-        else:
-            raise Exception("named pipe with infile={} and outfile={}"
-                            .format(self.infile, self.outfile))
-
-        return self.__tmppipe.name
+        self.__tmppipe = NamedPipe(suffix=type(self).__name__)
+        self.__tmppipe.writer()
+        self.__enter__()
+        return self.__tmppipe
 
 
 def make_pipe(name, args):
