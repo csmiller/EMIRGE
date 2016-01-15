@@ -476,8 +476,8 @@ class Pipe(FileLike):
 
 
 def make_pipe(name, args):
-    def __init__(self, filename):
-        Pipe.__init__(self, filename)
+    def __init__(self, *cargs, **kwargs):
+        Pipe.__init__(self, *cargs, **kwargs)
     return type(name, (Pipe,), {"__init__": __init__,
                                 "cmd": args})
 
