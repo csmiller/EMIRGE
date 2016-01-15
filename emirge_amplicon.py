@@ -1506,47 +1506,6 @@ def do_initial_mapping(em, working_dir, options):
     return bampath_prefix + ".u.bam"
 
 
-def resume(working_dir, options):
-    """
-    resume from a previous run.
-
-    Takes the emirge working dir, and an OptionParser options object
-    """
-    raise NotImplementedError, "This option is currently broken, and will be fixed in a later version."
-    em = EM("", "", 0, 0)  # reads1_filepath, reads2_filepath, insert_mean, insert_sd
-    data_path = os.path.join(working_dir, "iter.%02d"%(options.resume_from), 'em.%02i.data.pkl.bz2'%(options.resume_from))
-    log.warning("Loading saved state from %s..." % data_path)
-    em.load_state(data_path)
-    log.warning("Done.")
-
-    # if the current working dir has been copied or moved, the old state will no longer be valid,
-    # so need to set this again:
-    em.cwd = working_dir
-
-    # secretly (not advertised) options allowed to change in a resume
-    if options.fastq_reads_1 is not None:
-        em.reads1_filepath = os.path.abspath(options.fastq_reads_1)
-    if options.fastq_reads_2 is not None:
-        em.reads2_filepath = os.path.abspath(options.fastq_reads_2)
-
-    # now process any *relevant* options:
-    # this is broken right now because it just reverts all to defaults.
-    # if options.processors is not None:
-    #     em.n_cpus = options.processors
-    # if options.snp_fraction_thresh is not None:
-    #     em.snp_percentage_thresh = options.snp_fraction_thresh
-    # if options.variant_fraction_thresh is not None:
-    #     em.snp_minor_prob_thresh = options.variant_fraction_thresh
-    # if options.join_threshold is not None:
-    #     em.cluster_thresh = options.join_threshold
-    # if options.min_depth is not None:
-    #     em.min_depth = options.min_depth
-    # if options.nice_mapping is not None:
-    #     em.mapping_nice = options.nice_mapping
-
-    do_iterations(em, max_iter=options.iterations, save_every=options.save_every)
-
-
 def post_process(em, working_dir):
     """ Do all the postprocessing for the EMIRGE run, producing a fasta file of all EMIRGE sequences produced that meet the estimated abundance threshold to achieve an
     estimated average coverage of 20X (default) or other user specified value.  Also produces a raw file of all EMIRGE sequences produced, but not recommended to be used
@@ -1824,24 +1783,6 @@ def main(argv=sys.argv[1:]):
     # --- END HIDDEN ---
 
     parser.add_option_group(group_opt)
-    # # RESUME
-    group_resume = OptionGroup(parser, "Resuming iterations",
-                               "These options allow you to resume from a "
-                               "previously interrupted run.  EMIRGE will look "
-                               "for the last good iteration and begin with the "
-                               "candidate SSU sequences and priors (current "
-                               "abundance estimates) from that iteration.  "
-                               "Currently, there is only one option associate "
-                               "with resuming iterations: --resume.  The "
-                               "following options cannot be changed from the "
-                               "initial command, and if supplied with "
-                               "--resume, are ignored: -1, -2, --fasta_db, "
-                               "--bowtie_db, --mapping")
-    group_resume.add_option("-r", "--resume", action="store_true",
-                            help="Resume iterations with the priors and "
-                                 "current SSU sequences from the last "
-                                 "successful iteration.")
-    # parser.add_option_group(group_resume)
 
     # ACTUALLY PARSE ARGS
     (options, args) = parser.parse_args(argv)
@@ -1894,70 +1835,43 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     sys.stdout.write("EMIRGE started at %s\n" % (ctime()))
     sys.stdout.flush()
 
-    # some more sanity checking of options/args
-    if options.resume:  # RESUME case
-        if not os.path.exists(working_dir):
-            parser.error("You specified --resume, but %s does not exist"
-                         % working_dir)
-        # find last good directory
-        pat = re.compile(r'iter.([0-9]{2,})$')
-        current_i = -1
-        # basically, this code just finds the second to last directory
-        # available and calls that the last successfully completed directory.
-        # If the sam file is not zipped, because the failure happened during
-        # zipping, it zips it up.
-        for lsname in sorted(os.listdir(working_dir)):
-            if not os.isdir(lsname): continue
-            try:
-                this_i = int(pat.search(lsname).groups()[0])
-            except AttributeError:  # no match
-                continue
-            if this_i > current_i:
-                if not os.path.exists(os.path.join(working_dir,
-                                                   "iter.%02i" % this_i + 1)):
-                    continue
-                else:
-                    pass  # MARK -- need to finish
-    else:  # NORMAL case
-        # below here, means that we are handling the NEW case
-        # (as opposed to resume)
-        required = ["fastq_reads_1", "fasta_db", "bowtie_db", "max_read_length"]
-        if options.fastq_reads_2 is not None:
-            if options.fastq_reads_2.endswith('.gz'):
-                parser.error("Read 2 file cannot be gzipped (see --help)")
-            required.extend(["insert_mean", "insert_stddev"])
+    required = ["fastq_reads_1", "fasta_db", "bowtie_db", "max_read_length"]
+    if options.fastq_reads_2 is not None:
+        if options.fastq_reads_2.endswith('.gz'):
+            parser.error("Read 2 file cannot be gzipped (see --help)")
+        required.extend(["insert_mean", "insert_stddev"])
 
-        for o in required:
-            if getattr(options, o) is None or getattr(options, o) == 0:
-                if o == 'bowtie_db':
-                    if options.fasta_db:
-                        parser.error("Bowtie index is missing (--bowtie_db). "
-                                     "You need to build it before running "
-                                     "EMIRGE\nTry:\n\nbowtie-build %s "
-                                     "bowtie_prefix" % options.fasta_db)
-                    else:
-                        parser.error("Bowtie index is missing (--bowtie_db). "
-                                     "You need to build it before running "
-                                     "EMIRGE\nTry:\n\nbowtie-build "
-                                     "candidate_db.fasta bowtie_prefix")
-                elif o == 'fasta_db':
-                    parser.error("Fasta file for candidate database is "
-                                 "missing. Specify --fasta_db. (try --help for "
-                                 "more information)")
+    for o in required:
+        if getattr(options, o) is None or getattr(options, o) == 0:
+            if o == 'bowtie_db':
+                if options.fasta_db:
+                    parser.error("Bowtie index is missing (--bowtie_db). "
+                                 "You need to build it before running "
+                                 "EMIRGE\nTry:\n\nbowtie-build %s "
+                                 "bowtie_prefix" % options.fasta_db)
                 else:
-                    parser.error("--%s is required, but is not specified "
-                                 "(try --help)" % o)
+                    parser.error("Bowtie index is missing (--bowtie_db). "
+                                 "You need to build it before running "
+                                 "EMIRGE\nTry:\n\nbowtie-build "
+                                 "candidate_db.fasta bowtie_prefix")
+            elif o == 'fasta_db':
+                parser.error("Fasta file for candidate database is "
+                             "missing. Specify --fasta_db. (try --help for "
+                             "more information)")
+            else:
+                parser.error("--%s is required, but is not specified "
+                             "(try --help)" % o)
 
-        if not os.path.exists(working_dir):
-            os.mkdir(working_dir)
-        elif len(os.listdir(working_dir)) > 1:
-            # allow 1 file in case log file is redirected here.
-            print >> sys.stderr, os.listdir(working_dir)
-            parser.error(
-                "Directory not empty: %s\n"
-                "It is recommended you run emirge in a new directory each run; "
-                "delete this directory or specify a new one."
-                % working_dir)
+    if not os.path.exists(working_dir):
+        os.mkdir(working_dir)
+    elif len(os.listdir(working_dir)) > 1:
+        # allow 1 file in case log file is redirected here.
+        print >> sys.stderr, os.listdir(working_dir)
+        parser.error(
+            "Directory not empty: %s\n"
+            "It is recommended you run emirge in a new directory each run; "
+            "delete this directory or specify a new one."
+            % working_dir)
 
     # clean up options to be absolute paths
     for o in ["fastq_reads_1", "fastq_reads_2", "fasta_db",
