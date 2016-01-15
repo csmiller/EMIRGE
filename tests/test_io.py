@@ -5,12 +5,14 @@ import os
 from StringIO import StringIO
 from subprocess import Popen, PIPE
 from tempfile import NamedTemporaryFile
+
 from Emirge import io
 from nose.tools import assert_true, assert_false, assert_equal, assert_raises
 
 # === FASTA test data ===
 
 # sequence formatted at 60 cols
+
 fasta_sample_60 = """>id123
 GUGCAAAGUUGUGUAGUGCGAUCGGUGGAUGCCUUGGCACCAAGAGCCGAUGAAGGACGU
 UGUGACCUGCGAUAAGCCCUGGGGAGUUGGUGAGCGAGCUGUGAUCCGGGGGUGUCCGAA
@@ -43,6 +45,8 @@ def assert_re_match(regex, string):
     try:
         assert re.match(regex, string) is not None
     except AssertionError as e:
+        # suppress PyCharm warning (yes, AssertionError has setter for args!)
+        # noinspection PyPropertyAccess
         e.args += ('"{}" does not match regex "{}"'.format(string, regex),)
         raise
 
@@ -198,13 +202,19 @@ def test_EnumerateReads():
         cmp_reindexed_fq_files(orig_reads, reads, 50000)
 
 
-# noinspection PyPep8Naming
 def test_FastqCountReads():
     n_reads = io.fastq_count_reads(read_file_1)
     assert_equal(n_reads, 50000)
 
 
-# noinspection PyPep8Naming
+def test_Pipe_simple():
+    class EchoPipe(io.Pipe):
+        cmd = ["echo", "test word"]
+    with EchoPipe() as p:
+        line = p.next()
+        assert_equal(line.strip(), "test word")
+
+
 def test_Pipe_chained():
     data = io.File(read_file_1)
     with io.Gunzip(io.Gzip(data)) as f, open(read_file_1) as g:
@@ -223,3 +233,24 @@ def test_Pipe_cmd_subst():
             i += 1
 
     assert_equal(i, 400000)
+
+
+def test_Pipe_cmd_stderr():
+    cmd = ["bash", "-c", "for n in 0 1 2 3; do echo $n >&2; done"]
+    pipe = io.make_pipe("test", cmd)
+    with pipe(stdout=None, stderr=PIPE) as p:
+        for a, b in zip(p, range(4)):
+            assert_equal(a.strip(), str(b))
+
+
+def test_Pipe_outfile():
+    tmp = NamedTemporaryFile()
+    pipe = io.make_pipe("test", ["echo", "test123"])
+    with pipe(stdout=io.File(tmp.name)):
+        pass
+    with open(tmp.name) as f:
+        assert_equal(f.next().strip(), "test123")
+
+
+if __name__ == '__main__':
+    test_Pipe_cmd_subst()
