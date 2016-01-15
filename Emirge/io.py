@@ -382,7 +382,6 @@ def check_call(args, *otherargs, **kwargs):
 
 class Pipe(FileLike):
     cmd = None
-    name = "-"  # needed to make pysam accept this as a pipe
 
     def __init__(self, infile=PIPE, outfile=PIPE):
         super(Pipe, self).__init__()
@@ -523,6 +522,17 @@ LineCount = make_pipe("LineCount", ['wc', '-l'])
 def fastq_count_reads(filename):
     with LineCount(decompressed(filename)) as f:
         return int(f.next().strip()) / 4
+
+
+class FileObjWrapper(object):
+    name = "-"
+
+    def __init__(self, fileobject):
+        self._file = fileobject
+        self.closed = False
+
+    def fileno(self):
+        return os.dup(self._file.fileno())
 
 
 def filter_fastq(infile, readnames, outfile=None):
