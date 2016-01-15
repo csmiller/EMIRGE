@@ -128,52 +128,6 @@ class TempDir(object):
         return self.__name
 
 
-class NamedPipe(object):
-    """Creates a named pipe
-    Named pipes are created in a shared temporary directory, pipes and
-    directory are automatically removed once the NamedPipe object is destroyed
-    """
-    numPipes = 0  # number of created named pipes
-    pipes_dir = None  # holds WeakRef to TempDir object
-
-    def __init__(self, suffix="", prefix="pipe", dir=None):
-        self.__suffix = suffix
-        self.__prefix = prefix
-        self.__dir = dir
-        self.__name = None
-
-        self.__pipeNum = NamedPipe.numPipes
-        NamedPipe.numPipes += 1
-
-        if self.__dir is None:
-            pipes_dir = NamedPipe.pipes_dir
-            if pipes_dir is None or pipes_dir() is None:
-                # no pipe dir created, or pipe dir deleted (weakref evaluates
-                #  to None)
-                # => create new TempDir and store weak reference in static
-                #  pipes_dir
-                self.__dir = TempDir("pipes")
-                NamedPipe.pipes_dir = weakref.ref(self.__dir)
-            else:
-                # reference shared pipe directory
-                self.__dir = pipes_dir()
-
-    def __del__(self):
-        if self.__name:
-            DEBUG("Unlinking named pipe \"%s\"" % self.__name)
-            os.unlink(self.__name)
-
-    @property
-    def name(self):
-        if not self.__name:
-            filename = "_".join([self.__prefix, str(self.__pipeNum),
-                                 self.__suffix])
-            self.__name = os.path.join(self.__dir.name, filename)
-            os.mkfifo(self.__name)
-            DEBUG("Created named pipe \"%s\"" % self.__name)
-        return self.__name
-
-
 class FileName(object):
     def __init__(self, name):
         self.name = name
@@ -294,6 +248,55 @@ class File(FileLike):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+
+class NamedPipe(File):
+    """Creates a named pipe
+    Named pipes are created in a shared temporary directory, pipes and
+    directory are automatically removed once the NamedPipe object is destroyed
+
+    - opening a named pipe for reading blocks until write open
+    - opening a named pipe for writing blocks until read open
+    - opening a named pipe for read/write (wb+) does not block
+    - pipe will EOF once all writers are closed
+
+    """
+    numPipes = 0  # number of created named pipes
+    pipes_dir = None  # holds WeakRef to TempDir object
+
+    def __init__(self, suffix="", prefix="pipe", dir=None):
+        self.__suffix = suffix
+        self.__prefix = prefix
+        self.__dir = dir
+        self.filename = None
+
+        self.__pipeNum = NamedPipe.numPipes
+        NamedPipe.numPipes += 1
+
+        if self.__dir is None:
+            pipes_dir = NamedPipe.pipes_dir
+            if pipes_dir is None or pipes_dir() is None:
+                # no pipe dir created, or pipe dir deleted (weakref evaluates
+                #  to None)
+                # => create new TempDir and store weak reference in static
+                #  pipes_dir
+                self.__dir = TempDir("pipes")
+                NamedPipe.pipes_dir = weakref.ref(self.__dir)
+            else:
+                # reference shared pipe directory
+                self.__dir = pipes_dir()
+
+        filename = "_".join([self.__prefix, str(self.__pipeNum),
+                             self.__suffix])
+        filename = os.path.join(self.__dir.name, filename)
+        os.mkfifo(filename)
+        DEBUG("Created named pipe \"%s\"" % filename)
+        super(NamedPipe, self).__init__(filename)
+
+    def __del__(self):
+        if self.name:
+            DEBUG("Unlinking named pipe \"%s\"" % self.name)
+            os.unlink(self.name)
 
 
 def _obj2str(obj):
