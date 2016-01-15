@@ -254,7 +254,7 @@ setup(
     tests_require=["nose"],
     license="GPLv3+",
     keywords=["rRNA", "EM"],
-    install_requires=["numpy", "pysam", "scipy", "biopython"],
+    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython"],
     setup_requires=["numpy"]
 )
 
