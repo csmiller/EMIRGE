@@ -202,7 +202,7 @@ class InputFileName(FileName):
         if os.path.isdir(name):
             raise Exception(msg + "is a directory (file expected)")
         if not os.path.isfile(name) and not ispipe(name):
-            raise Exception(msg + " is neither file nor pipe")
+            raise Exception(msg + "is neither file nor pipe")
         if not os.access(name, os.R_OK):
             raise Exception(msg + "cannot be read")
 
