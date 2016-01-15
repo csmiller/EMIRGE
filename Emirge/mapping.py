@@ -3,13 +3,14 @@
 This module abstracts from the various read mapping tools.
 """
 import os
+import re
 from subprocess import CalledProcessError
 
 import pysam
 
 import Emirge.log as log
 from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
-    check_call, TempDir, File
+    check_call, TempDir, File, FileObjWrapper, PIPE
 from Emirge.log import INFO, DEBUG, WARNING
 
 
@@ -194,8 +195,6 @@ class Bowtie2(Mapper):
         minins = max((insert_mean - 3 * insert_sd), 0)
         maxins = insert_mean + 3 * insert_sd
 
-        log_file = os.path.join(workdir, "bt2.log")
-
         cmd = self.make_basecmd()
         cmd += [
             "-x", self.prep_index(fastafile),  # index
@@ -216,7 +215,23 @@ class Bowtie2(Mapper):
                 "--no-discordant",  # suppress discordant alignments
             ]
 
-        assert False, "TODO: complete function"
+        BowtieMapper = make_pipe("Bowtie Mapper", cmd)
+        bam_file = File(os.path.join(workdir, "bt2.bam"))
+        bam_writer = Sam2Bam_aligned_only(stdin=PIPE, stdout=bam_file)
+        frags_mapped = 0
+
+        with BowtieMapper(stdout=bam_writer, stderr=PIPE) as mapper:
+            for line in mapper:
+                INFO("BOWTIE2: " + line)
+                match = re.search("\s([0-9]+) .* aligned .*1 time", line)
+                if match is not None:
+                    frags_mapped += int(match.group(1))
+
+        INFO("Bowtie 2 reported {} alignments".format(frags_mapped))
+
+        # TODO:delete index
+
+        return frags_mapped, bam_file
 
     @staticmethod
     def have_index(indexname, fastafile=None):
