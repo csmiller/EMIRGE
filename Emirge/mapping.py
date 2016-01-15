@@ -21,6 +21,30 @@ class IndexBuildFailure(Exception):
     pass
 
 
+# sam flags:
+# 0x001 read paired
+# 0x002 read mapped propper
+# 0x004 read unmapped
+# 0x008 mate unmapped
+# 0x010 read reverse strand
+# 0x020 mate reverse strand
+# 0x040 first in pair
+# 0x080 second in pair
+# 0x100 not primary alignment
+# 0x200 read fails platform/vendor quality checks
+# 0x400 read is PCR or optical duplciate
+# 0x800 supplementary alignment
+
+Sam2Bam_aligned_only = make_pipe("Sam2Bam", [
+    "samtools", "view",
+    "-h",  # include header
+    "-u",  # uncompressed ouput
+    "-b",  # output bam
+    "-F", "0x0004",  # exclude unmapped reads
+    "-",  # output to stdout
+])
+
+
 class Mapper(object):
     """Base class for read mapping.
 
