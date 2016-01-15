@@ -8,8 +8,6 @@ from tempfile import NamedTemporaryFile, mkdtemp
 import subprocess
 from subprocess import CalledProcessError, check_call, PIPE
 
-import pysam
-
 from Emirge.log import ERROR, DEBUG, INFO, timed
 
 
@@ -501,28 +499,3 @@ def filter_fastq(infile, readnames, outfile=None):
 
     outfile.seek(0)
     return outfile, reads, matches
-
-
-class AlignmentFile(pysam.AlignmentFile):
-    """Wraps a file object to work with PySAM
-
-    Pysam will open objects that have a fileno() function as pipes,
-    but it does so only if they also have a name attribute equal to "-",
-    and it will close the fd returned by fileno on its own. So to make this
-    work for arbitrary objects having a fileno() function, we need to create
-    a wrapper object that has a name property containing "-" and duplicates
-    the file descriptor returned from fileno() prior to handing it to pysam.
-    """
-
-    class FileObjWrapper(object):
-        self.name = "-"
-        def __init__(self, fileobject):
-            self.file = fileobject
-        def fileno(self):
-            return os.dup(self.file.fileno())
-
-    def __init__(self, filepath_or_object, *args, **kwargs):
-        if hasattr(filepath_or_object, "fileno"):
-            filepath_or_object = FileObjWrapper(filepath_or_object)
-        super(AlignmentFile, self).__init__(filepath_or_object,
-                                            *args, **kwargs)
