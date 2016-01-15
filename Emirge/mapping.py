@@ -223,7 +223,7 @@ class Bowtie2(Mapper):
 
         with BowtieMapper(stdout=bam_writer, stderr=PIPE) as mapper:
             for line in mapper:
-                INFO("BOWTIE2: " + line)
+                INFO("BOWTIE2: " + line.rstrip())
                 match = re.search("\s([0-9]+) .* aligned .*1 time", line)
                 if match is not None:
                     frags_mapped += int(match.group(1))
