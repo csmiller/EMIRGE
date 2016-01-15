@@ -186,48 +186,87 @@ class OutputFileName(FileName):
 
 
 class FileLike(object):
+    """Base class for objects that behave like a file
+
+    MUST OVERRIDE __enter__ and __exit__!
+
+    I.e.:
+     - can be opened, closed and have a closed property
+     - can be iterated over, reading OR writing
+     - have a file-descriptor / fileno() function
+
+    """
     def __init__(self):
-        self.mode = None
-        self.infile = None
-        self.outfile = None
+        self.__isReader = True
+        self.__fileobj = None
+
+    @property
+    def isReader(self):
+        return self.__isReader
+
+    @property
+    def closed(self):
+        return self.__fileobj is None
 
     def reader(self):
-        self.mode = "rb"
+        if self.__fileobj and not self.__isReader:
+            raise FileError("Cannot change open writer to reader ")
+        self.__isReader = True
         return self
 
     def writer(self):
-        self.mode = "wb+"
+        if self.__fileobj and self.__isReader:
+            raise FileError("Cannot change open reader to writer")
+        self.__isReader = False
         return self
-
-    def __iter__(self):
-        return self
-
-    def next(self):
-        return self.outfile.next()
-
-    def write(self, string):
-        return self.infile.write(string)
-
-    def writelines(self, lines):
-        return self.infile.writelines(lines)
-
-    def fileno(self):
-        if self.infile:
-            if self.outfile:
-                ERROR("both in and out?")
-            # FIXME: hacky workaround for pysam
-            # pysam closes the fd, leading to an error once the python file
-            # object is closed. to fix this, we create a duplicate fd
-            return os.dup(self.infile.fileno())
-        if self.outfile:
-            return os.dup(self.outfile.fileno())
-        raise Exception("neither in nor out?")
 
     def close(self):
-        if self.infile:
-            self.infile.close()
-        if self.outfile:
-            self.outfile.close()
+        if self.__fileobj is not None:
+            DEBUG("closing {}".format(repr(self.__fileobj)))
+            self.__fileobj.close()
+            self.__fileobj = None
+
+    def fileno(self):
+        if self.__fileobj is None:
+            raise FileError("No fd for closed File")
+        return self.__fileobj.fileno()
+
+    def __iter__(self):
+        if self.__fileobj is None:
+            raise FileError("Cannot read from closed File")
+        if not self.__isReader:
+            raise FileError("Cannot read from writer")
+        return self.__fileobj
+
+    def next(self):
+        if self.__fileobj is None:
+            raise FileError("Cannot read from closed File")
+        if not self.__isReader:
+            raise FileError("Cannot read from writer")
+        return self.__fileobj.next()
+
+    def write(self, string):
+        if self.__fileobj is None:
+            raise FileError("Cannot write to closed File")
+        if self.__isReader:
+            raise FileError("Cannot write to reader")
+        return self.__fileobj.write(string)
+
+    def writelines(self, lines):
+        if self.__fileobj is None:
+            raise FileError("Cannot write to closed File")
+        if self.__isReader:
+            raise FileError("Cannot write to reader")
+        return self.__fileobj.writelines(lines)
+
+    def _setFileObj(self, fileobj):
+        self.__fileobj = fileobj
+
+    def __enter__(self):
+        raise NotImplementedError()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        raise NotImplementedError()
 
 
 class File(FileLike):
@@ -240,10 +279,12 @@ class File(FileLike):
         return self.__filename
 
     def __enter__(self):
-        if self.mode == "rb":
-            self.outfile = open(self.__filename, self.mode)
-        if self.mode == "wb+":
-            self.infile = open(self.__filename, self.mode)
+        if self.isReader:
+            DEBUG("opening {} read".format(repr(self.__filename)))
+            self._setFileObj(open(self.__filename, "rb"))
+        else:
+            DEBUG("opening {} write".format(repr(self.__filename)))
+            self._setFileObj(open(self.__filename, "wb+"))
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
