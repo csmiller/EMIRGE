@@ -1357,7 +1357,10 @@ def do_premapping(pre_mapping_dir, options):
 
     # premapping done as single reads regardless of whether paired mapping or not  CAN'T DEAL W/GZIPPED READ 2 HERE
     if options.fastq_reads_2 is not None:
-        option_strings.extend([options.fastq_reads_1,options.fastq_reads_2,nicestring, reads_ascii_offset, options.processors,options.bowtie2_db,premapSam])
+        option_strings.extend([options.fastq_reads_1,options.fastq_reads_2,
+                               nicestring, reads_ascii_offset,
+                               options.processors,options.bowtie2_db,
+                               premapSam])
         cmd = """%s %s %s | %s bowtie2 --very-sensitive-local --phred%d -t -p %s -k1 -x %s --no-unal -S %s -U - """ %tuple(option_strings)
        
     log.warning("Performing pre mapping with command:\n%s" % cmd)
@@ -1651,117 +1654,173 @@ def main(argv=sys.argv[1:]):
     parser = OptionParser(USAGE)
 
     # REQUIRED
-    group_reqd = OptionGroup(parser, "Required flags",
-                             "These flags are all required to run EMIRGE, and may be supplied in any order.")
-
-    group_reqd.add_option("-1", dest="fastq_reads_1", metavar="reads_1.fastq[.gz]",
-                      type="string",
-                      help="path to fastq file with \\1 (forward) reads from paired-end sequencing run, or all reads from single-end sequencing run.  File may optionally be gzipped.  EMIRGE expects ASCII-offset of 64 for quality scores (but see --phred33).  (Note that running EMIRGE with single-end reads is largely untested.  Please let me know how it works for you.)")
-    group_reqd.add_option("-f", "--fasta_db",
-                      type="string",
-                      help="path to fasta file of candidate SSU sequences")
-    group_reqd.add_option("-b", "--bowtie_db",
-                      type="string",
-                      help="precomputed bowtie index of candidate SSU sequences (path to appropriate prefix; see --fasta_db)")
-    group_reqd.add_option("-l", "--max_read_length",
-                      type="int", default=0,
-                      help="""length of longest read in input data.""")
-    group_reqd.add_option("-o","--output_files_prefix",
-                        type="string", default="EMIRGE",
-                        help="prefix to be used for final output fasta file and EMIRGE sequences reconstructed") 
-    group_reqd.add_option("-B", "--bowtie2_db",
-                      type="string",
-                      help="precomputed bowtie2 index of candidate SSU sequences (path to appropriate prefix; see --fasta_db)")
+    group_reqd = OptionGroup(
+            parser, "Required flags",
+            "These flags are all required to run EMIRGE, and may be supplied "
+            "in any order.")
+    group_reqd.add_option(
+            "-1", dest="fastq_reads_1",
+            metavar="reads_1.fastq[.gz]",
+            type="string",
+            help="path to fastq file with \\1 (forward) reads from "
+                 "paired-end sequencing run, or all reads from single-end "
+                 "sequencing run.  File may optionally be gzipped.  EMIRGE "
+                 "expects ASCII-offset of 64 for quality scores (but see "
+                 "--phred33).  (Note that running EMIRGE with single-end "
+                 "reads is largely untested.  Please let me know how it "
+                 "works for you.)")
+    group_reqd.add_option(
+            "-f", "--fasta_db",
+            type="string",
+            help="path to fasta file of candidate SSU sequences")
+    group_reqd.add_option(
+            "-b", "--bowtie_db",
+            type="string",
+            help="precomputed bowtie index of candidate SSU sequences (path "
+                 "to appropriate prefix; see --fasta_db)")
+    group_reqd.add_option(
+            "-l", "--max_read_length",
+            type="int", default=0,
+            help="""length of longest read in input data.""")
+    group_reqd.add_option(
+            "-o", "--output_files_prefix",
+            type="string", default="EMIRGE",
+            help="prefix to be used for final output fasta file and EMIRGE "
+                 "sequences reconstructed")
+    group_reqd.add_option(
+            "-B", "--bowtie2_db",
+            type="string",
+            help="precomputed bowtie2 index of candidate SSU sequences (path to"
+                 " appropriate prefix; see --fasta_db)")
     parser.add_option_group(group_reqd)
 
     # REQUIRED for paired end
-    group_reqd_PE = OptionGroup(parser, "Required flags for paired-end reads",
-                             "These flags are required to run EMIRGE when you have paired-end reads (the standard way of running EMIRGE), and may be supplied in any order.")
-    group_reqd_PE.add_option("-2", dest="fastq_reads_2", metavar="reads_2.fastq",
-                      type="string",
-                      help="path to fastq file with \\2 (reverse) reads from paired-end run.  File must be unzipped for mapper.  EMIRGE expects ASCII-offset of 64 for quality scores (but see --phred33).")
-    group_reqd_PE.add_option("-i", "--insert_mean",
-                      type="int", default=0,
-                      help="insert size distribution mean.")
-    group_reqd_PE.add_option("-s", "--insert_stddev",
-                      type="int", default=0,
-                      help="insert size distribution standard deviation.")
-    parser.add_option_group(group_reqd_PE)
+    group_reqd_pe = OptionGroup(
+            parser, "Required flags for paired-end reads",
+            "These flags are required to run EMIRGE when you have paired-end "
+            "reads (the standard way of running EMIRGE), and may be supplied in"
+            " any order.")
+    group_reqd_pe.add_option(
+            "-2", dest="fastq_reads_2", metavar="reads_2.fastq",
+            type="string",
+            help="path to fastq file with \\2 (reverse) reads from paired-end "
+                 "run.  File must be unzipped for mapper.  EMIRGE expects "
+                 "ASCII-offset of 64 for quality scores (but see --phred33).")
+    group_reqd_pe.add_option(
+            "-i", "--insert_mean",
+            type="int", default=0,
+            help="insert size distribution mean.")
+    group_reqd_pe.add_option(
+            "-s", "--insert_stddev",
+            type="int", default=0,
+            help="insert size distribution standard deviation.")
+    parser.add_option_group(group_reqd_pe)
 
     # OPTIONAL
-    group_opt = OptionGroup(parser, "Optional parameters",
-                             "Defaults should normally be fine for these options in order to run EMIRGE")
-    group_opt.add_option("-n", "--iterations",
-                      type="int", default=40,
-                      help="""Number of iterations to perform.  It may be necessary to use more iterations for more complex samples (default=%default)""")
-    group_opt.add_option("-a", "--processors",
-                      type="int", default=multiprocessing.cpu_count(),
-                      help="""Number of processors to use in the mapping steps.  You probably want to raise this if you have the processors. (default: use all available processors)""")
-    group_opt.add_option("-m", "--mapping",
-                         type="string",
-                         help="path to precomputed initial mapping (bam file).  If not provided, an initial mapping will be run for you.")
-    group_opt.add_option("-p", "--snp_fraction_thresh",
-                      type="float", default="0.04",
-                      help="If fraction of variants in a candidate sequence "
-                           "exceeds this threshold, then split the candidate "
-                           "into two sequences for next iteration.  See also "
-                           "--variant_fraction_thresh. (default: %default)")
-    group_opt.add_option("-v", "--variant_fraction_thresh",
-                      type="float", default="0.1",
-                      help="minimum probability of second most probable base at a site required in order to call site a variant.  See also --snp_fraction_thresh.  (default: %default)")
-    group_opt.add_option("-j", "--join_threshold",
-                      type="float", default="0.97",
-                      help="If two candidate sequences share >= this fractional identity over their bases with mapped reads, then merge the two sequences into one for the next iteration.  (default: %default; valid range: [0.95, 1.0] ) ")
-    group_opt.add_option("--meta", action="store_true",default="False",
-                        help="If input reads are metagenomic, specify --meta to do a pre-mapping step.")
-    group_opt.add_option("-d", "--debug",
-                        action="store_true", default=False,
-                        help="print debug information")
-    group_opt.add_option("-q", "--quiet",
-                         action="store_true", default=False,
-                         help="be less verbose")
-    group_opt.add_option("--indel_thresh",
-                        type="float",default="0.3",
-                        help="temporary flag to test indel thresholds")
+    group_opt = OptionGroup(
+            parser, "Optional parameters",
+            "Defaults should normally be fine for these options in order to "
+            "run EMIRGE")
+    group_opt.add_option(
+            "-n", "--iterations",
+            type="int", default=40,
+            help="Number of iterations to perform.  It may be necessary to "
+                 "use more iterations for more complex samples "
+                 "(default=%default)")
+    group_opt.add_option(
+            "-a", "--processors",
+            type="int", default=multiprocessing.cpu_count(),
+            help="""Number of processors to use in the mapping steps.  You
+            probably want to raise this if you have the processors. (default:
+            use all available processors)""")
+    group_opt.add_option(
+            "-m", "--mapping",
+            type="string",
+            help="path to precomputed initial mapping (bam file).  If not "
+                 "provided, an initial mapping will be run for you.")
+    group_opt.add_option(
+            "-p", "--snp_fraction_thresh",
+            type="float", default="0.04",
+            help="If fraction of variants in a candidate sequence "
+                 "exceeds this threshold, then split the candidate "
+                 "into two sequences for next iteration.  See also "
+                 "--variant_fraction_thresh. (default: %default)")
+    group_opt.add_option(
+            "-v", "--variant_fraction_thresh",
+            type="float", default="0.1",
+            help="minimum probability of second most probable base at a site "
+                 "required in order to call site a variant.  See also "
+                 "--snp_fraction_thresh.  (default: %default)")
+    group_opt.add_option(
+            "-j", "--join_threshold",
+            type="float", default="0.97",
+            help="If two candidate sequences share >= this fractional identity "
+                 "over their bases with mapped reads, then merge the two "
+                 "sequences into one for the next iteration.  (default: "
+                 "%default; valid range: [0.95, 1.0] ) ")
+    group_opt.add_option(
+            "--meta", action="store_true", default="False",
+            help="If input reads are metagenomic, specify --meta to do a "
+                 "pre-mapping step.")
+    group_opt.add_option(
+            "-d", "--debug",
+            action="store_true", default=False,
+            help="print debug information")
+    group_opt.add_option(
+            "-q", "--quiet",
+            action="store_true", default=False,
+            help="be less verbose")
+    group_opt.add_option(
+            "--indel_thresh",
+            type="float", default=0.3,
+            help="temporary flag to test indel thresholds")
+    group_opt.add_option(
+            "-c", "--min_length_coverage",
+            type="float",
+            default=0.3,
+            help="minimum fraction of the length of a candidate reference "
+                 "sequence that must be covered by mapped reads.  If not "
+                 "met, a candidate sequence is discarded for the next "
+                 "iteration.  (default: %default; valid range: (0.0, 1.0])")
+    group_opt.add_option(
+            "--nice_mapping",
+            type="int",
+            help="""If set, during mapping phase, the mapper will be "niced"
+            by the Linux kernel with this value (default: no nice)""")
+    group_opt.add_option(
+            "--phred33",
+            action="store_true", default=False,
+            help="Illumina quality values in fastq files are the (fastq "
+                 "standard) ascii offset of Phred+33.  This is the new default "
+                 "for Illumina pipeline >= 1.8. DEFAULT is still to assume "
+                 "that quality scores are Phred+64")
 
-    # DEPRECIATED
-    # group_opt.add_option("-c", "--min_depth",
-    #                   type="float",
-    #                   default = 3,
-    #                   help = "minimum average read depth below which a candidate sequence is discarded for next iteration(default: %default)")
-    group_opt.add_option("-c", "--min_length_coverage",
-                      type="float",
-                      default = 0.3,
-                      help = "minimum fraction of the length of a candidate reference sequence that must be covered by mapped reads.  If not met, a candidate sequence is discarded for the next iteration.  (default: %default; valid range: (0.0, 1.0])")
-    group_opt.add_option("--nice_mapping",
-                      type="int",
-                      help="""If set, during mapping phase, the mapper will be "niced" by the Linux kernel with this value (default: no nice)""")
-    # group_opt.add_option("-e", "--save_every",
-    #                   type="int", default=10,
-    #                   help="""every SAVE_EVERY iterations, save the programs state.  This allows you to run further iterations later starting from these save points.  The program will always save its state after the final iteration.  (default=%default)""")
-    group_opt.add_option("--phred33",
-                         action="store_true", default=False,
-                         help="Illumina quality values in fastq files are the (fastq standard) ascii offset of Phred+33.  This is the new default for Illumina pipeline >= 1.8. DEFAULT is still to assume that quality scores are Phred+64")
-
-    group_opt.add_option('-t', '--min_coverage_threshold',
-                           type='int', default='20',
-                           help="Expected minimum depth coverage.  Sequences are only included in output FASTA files if their expected coverage is greater than this value (calculated based on EMIRGE-estimated abundance and total number of reads mapped).  Default: %default")
+    group_opt.add_option(
+            '-t', '--min_coverage_threshold',
+            type='int', default='20',
+            help="Expected minimum depth coverage.  Sequences are only "
+                 "included in output FASTA files if their expected coverage is "
+                 "greater than this value (calculated based on "
+                 "EMIRGE-estimated abundance and total number of reads "
+                 "mapped).  Default: %default")
 
     # --- HIDDEN --- for debugging or special use case
 
     # this option randomizes the priors calculated for algorithm
     # initialization.  Useful for testing how init affects final
     # sequences and how likely we are to get stuck in a local maxima.
-    group_opt.add_option("--randomize_init_priors",
-                         action="store_true", default=False,
-                         help=SUPPRESS_HELP)
+    group_opt.add_option(
+            "--randomize_init_priors",
+            action="store_true", default=False,
+            help=SUPPRESS_HELP)
 
     # if this flag is set, then it is assumed that N reads in input
     # files are labeled with integer names from 0 to N-1, and the read
     # files will not be rewritten as a first step by emirge
-    group_opt.add_option("--no_rewrite_reads",
-                         action="store_true", default=False,
-                         help=SUPPRESS_HELP)
+    group_opt.add_option(
+            "--no_rewrite_reads",
+            action="store_true", default=False,
+            help=SUPPRESS_HELP)
     # --- END HIDDEN ---
 
     parser.add_option_group(group_opt)
@@ -1791,33 +1850,43 @@ def main(argv=sys.argv[1:]):
     log.setup(quiet=options.quiet, debug=options.debug)
 
     # minimal sanity checking of input
-    if len(args) !=1:
-        parser.error("DIR is required, and all options except DIR should have a flag associated with them (options without flags: %s)"%args)
+    if len(args) != 1:
+        parser.error("DIR is required, and all options except DIR should have "
+                     "a flag associated with them (options without flags: %s)"
+                     % args)
     if options.join_threshold < 0.95 or options.join_threshold > 1:
-        parser.error("join_threshold must be between [0.95, 1.0].  You supplied %.3f. (see --help)"%options.join_threshold)
+        parser.error("join_threshold must be between [0.95, 1.0].  You "
+                     "supplied %.3f. (see --help)" % options.join_threshold)
     if options.min_length_coverage is not None:
         if options.min_length_coverage <= 0 or options.min_length_coverage >= 1:
-            parser.error("--min_length_coverage (-c) must be between (0.0, 1.0).  You supplied %.3f. (see --help)"%options.min_length_coverage)
+            parser.error("--min_length_coverage (-c) must be between "
+                         "(0.0, 1.0).  You supplied %.3f. (see --help)"
+                         % options.min_length_coverage)
 
-    for filename_option_string in ["fastq_reads_1", "fastq_reads_2", "fasta_db"]:
-        filename_option = getattr(options, filename_option_string)
+    for filename_opt_string in ["fastq_reads_1", "fastq_reads_2", "fasta_db"]:
+        filename_option = getattr(options, filename_opt_string)
         if filename_option is not None:
             if not os.path.exists(filename_option):
-                parser.error("file not found for --%s: %s"%(filename_option_string, filename_option))
+                parser.error("file not found for --%s: %s"
+                             % (filename_opt_string, filename_option))
 
     working_dir = os.path.abspath(args[0])
 
-    sys.stdout.write("""If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
+    sys.stdout.write("""\
+If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
-EMIRGE: reconstruction of full-length ribosomal genes from microbial community short read sequencing data.
+EMIRGE: reconstruction of full-length ribosomal genes from microbial community
+        short read sequencing data.
 Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
 
 Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
-Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in Subsurface Sediments.
+Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in
+Subsurface Sediments.
 PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
-    sys.stdout.write("imported _emirge C functions from: %s\n" % (amplicon.__file__))
+    sys.stdout.write("imported _emirge C functions from: %s\n"
+                     % amplicon.__file__)
     sys.stdout.write("Command:\n")
     sys.stdout.write(' '.join([__file__] + argv))
     sys.stdout.write('\n\n')
@@ -1826,8 +1895,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     sys.stdout.flush()
 
     # some more sanity checking of options/args
-    # RESUME case
-    if options.resume:
+    if options.resume:  # RESUME case
         if not os.path.exists(working_dir):
             parser.error("You specified --resume, but %s does not exist"
                          % working_dir)
@@ -1850,11 +1918,9 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
                     continue
                 else:
                     pass  # MARK -- need to finish
-
-
-    # NORMAL case
-    else:
-        # below here, means that we are handling the NEW case (as opposed to resume)
+    else:  # NORMAL case
+        # below here, means that we are handling the NEW case
+        # (as opposed to resume)
         required = ["fastq_reads_1", "fasta_db", "bowtie_db", "max_read_length"]
         if options.fastq_reads_2 is not None:
             if options.fastq_reads_2.endswith('.gz'):
@@ -1865,14 +1931,23 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             if getattr(options, o) is None or getattr(options, o) == 0:
                 if o == 'bowtie_db':
                     if options.fasta_db:
-                        parser.error("Bowtie index is missing (--bowtie_db). You need to build it before running EMIRGE\nTry:\n\nbowtie-build %s bowtie_prefix" % options.fasta_db)
+                        parser.error("Bowtie index is missing (--bowtie_db). "
+                                     "You need to build it before running "
+                                     "EMIRGE\nTry:\n\nbowtie-build %s "
+                                     "bowtie_prefix" % options.fasta_db)
                     else:
-                        parser.error("Bowtie index is missing (--bowtie_db). You need to build it before running EMIRGE\nTry:\n\nbowtie-build candidate_db.fasta bowtie_prefix")
+                        parser.error("Bowtie index is missing (--bowtie_db). "
+                                     "You need to build it before running "
+                                     "EMIRGE\nTry:\n\nbowtie-build "
+                                     "candidate_db.fasta bowtie_prefix")
                 elif o == 'fasta_db':
-                    parser.error("Fasta file for candidate database is missing. Specify --fasta_db. (try --help for more information)")
+                    parser.error("Fasta file for candidate database is "
+                                 "missing. Specify --fasta_db. (try --help for "
+                                 "more information)")
                 else:
-                    parser.error("--%s is required, but is not specified (try --help)"%(o))
-	
+                    parser.error("--%s is required, but is not specified "
+                                 "(try --help)" % o)
+
         if not os.path.exists(working_dir):
             os.mkdir(working_dir)
         elif len(os.listdir(working_dir)) > 1:
@@ -1885,20 +1960,22 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
                 % working_dir)
 
     # clean up options to be absolute paths
-    for o in ["fastq_reads_1", "fastq_reads_2", "fasta_db", "bowtie_db", "mapping"]:
+    for o in ["fastq_reads_1", "fastq_reads_2", "fasta_db",
+              "bowtie_db", "mapping"]:
         current_o_value = getattr(options, o)
         if current_o_value is not None:
             setattr(options, o, os.path.abspath(current_o_value))
 
-
     # IF METAGENOMIC, DO PRE-MAPPING
     if options.meta:
-        # do the premapping and then feed those saved reads in as reads1_filepath and reads2_filepath
+        # do the premapping and then feed those saved reads in
+        # as reads1_filepath and reads2_filepath
         pre_mapping_dir = os.path.join(working_dir, "pre_mapping")
-        do_premapping(pre_mapping_dir,options)
-        options.fastq_reads_1=os.path.join(pre_mapping_dir, "pre_mapped_reads.1.fastq")
-        options.fastq_reads_2=os.path.join(pre_mapping_dir, "pre_mapped_reads.2.fastq")
-
+        do_premapping(pre_mapping_dir, options)
+        options.fastq_reads_1 = os.path.join(pre_mapping_dir,
+                                             "pre_mapped_reads.1.fastq")
+        options.fastq_reads_2 = os.path.join(pre_mapping_dir,
+                                             "pre_mapped_reads.2.fastq")
 
     # finally, CREATE EM OBJECT
     em = EM(reads1_filepath=options.fastq_reads_1,
@@ -1915,7 +1992,8 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             reads_ascii_offset={False: 64, True: 33}[options.phred33],
             rewrite_reads=not options.no_rewrite_reads)
 
-    options.fastq_reads_1 = em.reads1_filepath # change these if necessary for do_initial_mapping.
+    # change these if necessary for do_initial_mapping.
+    options.fastq_reads_1 = em.reads1_filepath
     options.fastq_reads_2 = em.reads2_filepath
 
     # DO INITIAL MAPPING if not provided with --mapping
@@ -1925,10 +2003,10 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         else:
             options.mapping = do_initial_mapping(em, working_dir, options)
 
-
     # if >= this percentage of bases are minor alleles, split candidate sequence
     em.snp_percentage_thresh = options.snp_fraction_thresh
-    # if prob(N) for minor allele base N is >= this threshold, call site a minor allele
+    # if prob(N) for minor allele base N is >= this threshold,
+    # call site a minor allele
     em.snp_minor_prob_thresh = options.variant_fraction_thresh
     if options.min_length_coverage is not None:
         em.min_length_coverage = options.min_length_coverage
@@ -1938,19 +2016,24 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
 
     if options.randomize_init_priors:
         print >> sys.stderr, "*" * 60
-        print >> sys.stderr, "DEBUG: initialized priors will be randomized for testing purposes"
-    em.initialize_EM(options.mapping, options.fasta_db, randomize_priors=options.randomize_init_priors)
+        print >> sys.stderr, "DEBUG: initialized priors will be randomized " \
+                             "for testing purposes"
+    em.initialize_EM(options.mapping, options.fasta_db,
+                     randomize_priors=options.randomize_init_priors)
 
     # BEGIN ITERATIONS
     do_iterations(em, max_iter=options.iterations, save_every=None)
 
-    # WRITE THE OUTPUT FASTA FILES- renames and writes raw file and file with only seqs having estimated coverage over specified threshold (default=20X)
+    # WRITE THE OUTPUT FASTA FILES- renames and writes raw file and file with
+    # only seqs having estimated coverage over specified threshold (default=20X)
     post_process(em, working_dir)
 
-    # print some info to user about final files produced, brief description, filename
+    # print some info to user about final files produced,
+    # brief description, filename
     # TODO
     
-    sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"%(ctime(), timedelta(seconds = time()-total_start_time)))
+    sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"
+                     % (ctime(), timedelta(seconds = time()-total_start_time)))
 
 
 if __name__ == '__main__':
