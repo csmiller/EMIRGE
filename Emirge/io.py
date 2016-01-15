@@ -1,14 +1,14 @@
 """Implements IO functions"""
 
-import re
+import errno
 import os
-import weakref
+import re
 import stat
-from tempfile import NamedTemporaryFile, mkdtemp
 import subprocess
+import weakref
+from tempfile import NamedTemporaryFile, mkdtemp
 
 from Emirge.log import ERROR, DEBUG, INFO, timed
-
 
 PIPE = subprocess.PIPE
 
@@ -25,6 +25,16 @@ def ispipe(path):
     except OSError:
         return False
 
+def command_avail(cmd):
+    try:
+        subprocess.check_call(cmd, stderr=subprocess.STDOUT)
+    except OSError as e:
+        if e.errno == errno.ENOENT:
+            return False
+    except subprocess.CalledProcessError:
+        return True
+    else:
+        return True
 
 class Record(object):
     """
