@@ -7,6 +7,7 @@ import re
 from subprocess import CalledProcessError
 
 import pysam
+from multiprocessing import cpu_count
 
 import Emirge.log as log
 from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
@@ -60,7 +61,7 @@ class Mapper(object):
     """
 
     def __init__(self, candidates, fwd_reads, rev_reads=None, phred33=False,
-                 threads=8, reindex=True, workdir=None):
+                 threads=cpu_count(), reindex=True, workdir=None):
         """Create new mapper.
 
         Args:
