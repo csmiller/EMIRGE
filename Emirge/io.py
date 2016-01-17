@@ -27,7 +27,7 @@ def ispipe(path):
 
 def command_avail(cmd):
     try:
-        subprocess.check_call(cmd, stderr=subprocess.STDOUT)
+        subprocess.check_output(cmd, stderr=subprocess.STDOUT)
     except OSError as e:
         if e.errno == errno.ENOENT:
             return False
