@@ -17,6 +17,9 @@ class FileError(Exception):
     """Raised when file operations fail"""
     pass
 
+class PipeAbort(Exception):
+    """Raise this to abort running a pipe when in with clause"""
+    pass
 
 def ispipe(path):
     """Checks if file at @path is a pipe"""
@@ -489,6 +492,10 @@ class Pipe(FileLike):
         self.close()
         self.__proc.wait()
         self.__proc = None
+
+        if exc_type == PipeAbort:
+            return True
+        return False
 
     def enter_as_named_pipe(self):
         self.__tmppipe = NamedPipe(suffix=type(self).__name__)
