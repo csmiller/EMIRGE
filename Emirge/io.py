@@ -469,6 +469,8 @@ class Pipe(FileLike):
 
         if unbound is not None:
             self._setFileObj(getattr(self.__proc, unbound))
+            if unbound=="stderr":
+                self.nobuffer=True
 
         return self
 
