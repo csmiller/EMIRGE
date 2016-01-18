@@ -214,6 +214,7 @@ class FileLike(object):
     def __init__(self):
         self.__isReader = True
         self.__fileobj = None
+        self.nobuffer = False
 
     @property
     def isReader(self):
@@ -251,14 +252,20 @@ class FileLike(object):
             raise FileError("Cannot read from closed File")
         if not self.__isReader:
             raise FileError("Cannot read from writer")
-        return self.__fileobj
+        if self.nobuffer:
+            return iter(self.__fileobj.readline, '')
+        else:
+            return self.__fileobj
 
     def next(self):
         if self.__fileobj is None:
             raise FileError("Cannot read from closed File")
         if not self.__isReader:
             raise FileError("Cannot read from writer")
-        return self.__fileobj.next()
+        if self.nobuffer:
+            return self.__fileobj.readline()
+        else:
+            return self.__fileobj.next()
 
     def write(self, string):
         if self.__fileobj is None:
