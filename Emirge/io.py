@@ -423,6 +423,12 @@ class Pipe(FileLike):
 
         self.stdpipes = dict(stdin=stdin, stdout=stdout, stderr=stderr)
 
+        npipe = 0
+        for pname, pipe in self.stdpipes.iteritems():
+            if pipe == PIPE:
+                npipe += 1
+        assert npipe <= 1
+
         if isinstance(stdin, FileLike):
             stdin.reader()
         if isinstance(stdout, FileLike):
