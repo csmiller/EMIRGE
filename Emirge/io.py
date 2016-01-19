@@ -587,5 +587,4 @@ def filter_fastq(infile, readnames, outfile=None):
         if reads < 10:
             DEBUG("read {}: '{}'".format(reads, line.strip()))
 
-    outfile.seek(0)
     return outfile, reads, matches
