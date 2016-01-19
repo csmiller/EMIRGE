@@ -15,6 +15,11 @@ from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
 from Emirge.log import INFO, DEBUG, WARNING
 
 
+class MappingFailure(Exception):
+    """
+    Something went wrong during read mapping
+    """
+
 class IndexBuildFailure(Exception):
     """
     Exception raised when something went wrong trying to build
