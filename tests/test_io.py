@@ -9,7 +9,6 @@ from tempfile import NamedTemporaryFile
 from nose.tools import assert_true, assert_false, assert_equal, assert_raises
 
 from Emirge import io
-
 # === FASTA test data ===
 
 # sequence formatted at 60 cols
@@ -42,6 +41,7 @@ read_file_1 = "tests/test_data/ten_seq_community_000_50K_L150_I350.2.fastq"
 
 bam_file = "tests/test_data/test.bam"
 sam_file = "tests/test_data/test.sam"
+
 
 # === helper functions ===
 
@@ -85,7 +85,7 @@ def cmp_reindexed_fq_files(orig, reindexed, nseq):
     line_no = 0
     for src_line, dst_line in zip(orig, reindexed):
         if line_no % 4 == 0:
-            assert_equal(dst_line.rstrip(), "@" + str(line_no/4))
+            assert_equal(dst_line.rstrip(), "@" + str(line_no / 4))
         else:
             assert_equal(dst_line, src_line)
         line_no += 1
@@ -182,7 +182,7 @@ def test_decompressed():
                ("xz", "xz"), ("bzip2", "bz2")]
 
     for compressor, suffix in methods:
-        src = NamedTemporaryFile(suffix="."+suffix)
+        src = NamedTemporaryFile(suffix="." + suffix)
         try:
             zipper = io.Popen([compressor, "-c"], stdin=PIPE, stdout=src).stdin
         except OSError as e:
@@ -223,6 +223,7 @@ def test_FastqCountReads():
 def test_Pipe_simple():
     class EchoPipe(io.Pipe):
         cmd = ["echo", "test word"]
+
     with EchoPipe() as p:
         line = p.next()
         assert_equal(line.strip(), "test word")
