@@ -421,37 +421,7 @@ class EM(object):
         self.print_priors()
         self.print_probN()
 
-        # delete bamfile from previous round (keep -- and convert to
-        # compressed bam -- initial iteration mapping in the
-        # background)
-        if self.iteration_i == 0 and self.current_bam_filename.endswith(".u.bam"):  # initial iteration
-            renamed = self.current_bam_filename.rstrip(".u.bam") + ".bam"
-            # self.initial_compress_process = Popen(["samtools", "view", "-h", "-b", self.current_bam_filename, "-o", renamed], stdout = sys.stdout, stderr = sys.stderr)  # child process runs in background
-            self.initial_compress_process = Popen("samtools view -h -b %s > %s" % (self.current_bam_filename, renamed),
-                                                  shell=True, stderr=sys.stderr)  # child process runs in background
-
-            self.initial_bam_filename_to_remove = self.current_bam_filename
-        if self.iteration_i >= 1:
-            os.remove(self.current_bam_filename)
-            # check up on initial mapping compression background process once per iteration here
-            if self.initial_compress_process is not None:
-                poll = self.initial_compress_process.poll()
-                if poll == 0:  # completed successfully
-                    os.remove(self.initial_bam_filename_to_remove)
-                    self.initial_compress_process = None  # don't bother in future
-                elif poll is None:
-                    if self.iteration_i == self.max_iterations - 1:  # shouldn't happen... but to be correct
-                        print >> sys.stderr, "Waiting for initial bamfile to compress before finishing...",
-                        self.initial_compress_process.wait()
-                        print >> sys.stderr, "DONE"
-                    else:
-                        pass
-                else:  # poll() returned something bad.
-                    log.warning("Failed to compress initial mapping bamfile.\n"
-                                "Failure with exit code: %s.\n"
-                                "File remains uncompressed: %s"
-                                % (poll, self.initial_bam_filename_to_remove))
-                    self.initial_compress_process = None  # don't bother in future
+        # TODO - compress bam from iteration 0
 
         # now do a new mapping run for next iteration
         self.do_mapping(consensus_filename, nice=self.mapping_nice)
