@@ -246,9 +246,16 @@ class Bowtie2(Mapper):
         minins = max((self.insert_mean - 3 * self.insert_sd), 0)
         maxins = self.insert_mean + 3 * self.insert_sd
 
+        # use pre-computed index for candidates if available
+        if fastafile == self.candidates:
+            index = self.candidates_index
+        else:
+            index = None
+
+
         cmd = self.make_basecmd()
         cmd += [
-            "-x", self.prep_index(fastafile),  # index
+            "-x", self.prep_index(fastafile, index),  # index
             "-D", "20",  # number of extension attempts (15)
             "-R", "3",  # try 3 sets of seeds (2)
             "-N", "0",  # max 0 mismatches, can be 0 or 1 (0)
@@ -301,7 +308,7 @@ class Bowtie2(Mapper):
         no_access = []
         too_old = []
         for suffix in suffixes:
-            file_name = indexname + suffix
+            file_name = indexname + "." + suffix
             if not os.access(file_name, os.R_OK):
                 no_access.append(file_name)
             elif fastafile is not None:
@@ -320,6 +327,7 @@ class Bowtie2(Mapper):
                     '}"'.format(indexname))
             return False
 
+    @log.timed("Preparing index for {fastafile} ({indexname})")
     def prep_index(self, fastafile, indexname=None):
         """Prepare index for fastafile. If indexname given, use that name.
 
@@ -337,6 +345,7 @@ class Bowtie2(Mapper):
         if indexname is not None:
             # we have an index name, check if it exists or build a new one
             if not self.have_index(indexname, fastafile):
+                WARNING("provided index not valid, trying to rebuild")
                 self.build_index(fastafile, indexname)
         else:  # we have no indexname
             locations = [
