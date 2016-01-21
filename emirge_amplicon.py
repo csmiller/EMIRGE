@@ -543,7 +543,7 @@ class EM(object):
             #     continue # continue == don't write it to consensus.
 
             # else passes culling thresholds
-            title = self.sequence_i2sequence_name[seq_i]
+            title = str(self.sequence_i2sequence_name[seq_i])
             consensus = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
             orig_bases = numpy.array(reference_fastafile.fetch(title).lower(), dtype='c')
 
