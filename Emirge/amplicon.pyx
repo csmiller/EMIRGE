@@ -40,6 +40,7 @@ from Emirge import log as logger
 
 
 # for lookup table of qual values
+from Emirge.log import INFO
 cdef extern from *:
     ctypedef double* static_const_double_ptr "static const double*"
 
@@ -611,7 +612,8 @@ def populate_reads_arrays(em):
             em.quals
             em.readlengths
     """
-    cdef np.ndarray[np.uint8_t, ndim=3] reads = em.reads  # n_reads X pair X max_read_length
+    # n_reads X pair X max_read_length
+    cdef np.ndarray[np.uint8_t, ndim=3] reads = em.reads
     cdef np.ndarray[np.uint8_t, ndim=3] quals = em.quals
     cdef np.ndarray[np.uint16_t, ndim=2] readlengths = em.readlengths
 
@@ -642,7 +644,7 @@ def populate_reads_arrays(em):
         read_file.close()
 
 
-def process_bamfile(em, int ascii_offset):
+def process_bamfile(em, bamfile, int ascii_offset):
     """
     read in bamfile and populate:
        bamfile_data    # [seq_i, read_i, pair_i, rlen, pos, is_reverse]
@@ -651,15 +653,6 @@ def process_bamfile(em, int ascii_offset):
 
     assume read name is an integer == read index.
     """
-    # for samfile use mode "r" (ascii text, currently in use because
-    # empirical tests show it is faster when bowtie creates this file
-    # not to pipe it to samtools, even though CPU load (always < 100%
-    # ) doesn't explain this)
-    if em.current_bam_filename.endswith("bam"):
-        mode = "rb"
-    elif em.current_bam_filename.endswith("sam"):
-        mode = "r"
-    bamfile = pysam.Samfile(em.current_bam_filename, mode)   
     # TODO: any Cython tricks with string-->int dictionaries (looks like maybe in pxd)
     cdef dict sequence_name2sequence_i = em.sequence_name2sequence_i
     cdef list sequence_i2sequence_name = em.sequence_i2sequence_name
@@ -671,7 +664,7 @@ def process_bamfile(em, int ascii_offset):
     cdef list cigars = []  # it's an empty list stores cigartuples from pysam alignments
     cigars = range(bamfile_data.shape[0])  # make same size as bamfile_data
     cdef list base_coverages = em.base_coverages
-    
+
     cdef int i                          # generic counter
 
     cdef unsigned int alignedread_i
@@ -690,97 +683,100 @@ def process_bamfile(em, int ascii_offset):
     cdef unsigned int n_reads_mapped = 0  # num. of single reads or pairs
     cdef np.ndarray[np.uint8_t, ndim=1] reads_mapped = np.zeros(em.n_reads, dtype=np.uint8) # mapped this round = 1
     cdef np.ndarray[np.uint32_t, ndim=1] base_coverage # single base coverage
+    cdef np.ndarray[np.uint32_t, ndim=1] tid2seq_i
+    cdef np.ndarray[np.uint8_t, ndim=1] tid_mapped
 
-    
-    samfile_references = np.array(bamfile.references)  # faster to slice numpy array
-    samfile_lengths    = np.array(bamfile.lengths)  # faster to slice numpy array
+    with bamfile as bam:
+        # copy some data to faster numpy arrays
+        samfile_references = np.array(bam.references)
+        samfile_lengths    = np.array(bam.lengths)
+        max_length = max(bam.lengths)
 
-    # go through header here and create mapping between reference tid
-    # (in each alignedread) and my internal seq_i.  If a new seq_i is
-    # seen, map name to seq_i here once, rather than doing costly
-    # dictionary lookup for each and every alignedread
-    cdef np.ndarray[np.uint32_t, ndim=1] tid2seq_i = np.zeros(len(bamfile.references), dtype=np.uint32)
-    cdef np.ndarray[np.uint8_t, ndim=1] tid_mapped = np.zeros(len(bamfile.references), dtype=np.uint8)
-    #cdef np.ndarray[np.uint32_t, ndim=1] refseq_lengths = np.zeros(len(bamfile.lengths), dtype=np.uint32)
-    
-    for alignedread in bamfile:
-        tid_mapped[alignedread.tid] = 1
+        # go through header here and create mapping between reference tid
+        # (in each alignedread) and my internal seq_i.  If a new seq_i is
+        # seen, map name to seq_i here once, rather than doing costly
+        # dictionary lookup for each and every alignedread
+        tid2seq_i = np.zeros(len(bam.references), dtype=np.uint32)
+        tid_mapped = np.zeros(len(bam.references), dtype=np.uint8)
 
-    bamfile = pysam.Samfile(em.current_bam_filename, mode)  # reopen file to reset.  seek(0) has problems? 
+        for alignedread in bam:
+            tid_mapped[alignedread.tid] = 1
 
     new_seq_i = len(sequence_i2sequence_name)
-    for tid, refname in enumerate(bamfile.references):
-        # assert bamfile.getrname(tid) == refname # this is true
-        if tid_mapped[tid] == 1:
-            if not sequence_name2sequence_i.has_key(refname):  # new sequence we haven't seen before
-                seq_i = new_seq_i
-                new_seq_i = new_seq_i + 1
-                sequence_name2sequence_i[refname] =  seq_i
-                sequence_i2sequence_name.append(refname)
-                em.base_coverages.append(np.zeros(samfile_lengths[tid], dtype=np.uint32))
-                refseq_lengths.append(samfile_lengths[tid])
-            else:
-                seq_i = sequence_name2sequence_i[refname]
-            tid2seq_i[tid] = seq_i
-            refseq_lengths[seq_i] = samfile_lengths[tid]
-            
-        
-    # reset this here to be size of n_sequences
-    #em.coverage = np.zeros(len(sequence_name2sequence_i), dtype=np.uint32)  #Don't think we need this anymore.
-    #cdef np.ndarray[np.uint32_t, ndim=1] coverage = em.coverage
+    for tid, refname in enumerate(samfile_references):
+        if tid_mapped[tid] != 1:
+            continue
+
+        if not sequence_name2sequence_i.has_key(refname):
+            # new sequence we haven't seen before
+            seq_i = new_seq_i
+            new_seq_i += 1
+            sequence_name2sequence_i[refname] = seq_i
+            sequence_i2sequence_name.append(refname)
+            em.base_coverages.append(np.zeros(samfile_lengths[tid], dtype=np.uint32))
+            refseq_lengths.append(samfile_lengths[tid])
+        else:
+            seq_i = sequence_name2sequence_i[refname]
+
+        tid2seq_i[tid] = seq_i
+        refseq_lengths[seq_i] = samfile_lengths[tid]
 
     # and now keep temporary base_coverages in numpy array for speed below.
-    max_length = max(bamfile.lengths) 
-    cdef np.ndarray[np.uint32_t, ndim=2] base_coverages_2d = np.zeros((len(base_coverages), max_length), dtype=np.uint32)
-    
+    cdef np.ndarray[np.uint32_t, ndim=2] base_coverages_2d
+    base_coverages_2d = np.zeros((len(base_coverages), max_length),
+                                 dtype=np.uint32)
+
     for seq_i, base_coverage in enumerate(base_coverages):
         em.base_coverages[seq_i] = np.zeros(max_length,dtype=np.uint32)
 
-    # Now actually iterate through alignments
-    alignedread_i = 0
-    for alignedread in bamfile:
-        #TODO: decide if it's better to assign first to typed variable, or assign directly to bamfile_data
-        # tid = alignedread.tid
-        # pair_i = alignedread.is_read2
-        qname_temp = alignedread.qname
-        qname = qname_temp      # this extra assignment is necessary to go from python object to char*. (see Cython Language Basics)
-        # is_reverse = alignedread.is_reverse
-        # rlen = alignedread.rlen
+    with bamfile as bam: # re-open to start from beginning
+        # Now actually iterate through alignments
+        alignedread_i = 0
+        for alignedread in bam:
+            #TODO: decide if it's better to assign first to typed variable,
+            # or assign directly to bamfile_data
+            # tid = alignedread.tid
+            # pair_i = alignedread.is_read2
+            qname_temp = alignedread.qname
+            qname = qname_temp      # this extra assignment is necessary to
+            # go from python object to char*. (see Cython Language Basics)
+            # is_reverse = alignedread.is_reverse
+            # rlen = alignedread.rlen
 
-        read_i = atoi(qname)
-        # read_i = int(qname_temp)
-        reads_mapped[read_i] = 1
-        seq_i = tid2seq_i[alignedread.tid]
-        cigars[alignedread_i] = alignedread.cigartuples  # indexed by alignedread_i just as bamfile_data
-        
-        i = alignedread.pos
-        for matchtype, matchlen in cigars[alignedread_i]:
-            if matchtype == 0:  # match
-                for j in range(matchlen):
-                    base_coverages_2d[seq_i, i] += 1 
-                    i+=1
-            elif matchtype == 1:  # Cigar String - Insertion to the reference
-                # (i.e. need to insert gap(s) in reference seq to align)
-                for j in range(matchlen):
-                    i+=0
-            elif matchtype == 2:  # Cigar String - Deletion to the reference
-                # (i.e. need to insert gap(s) in read to align)
-                for j in range(matchlen):
-                    i+=1
+            read_i = atoi(qname)
+            # read_i = int(qname_temp)
+            reads_mapped[read_i] = 1
+            seq_i = tid2seq_i[alignedread.tid]
+            # indexed by alignedread_i just as bamfile_data
+            cigars[alignedread_i] = alignedread.cigartuples
 
-        
-        bamfile_data[alignedread_i, 0] = seq_i
-        bamfile_data[alignedread_i, 1] = read_i
-        bamfile_data[alignedread_i, 2] = alignedread.is_read2
-        bamfile_data[alignedread_i, 3] = alignedread.rlen
-        bamfile_data[alignedread_i, 4] = alignedread.pos
-        bamfile_data[alignedread_i, 5] = alignedread.is_reverse
+            i = alignedread.pos
+            for matchtype, matchlen in cigars[alignedread_i]:
+                if matchtype == 0:  # match
+                    for j in range(matchlen):
+                        base_coverages_2d[seq_i, i] += 1
+                        i+=1
+                elif matchtype == 1:  # Cigar String - Insertion wrt reference
+                    # (i.e. need to insert gap(s) in reference seq to align)
+                    for j in range(matchlen):
+                        i+=0
+                elif matchtype == 2:  # Cigar String - Deletion wrt reference
+                    # (i.e. need to insert gap(s) in read to align)
+                    for j in range(matchlen):
+                        i+=1
 
-        alignedread_i += 1
-    assert alignedread_i == bamfile_data.shape[0]
-    em.bamfile_data = bamfile_data.copy()
-    em.cigars = cigars[:]  # is slicing necessary for safe copy?
-    bamfile.close()
+            bamfile_data[alignedread_i, 0] = seq_i
+            bamfile_data[alignedread_i, 1] = read_i
+            bamfile_data[alignedread_i, 2] = alignedread.is_read2
+            bamfile_data[alignedread_i, 3] = alignedread.rlen
+            bamfile_data[alignedread_i, 4] = alignedread.pos
+            bamfile_data[alignedread_i, 5] = alignedread.is_reverse
+
+            alignedread_i += 1
+
+        assert alignedread_i == bamfile_data.shape[0]
+        em.bamfile_data = bamfile_data.copy()
+        em.cigars = cigars[:]  # is slicing necessary for safe copy?
 
     # get base_coverages back in list:
     for seq_i, base_coverage in enumerate(base_coverages):
@@ -791,9 +787,9 @@ def process_bamfile(em, int ascii_offset):
     for i in range(n_reads_total):
         n_reads_mapped = n_reads_mapped + reads_mapped[i]
     em.n_reads_mapped = n_reads_mapped
-    return
 
-def reset_probN(em):
+
+def reset_probN(em, bamfile):
     """
     sets probN back to zeros for all sequences
     NEW: also resets prob_indels to zeros - this also updates array size for new seq length 
@@ -801,39 +797,33 @@ def reset_probN(em):
     does culling based on base_coverages
     
     """
-    if em.current_bam_filename.endswith("bam"):
-        mode = "rb"
-    elif em.current_bam_filename.endswith("sam"):
-        mode = "r"
-    bamfile = pysam.Samfile(em.current_bam_filename, mode)
-    
     cdef int i
     cdef int l
     cdef unsigned int cov_thresh    = em.min_length_coverage_def  # above what coverage
     cdef double length_thresh       = em.min_length_coverage      # percent length required
     cdef double percent_length_covered
     cdef int cullcount = 0
-    
-    references_array = np.array(bamfile.references) # slicing these tuples is stupid-slow, for some reason.
-    references_lengths = np.array(bamfile.lengths)
-    for i in range(len(bamfile.lengths)):
-        seq_i = em.sequence_name2sequence_i.get(references_array[i])  
-        if seq_i is not None:  # since not all seqs in header will be ones with mapped reads
-            # CULLING: check for coverage > 0 across a % threshold of bases
-            #percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.base_coverages[seq_i].shape[0]
-            percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.refseq_lengths[seq_i]
-            if percent_length_covered < length_thresh:
-                em.probN[seq_i] = None
-                em.prob_indels[seq_i] = None
-                #em.coverage[seq_i] = 0
-                cullcount += 1
-                continue
-            # else is a valid seq, so create empty probN matrix
-            l = references_lengths[i]
-            em.probN[seq_i] = np.zeros((l, 5), dtype=np.float)   #ATCG[other] --> 01234
-            em.prob_indels[seq_i] = np.zeros((l, 4), dtype=np.float)  #0 = match weight, 1 = insertion weight, 2 = deletion weight, 3= insertion length
-            #em.coverage[seq_i] = em.coverage[seq_i] / float(l)  # Don't think we need this anymore
-    bamfile.close()
+
+    with bamfile as bam:
+        references_array = np.array(bam.references) # slicing these tuples is stupid-slow, for some reason.
+        references_lengths = np.array(bam.lengths)
+        for i in range(len(bam.lengths)):
+            seq_i = em.sequence_name2sequence_i.get(references_array[i])
+            if seq_i is not None:  # since not all seqs in header will be ones with mapped reads
+                # CULLING: check for coverage > 0 across a % threshold of bases
+                #percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.base_coverages[seq_i].shape[0]
+                percent_length_covered = float((em.base_coverages[seq_i] >= cov_thresh).sum()) / em.refseq_lengths[seq_i]
+                if percent_length_covered < length_thresh:
+                    em.probN[seq_i] = None
+                    em.prob_indels[seq_i] = None
+                    #em.coverage[seq_i] = 0
+                    cullcount += 1
+                    continue
+                # else is a valid seq, so create empty probN matrix
+                l = references_lengths[i]
+                em.probN[seq_i] = np.zeros((l, 5), dtype=np.float)   #ATCG[other] --> 01234
+                em.prob_indels[seq_i] = np.zeros((l, 4), dtype=np.float)  #0 = match weight, 1 = insertion weight, 2 = deletion weight, 3= insertion length
+                #em.coverage[seq_i] = em.coverage[seq_i] / float(l)  # Don't think we need this anymore
 
     if em._VERBOSE:
         if cullcount > 0:

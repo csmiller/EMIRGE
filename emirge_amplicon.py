@@ -284,7 +284,9 @@ class EM(object):
         #  self.bamfile_data  numpy array
         #     with (seq_i, read_i, pair_i, rlen, pos, is_reverse)
         #  self.cigars
-        amplicon.process_bamfile(self, BOWTIE_ASCII_OFFSET)
+
+        bamfile = io.AlignmentFile(self.current_bam_filename)
+        amplicon.process_bamfile(self, bamfile, BOWTIE_ASCII_OFFSET)
 
         self.n_sequences = len(self.sequence_name2sequence_i)
         print "after bamfile, n_sequences is: %s"%self.n_sequences
@@ -310,7 +312,8 @@ class EM(object):
         # reset probN for valid sequences (from
         # current_reference_fasta_filename). is this still necessary?
         # Or do I keep probN bookkeeping in order already?
-        amplicon.reset_probN(self)  # also updates coverage values and culls via fraction of length covered, NEW: resets prob_indels as well
+        amplicon.reset_probN(self, bamfile)  # also updates coverage values and
+        # culls via fraction of length covered, NEW: resets prob_indels as well
         # print >> sys.stderr, "DEBUG: reset_probN loop time: %s"%(timedelta(seconds = time()-t_check))
 
         for d in [self.priors, self.posteriors]:
