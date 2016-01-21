@@ -74,6 +74,7 @@ class Mapper(object):
         do_prefiltering -- if true, pre-filter reads using candidates
         n_reads -- number of reads
     """
+    binary = None
 
     def __init__(self, candidates, fwd_reads, rev_reads=None, phred33=False,
                  threads=cpu_count(), reindex=True, workdir=None,
@@ -133,6 +134,9 @@ class Mapper(object):
             self.prefilter_reads()
         else:
             self.n_reads = fastq_count_reads(self.fwd_reads)
+
+    def prefilter_reads(self):
+        raise NotImplementedError()
 
 
 class Bowtie2(Mapper):
@@ -393,6 +397,12 @@ class Bowtie(Mapper):
         super(Bowtie, self).__init__(*args, **kwargs)
         self.binary = "bowtie"
 
+    def prefilter_reads(self):
+        raise NotImplementedError()
+
+    def map_reads(self):
+        raise NotImplementedError()
+
 
 class Bwa(Mapper):
     binary = "bwa"
@@ -401,6 +411,12 @@ class Bwa(Mapper):
         super(Bwa, self).__init__(*args, **kwargs)
         self.binary = "bwa"
 
+    def prefilter_reads(self):
+        raise NotImplementedError()
+
+    def map_reads(self):
+        raise NotImplementedError()
+
 
 class BBMap(Mapper):
     binary = "bbmap.sh"
@@ -408,6 +424,12 @@ class BBMap(Mapper):
     def __init__(self, *args, **kwargs):
         super(BBMap, self).__init__(*args, **kwargs)
         self.binary = "bbmap.sh"
+
+    def prefilter_reads(self):
+        raise NotImplementedError()
+
+    def map_reads(self):
+        raise NotImplementedError()
 
 
 # module level helper functions for command line interface
