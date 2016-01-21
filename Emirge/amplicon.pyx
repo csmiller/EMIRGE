@@ -478,15 +478,16 @@ def calc_probN(em):
     cdef double one_minus_p = 1.0 - em.DEFAULT_ERROR
     cdef double p_div_3     = em.DEFAULT_ERROR / 3.0
 
-    sequence_i2sequence_name_array = np.array(em.sequence_i2sequence_name)  # faster slicing. can't cdef string arrays yet.
-    
+    # faster slicing. can't cdef string arrays yet.
+    sequence_i2sequence_name_array = np.array(em.sequence_i2sequence_name)
+
     for seq_i, probN_single in enumerate(em.probN):
         if probN_single is None:  # means this sequence no longer present
             em.unmapped_bases[seq_i] = None
             continue
         # get sequence for nonmapped bases.  Just get for all, even though only need for ones with nonmapped.
         # not sure if this is particularly slow.
-        py_seq = em.fastafile.fetch(sequence_i2sequence_name_array[seq_i])
+        py_seq = em.fastafile.fetch(str(sequence_i2sequence_name_array[seq_i]))
         seq = py_seq  # necessary workaround for strings in Cython
         seq_bases = seq_alpha2int(seq, len(py_seq))
 
