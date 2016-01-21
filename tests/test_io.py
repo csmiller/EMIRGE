@@ -265,6 +265,12 @@ def test_Pipe_outfile():
         assert_equal(f.next().strip(), "test123")
 
 
+def test_Cat():
+    with io.Cat(sam_file) as f:
+        n = sum(1 for _ in f)
+        assert_equal(n, 24)
+
+
 def test_AlignmentFile():
     def check_AlignmentFile(obj, mode):
         with io.AlignmentFile(obj, mode) as af:

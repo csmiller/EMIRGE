@@ -578,6 +578,7 @@ EnumerateReads = make_pipe(
      'else { print } }']
 )
 LineCount = make_pipe("LineCount", ['wc', '-l'])
+Cat = make_pipe("cat", ["cat"])
 
 
 @timed("Counting reads in input files")
