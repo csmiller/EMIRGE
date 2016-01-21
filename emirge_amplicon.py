@@ -114,6 +114,9 @@ class EM(object):
                  insert_sd,
                  output_files_prefix,
                  cov_thresh,
+                 snp_percentage_thresh,
+                 snp_minor_prob_thresh,
+                 min_length_coverage,
                  n_cpus=1,
                  cwd=os.getcwd(),
                  max_read_length=76,
@@ -152,6 +155,11 @@ class EM(object):
         # (via vsearch), then merge them. [0, 1.0]
         self.expected_coverage_thresh = expected_coverage_thresh
         self.indel_thresh = indel_thresh
+        self.snp_minor_prob_thresh = snp_minor_prob_thresh
+        self.snp_percentage_thresh = snp_percentage_thresh
+        self.min_length_coverage = min_length_coverage
+        # EXPERIMENTAL.  Fraction of length that has to be covered by
+        #                >= min_length_cov_depth
 
         # Single numpy array.  Has the shape: (numsequences x numreads)
         # [numreads can be numpairs]
@@ -209,16 +217,7 @@ class EM(object):
         # EXPERIMENTAL:  Minimum coverage in order to be counted in
         #                min_length_coverage
         self.min_length_coverage_def = 1
-        # EXPERIMENTAL.  Fraction of length that has to be covered by
-        #                >= min_length_cov_depth
-        self.min_length_coverage = None
-        # if prob(N) for minor allele base N is >= this threshold, call
-        # site a minor allele
-        self.snp_minor_prob_thresh = 0.10
-        # if >= this percentage of bases are minor alleles (according to
-        # self.snp_minor_prob_thresh), then split this sequence into
-        # two sequences.
-        self.snp_percentage_thresh = 0.10
+
 
         # cov_thresh=options.min_coverage_threshold
         self.cov_thresh = cov_thresh
@@ -1931,7 +1930,10 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             n_cpus=options.processors,
             cwd=working_dir,
             reads_ascii_offset={False: 64, True: 33}[options.phred33],
-            rewrite_reads=not options.no_rewrite_reads)
+            rewrite_reads=not options.no_rewrite_reads,
+            snp_percentage_thresh=options.snp_fraction_thresh,
+            snp_minor_prob_thresh=options.variant_fraction_thresh,
+            min_length_coverage=options.min_length_coverage)
 
     # change these if necessary for do_initial_mapping.
     options.fastq_reads_1 = em.reads1_filepath
@@ -1943,14 +1945,6 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             options.mapping = do_initial_mapping_bt2(em, working_dir, options)
         else:
             options.mapping = do_initial_mapping(em, working_dir, options)
-
-    # if >= this percentage of bases are minor alleles, split candidate sequence
-    em.snp_percentage_thresh = options.snp_fraction_thresh
-    # if prob(N) for minor allele base N is >= this threshold,
-    # call site a minor allele
-    em.snp_minor_prob_thresh = options.variant_fraction_thresh
-    if options.min_length_coverage is not None:
-        em.min_length_coverage = options.min_length_coverage
     # em.min_depth = options.min_depth  # DEPRECIATED
     if options.nice_mapping is not None:
         em.mapping_nice = options.nice_mapping
