@@ -388,12 +388,21 @@ class Popen(subprocess.Popen):
     - prints log when executing command
     """
     def __init__(self, args, *otherargs, **kwargs):
-        args = _expand_args(args)
-        cmdline = " ".join([str(x) for x in args])
-        INFO("Executing '{}'".format(cmdline))
+        self.__args = _expand_args(args)
         kwargs["close_fds"] = True
+        self.__kwargs = kwargs
+        INFO("Executing '{}'".format(self.cmdline()))
         DEBUG("KWARGS {}".format(repr(kwargs)))
-        super(Popen, self).__init__(args, *otherargs, **kwargs)
+        super(Popen, self).__init__(self.__args, *otherargs, **kwargs)
+
+    def cmdline(self):
+        return " ".join([str(x) for x in self.__args])
+
+    def __repr__(self):
+        return "Emirge.io.Popen('{}',{})".format(
+                self.cmdline(), repr(self.__kwargs))
+
+
 
 
 def check_call(args, *otherargs, **kwargs):
