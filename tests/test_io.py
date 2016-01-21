@@ -40,6 +40,9 @@ sequence_sample = (
 
 read_file_1 = "tests/test_data/ten_seq_community_000_50K_L150_I350.2.fastq"
 
+bam_file = "tests/test_data/test.bam"
+sam_file = "tests/test_data/test.sam"
+
 # === helper functions ===
 
 
@@ -260,6 +263,17 @@ def test_Pipe_outfile():
         pass
     with open(tmp.name) as f:
         assert_equal(f.next().strip(), "test123")
+
+
+def test_AlignmentFile():
+    def check_AlignmentFile(obj, mode):
+        with io.AlignmentFile(obj, mode) as af:
+            n = sum(1 for _ in af.fetch(until_eof=True))
+            assert_equal(n, 2)
+
+    for obj in str, io.File, io.Cat, open:
+        yield check_AlignmentFile, obj(bam_file), "rb"
+        yield check_AlignmentFile, obj(sam_file), "r"
 
 
 if __name__ == '__main__':

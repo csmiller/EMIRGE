@@ -8,6 +8,8 @@ import subprocess
 import weakref
 from tempfile import NamedTemporaryFile, mkdtemp
 
+import pysam
+
 from Emirge.log import ERROR, DEBUG, INFO, timed
 
 PIPE = subprocess.PIPE
@@ -553,16 +555,6 @@ def fastq_count_reads(filename):
         return int(f.next().strip()) / 4
 
 
-class FileObjWrapper(object):
-    name = "-"
-
-    def __init__(self, fileobject):
-        self._file = fileobject
-        self.closed = False
-
-    def fileno(self):
-        return os.dup(self._file.fileno())
-
 
 def filter_fastq(infile, readnames, outfile=None):
     if outfile is None:
@@ -588,3 +580,43 @@ def filter_fastq(infile, readnames, outfile=None):
             DEBUG("read {}: '{}'".format(reads, line.strip()))
 
     return outfile, reads, matches
+
+class FileObjWrapper(object):
+    """
+    Wraps a file object so that pysam will accept it as a pipe to read from.
+    """
+    name = "-"  # pysam needs <object>.name to be "-"
+
+    def __init__(self, fileobject):
+        self._file = fileobject
+        self.closed = False  # pysam will use this to test if file is open
+
+    def fileno(self):
+        # duplicate the fd as pysam will close it at the end
+        # (which it mustn't for e.g. python file objects)
+        return os.dup(self._file.fileno())
+
+
+class AlignmentFile(object):
+    def __init__(self, file_or_object, *args, **kwargs):
+        self.__file_or_object = file_or_object
+        self.__args = args
+        self.__kwargs = kwargs
+
+    def __enter__(self):
+        if isinstance(self.__file_or_object, FileLike):
+            file_or_object = FileObjWrapper(self.__file_or_object.__enter__())
+        elif hasattr(self.__file_or_object, "__enter__"):
+            file_or_object = self.__file_or_object.__enter__()
+        else:
+            file_or_object = self.__file_or_object
+        self.__AlignmentFile = pysam.AlignmentFile(
+                file_or_object, *self.__args, **self.__kwargs
+        )
+        return self.__AlignmentFile.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if hasattr(self.__file_or_object, "__exit__"):
+            self.__file_or_object.__exit__(exc_type, exc_val, exc_tb)
+        self.__AlignmentFile.__exit__(exc_type, exc_val, exc_tb)
+        return False
