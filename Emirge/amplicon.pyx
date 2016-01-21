@@ -35,7 +35,7 @@ from time import ctime, time
 from datetime import timedelta
 import pysam
 # cimport ctrie
-cimport pykseq
+from _kseq cimport Kseq
 from Emirge import log as logger
 
 
@@ -620,8 +620,7 @@ def populate_reads_arrays(em):
     cdef unsigned int i
     cdef int ascii_offset = em.reads_ascii_offset
     
-    cdef pykseq.Kseq ks
-    cdef pykseq.kseq_t_pointer ks_p
+    cdef Kseq ks
 
     # first do /1 reads, then do /2 reads if present
     for reads_filepath, readtype_index in [(em.reads1_filepath, 0),
