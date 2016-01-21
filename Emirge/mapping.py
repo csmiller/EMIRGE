@@ -15,6 +15,11 @@ from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
 from Emirge.log import INFO, DEBUG, WARNING
 
 
+# comment the two lines below to enable DEBUG info for this module
+def DEBUG(*args):
+    pass
+
+
 class MappingFailure(Exception):
     """
     Something went wrong during read mapping
