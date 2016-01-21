@@ -2,16 +2,16 @@
 
 This module abstracts from the various read mapping tools.
 """
+import optparse
 import os
 import re
-from subprocess import CalledProcessError
-
-import pysam
 from multiprocessing import cpu_count
+from subprocess import CalledProcessError
 
 import Emirge.log as log
 from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
-    check_call, TempDir, File, FileObjWrapper, PIPE
+    check_call, TempDir, File, PIPE, command_avail, \
+    fastq_count_reads, AlignmentFile
 from Emirge.log import INFO, DEBUG, WARNING
 
 
@@ -24,6 +24,7 @@ class MappingFailure(Exception):
     """
     Something went wrong during read mapping
     """
+
 
 class IndexBuildFailure(Exception):
     """
@@ -68,10 +69,15 @@ class Mapper(object):
         threads    -- number of threads mappers may use
         reindex    -- True if reads should be renamed to consecutive numbers
         workdir    -- directory to hold generated files
+        insert_mean -- mean insert size
+        insert_sd   -- std dev of insert size
+        do_prefiltering -- if true, pre-filter reads using candidates
+        n_reads -- number of reads
     """
 
     def __init__(self, candidates, fwd_reads, rev_reads=None, phred33=False,
-                 threads=cpu_count(), reindex=True, workdir=None):
+                 threads=cpu_count(), reindex=True, workdir=None,
+                 insert_mean=1500, insert_sd=500, prefilter_reads=False):
         """Create new mapper.
 
         Args:
@@ -80,8 +86,11 @@ class Mapper(object):
             rev_reads  -- reverse reads file, may be none for single ended
             phred33    -- true if quality encoded as phred33, false for 64
             threads    -- number of threads mappers should use
-            reindex   -- change read names to consecutive numbers
+            reindex    -- change read names to consecutive numbers
             workdir    -- (optional) designed work directory
+            insert_mean -- mean insert size
+            insert_sd   -- std dev of insert size
+            prefilter_reads -- if true, pre-filter reads using candidates
         """
         super(Mapper, self).__init__()
 
@@ -93,6 +102,10 @@ class Mapper(object):
         self.candidates = candidates
         self.phred33 = phred33
         self.threads = threads
+        self.insert_mean = insert_mean
+        self.insert_sd = insert_sd
+        self.do_prefiltering = prefilter_reads
+        self.n_reads = None  # filled by prefilter reads
 
         if reindex:
             fwd_reads = EnumerateReads(fwd_reads)
@@ -102,16 +115,32 @@ class Mapper(object):
         self.fwd_reads, self.rev_reads = fwd_reads, rev_reads
 
         if workdir is None:
-            workdir = TempDir()
+            self.tmp_workdir = TempDir()
+            workdir = self.tmp_workdir.name
         self.workdir = workdir
+
+    @classmethod
+    def available(cls):
+        """Check if pre-requisites for this mapper are met by system"""
+        try:
+            return cls.__available
+        except AttributeError:
+            cls.__available = command_avail(cls.binary)
+            return cls.__available
+
+    def prepare_reads(self):
+        if self.do_prefiltering:
+            self.prefilter_reads()
+        else:
+            self.n_reads = fastq_count_reads(self.fwd_reads)
 
 
 class Bowtie2(Mapper):
     """Handle read mapping with Bowtie2."""
+    binary = "bowtie2"
 
     def __init__(self, *args, **kwargs):
         super(Bowtie2, self).__init__(*args, **kwargs)
-        self.binary = "bowtie2"
 
     def make_basecmd(self):
         """Create array with common arguments to run bowtie2."""
@@ -139,7 +168,7 @@ class Bowtie2(Mapper):
         return cmd
 
     @log.timed("Pre-Filtering reads")
-    def prefilter_reads(self):
+    def prefilter_reads(self, dirname="pre_mapping"):
         """Pre-filter reads using candidates.
 
         Switches the fwd/rev_reads property to a temporary file holding only
@@ -154,21 +183,21 @@ class Bowtie2(Mapper):
             "-k", "1",  # report up to 1 alignments per read
             "--no-unal",  # suppress SAM records for unaligned reads
         ]
+        bowtie_cmd = make_pipe("prefilter", cmd)
 
         # run bowtie2 prefiltering command, use pysam to parse matching
         # read names from output into set 'keepers'
         keepers = set()
         i = 0
-        with make_pipe("prefilter", cmd)(None) as p:
-            with pysam.AlignmentFile(FileObjWrapper(p), "r") as sam:
-                for read in sam.fetch(until_eof=True):
-                    if not read.is_unmapped:
-                        # if we have reverse, query name is reported w/o "/1"
-                        # or "/2" at the end, if we have only one read file,
-                        # the full identifier is kept, so remove everything
-                        # after a "/" before adding to keepers set:
-                        keepers.add(read.query_name.split("/")[0])
-                    i += 1
+        with AlignmentFile(bowtie_cmd()) as sam:
+            for read in sam.fetch(until_eof=True):
+                if not read.is_unmapped:
+                    # if we have reverse, query name is reported w/o "/1"
+                    # or "/2" at the end, if we have only one read file,
+                    # the full identifier is kept, so remove everything
+                    # after a "/" before adding to keepers set:
+                    keepers.add(read.query_name.split("/")[0])
+                i += 1
 
         INFO("Pre-Mapping: mapper found %i matches" % len(keepers))
 
@@ -177,15 +206,21 @@ class Bowtie2(Mapper):
 
         # replace forward read file with temporary file containing only
         # matching reads
-        with self.fwd_reads.reader() as reads:
+        pathname = os.path.join(self.workdir, dirname)
+        os.mkdir(pathname)
+        pathname = os.path.join(pathname, "pre_mapped_reads.{}.fastq")
+
+        with self.fwd_reads.reader() as reads, \
+                File(pathname.format("1")).writer() as outfile:
             self.fwd_reads, fwd_count, fwd_matches = \
-                filter_fastq(reads, keepers)
+                filter_fastq(reads, keepers, outfile=outfile)
 
         # if we have a reverse read file, do the same for that
         if self.rev_reads is not None:
-            with self.rev_reads.reader() as reads:
+            with self.rev_reads.reader() as reads, \
+                    File(pathname.format("2")).writer() as outfile:
                 self.rev_reads, rev_count, rev_matches = \
-                    filter_fastq(reads, keepers)
+                    filter_fastq(reads, keepers, outfile=outfile)
 
             # number of reads and must be identical for forward and reverse
             assert fwd_count == rev_count
@@ -193,18 +228,17 @@ class Bowtie2(Mapper):
 
         INFO("Pre-Mapping: {} out of {} reads remaining"
              .format(fwd_matches, fwd_count))
+        self.n_reads = fwd_matches
 
     @log.timed('Mapping reads to "{fastafile}"')
-    def map_reads(self, fastafile, workdir, insert_mean=1500, insert_sd=500):
+    def map_reads(self, fastafile, workdir):
         """Create bam file containing mappings for fastafile in workdir.
 
         :param fastafile:   target sequences
         :param workdir:     directory to hold bamfile
-        :param insert_mean: mean insert size
-        :param insert_sd:   stddev of insert size distribution
         """
-        minins = max((insert_mean - 3 * insert_sd), 0)
-        maxins = insert_mean + 3 * insert_sd
+        minins = max((self.insert_mean - 3 * self.insert_sd), 0)
+        maxins = self.insert_mean + 3 * self.insert_sd
 
         cmd = self.make_basecmd()
         cmd += [
@@ -237,6 +271,9 @@ class Bowtie2(Mapper):
                 match = re.search("\s([0-9]+) .* aligned .*1 time", line)
                 if match is not None:
                     frags_mapped += int(match.group(1))
+                match = re.search("Error", line)
+                if match is not None:
+                    raise MappingFailure("Bowtie2 failed: '{}'".format(line))
 
         INFO("Bowtie 2 reported {} alignments".format(frags_mapped))
 
@@ -296,7 +333,7 @@ class Bowtie2(Mapper):
         else:  # we have no indexname
             locations = [
                 fastafile[:-6],  # fasta w/o ".fasta"
-                os.path.join(self.workdir.name,
+                os.path.join(self.workdir,
                              os.path.basename(fastafile))[:-6]
             ]
 
@@ -337,7 +374,7 @@ class Bowtie2(Mapper):
         ]
 
         # TODO: this file will cause TempDir to remain. Should it be deleted?
-        logfile = os.path.join(self.workdir.name,
+        logfile = os.path.join(self.workdir,
                                os.path.basename(fastafile) + "_bt2_build.log")
 
         try:
@@ -350,18 +387,140 @@ class Bowtie2(Mapper):
 
 
 class Bowtie(Mapper):
+    binary = "bowtie"
+
     def __init__(self, *args, **kwargs):
         super(Bowtie, self).__init__(*args, **kwargs)
         self.binary = "bowtie"
 
 
 class Bwa(Mapper):
+    binary = "bwa"
+
     def __init__(self, *args, **kwargs):
         super(Bwa, self).__init__(*args, **kwargs)
         self.binary = "bwa"
 
 
 class BBMap(Mapper):
+    binary = "bbmap.sh"
+
     def __init__(self, *args, **kwargs):
         super(BBMap, self).__init__(*args, **kwargs)
         self.binary = "bbmap.sh"
+
+
+# module level helper functions for command line interface
+
+_mappers = [Bowtie2, Bwa, BBMap]  # implemented mappers, in order of preference
+
+_msg_no_mapper_found = """
+
+No supported read mapper found in PATH!
+
+  Please make sure that one of the read mappers supported by EMIRGE is installed
+  on your system and that the directory it has been installed to is part of your
+  PATH.
+
+Supported read mappers: {}
+""".format(", ".join([mapper.__name__ for mapper in _mappers]))
+
+
+def get_options(parser):
+    assert isinstance(parser, optparse.OptionParser)
+
+    # check which mappers are available on system
+    mappers_avail = ["'{}'".format(mapper.__name__) for mapper in _mappers
+                     if mapper.available()]
+    if len(mappers_avail) == 0:
+        parser.error(_msg_no_mapper_found)
+
+    # prepare help message for not available mappers
+    mappers_supported = ["'{}'".format(mapper.__name__) for mapper in _mappers
+                         if not mapper.available()]
+    mappers_supported_msg = ""
+    if len(mappers_supported) > 0:
+        mappers_supported_msg = "; supported (but not installed): {}".format(
+                ", ".join(mappers_supported)
+        )
+
+    opts = optparse.OptionGroup(parser, "Read-Mapping parameters")
+    opts.add_option(
+            "-m", "--mapper",
+            choices=mappers_avail, default=mappers_avail[0],
+            help="Choose read mapper to use. "
+                 "(default: %default; available: {}{})"
+                .format(", ".join(mappers_avail), mappers_supported_msg)
+    )
+    opts.add_option(
+            "-b", "--mapper-index",
+            help="Alternative name or location for index over FASTA_DB. By "
+                 "default, EMIRGE will try to find an appropriate index in the "
+                 "same directory as the FASTA_DB."
+    )
+    opts.add_option(
+            "-i", "--insert_mean",
+            type="int", default=1500,
+            help="Insert size distribution mean. (default: %default)")
+    opts.add_option(
+            "-s", "--insert_stddev",
+            type="int", default=500,
+            help="Insert size distribution standard deviation. (default: "
+                 "%default")
+    opts.add_option(
+            "-P", "--prefilter-reads",
+            action="store_true", default=False,
+            help="Pre-filter reads using candidate db (FASTA_DB). Only reads "
+                 "(loosely) matching the candidate db will be considered by "
+                 "EMIRGE in all iterations. Recommended for metagenome data."
+    )
+    parser.add_option_group(opts)
+    # group_reqd.add_option(
+    #         "-b", "--bowtie_db",
+    #         type="string",
+    #         help="precomputed bowtie index of candidate SSU sequences (path "
+    #              "to appropriate prefix; see --fasta_db)")
+    # group_reqd.add_option(
+    #         "-B", "--bowtie2_db",
+    #         type="string",
+    #         help="precomputed bowtie2 index of candidate SSU sequences (
+    # path to"
+    #              " appropriate prefix; see --fasta_db)")
+    # group_opt.add_option(
+    #         "-m", "--mapping",
+    #         type="string",
+    #         help="path to precomputed initial mapping (bam file).  If not "
+    #              "provided, an initial mapping will be run for you.")
+    #     group_opt.add_option(
+    #         "--meta", action="store_true", default="False",
+    #         help="If input reads are metagenomic, specify --meta to do a "
+    #              "pre-mapping step."
+    #             group_opt.add_option(
+    #         "--nice_mapping",
+    #         type="int",
+    #         help="""If set, during mapping phase, the mapper will be "niced"
+    #         by the Linux kernel with this value (default: no nice)""")
+
+
+def get_mapper(opts, workdir, candidates, fwd_reads, rev_reads, threads,
+               phred33, ):
+    mapperclass = None
+    for mapper in _mappers:
+        if mapper.__name__ == opts.mapper.strip("'"):
+            mapperclass = mapper
+            break
+    if mapperclass is None:
+        raise Exception("Could not find selected mapper?! (mapper={})"
+                        .format(opts.mapper))
+    assert issubclass(mapperclass, Mapper)
+    INFO("Using read mapper '{}'".format(mapperclass.__name__))
+    mapper = mapperclass(candidates=candidates,
+                         workdir=workdir,
+                         fwd_reads=fwd_reads,
+                         rev_reads=rev_reads,
+                         threads=threads,
+                         phred33=phred33,
+                         insert_mean=opts.insert_mean,
+                         insert_sd=opts.insert_stddev,
+                         prefilter_reads=opts.prefilter_reads)
+    return mapper
