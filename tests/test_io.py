@@ -278,7 +278,7 @@ def test_AlignmentFile():
             n = sum(1 for _ in af.fetch(until_eof=True))
             assert_equal(n, 2)
 
-    for obj in str, io.File, io.Cat, open:
+    for obj in str, io.File, io.Cat:
         yield check_AlignmentFile, obj(bam_file), "rb"
         yield check_AlignmentFile, obj(sam_file), "r"
 
