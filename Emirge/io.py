@@ -430,6 +430,13 @@ class Pipe(FileLike):
         """
         super(Pipe, self).__init__()
 
+        if isinstance(stdin, str):
+            stdin = File(stdin)
+        if isinstance(stdout, str):
+            stdout = File(stdout)
+        if isinstance(stderr, str):
+            stderr = File(stderr)
+
         self.stdpipes = dict(stdin=stdin, stdout=stdout, stderr=stderr)
 
         npipe = 0
