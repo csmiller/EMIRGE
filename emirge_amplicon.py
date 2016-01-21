@@ -80,6 +80,27 @@ BOWTIE_ASCII_OFFSET = 33
 class EM(object):
     """
     driver class for EM algorithm
+
+    Props:
+        snp_minor_prob_thresh:
+            if prob(N) for minor allele base N is >= this threshold, call
+            site a minor allele
+        snp_percentage_thresh:
+            if >= this percentage of bases are minor alleles (according to
+            self.snp_minor_prob_thresh), then split this sequence into
+            two sequences.
+        reads:
+            holds the bases for all reads.
+            uint8 ndarray with 3 dimensions: read number, pair (0,1), base
+            allocated to have n_reads x 2 x max_read_length size
+        quals:
+            see reads, this array holds the base qualities
+        readlengths:
+            holds the length of each read
+            uint16 ndarray with 2 dimensions: read number, pair (0,1)
+        sequence_name2sequence_i:
+        sequence_i2sequence_name:
+        refseq_lengths:
     """
     _VERBOSE = True
     base2i = {"A": 0, "T": 1, "C": 2, "G": 3, "D": 4}
