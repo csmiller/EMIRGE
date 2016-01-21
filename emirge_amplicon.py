@@ -1520,23 +1520,33 @@ def do_initial_mapping(em, working_dir, options):
 
 
 def post_process(em, working_dir):
-    """ Do all the postprocessing for the EMIRGE run, producing a fasta file of all EMIRGE sequences produced that meet the estimated abundance threshold to achieve an
-    estimated average coverage of 20X (default) or other user specified value.  Also produces a raw file of all EMIRGE sequences produced, but not recommended to be used
-    in later analyses.  Final clustering is performed at 97% ID (default) but can be changed with the '-j' flag. 
+    """Do all the postprocessing for the EMIRGE run, producing a fasta file of
+    all EMIRGE sequences produced that meet the estimated abundance threshold
+    to achieve an estimated average coverage of 20X (default) or other user
+    specified value.  Also produces a raw file of all EMIRGE sequences produced,
+    but not recommended to be used in later analyses.  Final clustering is
+    performed at 97% ID (default) but can be changed with the '-j' flag.
     """
 
-    #first need to do rename(em) with no probmin - keeping all sequences for clustering and writing out the raw output file
-    nomin_fasta_filename = os.path.join(working_dir, em.output_files_prefix+"_nomin_iter."'%02d'%em.max_iterations +".RAW.fasta")
+    # first need to do rename(em) with no probmin - keeping all sequences for
+    # clustering and writing out the raw output file
+    nomin_fasta_filename = os.path.join(working_dir,
+                                        em.output_files_prefix
+                                        + "_nomin_iter."'%02d'
+                                        % em.max_iterations +".RAW.fasta")
     if os.path.exists(nomin_fasta_filename):
         log.warning("WARNING: overwriting file %s" % nomin_fasta_filename)
-    #nomin_file_handle = open(nomin_fasta_filename, 'w')
-    rename(em.final_iterdir,nomin_fasta_filename,  em.output_files_prefix, prob_min=None,no_N = False, no_trim_N = True)
 
-    
-    #next need to cluster using vsearch at the user specified threshold, default =0.97
+    rename(em.iterdir, nomin_fasta_filename,  em.output_files_prefix,
+           prob_min=None,no_N = False, no_trim_N = True)
+
+    # next need to cluster using vsearch at the user specified threshold,
+    # default =0.97
     centroids=os.path.join(working_dir,"centroids.tmp")
     uc=os.path.join(working_dir,"uc.tmp")
-    cmd = "vsearch --cluster_smallmem %s -usersort -notrunclabels -id %.2f -centroids %s -uc %s "%(nomin_fasta_filename,em.cluster_thresh,centroids,uc)
+    cmd = "vsearch --cluster_smallmem %s -usersort -notrunclabels -id %.2f" \
+          " -centroids %s -uc %s " % (nomin_fasta_filename,em.cluster_thresh,
+                                     centroids,uc)
     log.info("vsearch command was:\n%s" % (cmd))
 
     check_call(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
@@ -1545,7 +1555,9 @@ def post_process(em, working_dir):
     # abundance over cutoff
     log.warning("Minimum abundance for estimated %.2dX coverage is %.6f"
                 % (em.cov_thresh, em.prob_min))
-    clustered_fasta=os.path.join(working_dir,em.output_files_prefix+"_iter."'%02d'%em.max_iterations+"_"'%.6f'%em.prob_min+".fasta")
+    clustered_fasta=os.path.join(working_dir,em.output_files_prefix
+                                 + "_iter."'%02d'%em.max_iterations
+                                 + "_"'%.6f'%em.prob_min+".fasta")
     outfile = open(clustered_fasta, 'w')
     size_pattern = re.compile(r'NormPrior=([0-9\.]+)')
 
@@ -1554,10 +1566,12 @@ def post_process(em, working_dir):
         atoms = line.strip().split('\t')
         if atoms[0] == 'S':  # seed
             # get seed size, add to current cluster size
-            cluster_sizes[atoms[8]] = cluster_sizes.get(atoms[8], 0) + float(size_pattern.search(atoms[8]).groups()[0])
+            cluster_sizes[atoms[8]] = cluster_sizes.get(atoms[8], 0) + \
+                                      float(size_pattern.search(atoms[8]).groups()[0])
         elif atoms[0] == 'H':  # hit
             # get hit size, add to current cluster size
-            cluster_sizes[atoms[9]] = cluster_sizes.get(atoms[9], 0) + float(size_pattern.search(atoms[8]).groups()[0])
+            cluster_sizes[atoms[9]] = cluster_sizes.get(atoms[9], 0) + \
+                                      float(size_pattern.search(atoms[8]).groups()[0])
         elif atoms[0] == 'C':
             break
         else:
