@@ -669,8 +669,7 @@ class EM(object):
                 # updating posteriors. for each seq-read pair with prob > 0, split prob out to major and minor seq.
                 new_cols = self.posteriors[-1].rows[seq_i] # col in coo format
                 new_read_probs  = [x * minor_fraction_avg for x in self.posteriors[-1].data[seq_i]]  # data in coo format
-                new_rows = [seq_i_minor] * new_cols  # row in coo
-                # format
+                new_rows = [seq_i_minor for x in new_cols]  # row in coo
 
                 # add new read probs to cache of new read probs to add at end of loop
                 rows_to_add.extend(new_rows)
