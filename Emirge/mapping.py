@@ -475,31 +475,9 @@ def get_options(parser):
                  "EMIRGE in all iterations. Recommended for metagenome data."
     )
     parser.add_option_group(opts)
-    # group_reqd.add_option(
-    #         "-b", "--bowtie_db",
-    #         type="string",
-    #         help="precomputed bowtie index of candidate SSU sequences (path "
-    #              "to appropriate prefix; see --fasta_db)")
-    # group_reqd.add_option(
-    #         "-B", "--bowtie2_db",
-    #         type="string",
-    #         help="precomputed bowtie2 index of candidate SSU sequences (
-    # path to"
-    #              " appropriate prefix; see --fasta_db)")
-    # group_opt.add_option(
-    #         "-m", "--mapping",
-    #         type="string",
-    #         help="path to precomputed initial mapping (bam file).  If not "
-    #              "provided, an initial mapping will be run for you.")
-    #     group_opt.add_option(
-    #         "--meta", action="store_true", default="False",
-    #         help="If input reads are metagenomic, specify --meta to do a "
-    #              "pre-mapping step."
-    #             group_opt.add_option(
-    #         "--nice_mapping",
-    #         type="int",
-    #         help="""If set, during mapping phase, the mapper will be "niced"
-    #         by the Linux kernel with this value (default: no nice)""")
+
+    # TODO
+    # -m, --mapping: path to pre-computed initial mapping file
 
 
 def get_mapper(opts, workdir, candidates, fwd_reads, rev_reads, threads,
