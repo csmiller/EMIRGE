@@ -161,6 +161,27 @@ class EM(object):
         # EXPERIMENTAL.  Fraction of length that has to be covered by
         #                >= min_length_cov_depth
 
+        self.max_iterations = None
+        self.bamfile_data = None
+        self.fragments_mapped = None
+        self.current_bam_filename = None
+        self.n_alignments = None
+        self.fastafile = None
+        self.cigars = None
+        self.probN = None
+        self.prob_indels = None
+        self.unmapped_bases = None
+        self.mean_read_length = None
+        self.iterdir = None
+        self.initial_bam_filename_to_remove = None
+        self.initial_compress_process = None
+        self.avg_emirge_seq_length = None
+        self.prob_min = None
+
+
+        # keeps track of which iteration we are on.
+        self.iteration_i = None
+
         # Single numpy array.  Has the shape: (numsequences x numreads)
         # [numreads can be numpairs]
         self.likelihoods = None
