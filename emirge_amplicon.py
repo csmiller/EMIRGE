@@ -108,6 +108,9 @@ class EM(object):
         (currently only the bowtie mapping)
         mapping_nice is nice value to add to mapping program
         """
+
+        assert 0 <= cluster_thresh <= 1.0
+
         self.reads1_filepath = reads1_filepath
         self.reads2_filepath = reads2_filepath
         self.insert_mean = insert_mean
@@ -123,10 +126,9 @@ class EM(object):
         self.cwd = cwd
         self.max_read_length = max_read_length
         self.iterdir_prefix = iterdir_prefix
+        self.cluster_thresh = cluster_thresh
         # if two sequences evolve to be >= cluster_thresh identical
         # (via vsearch), then merge them. [0, 1.0]
-        self.cluster_thresh = cluster_thresh
-        assert 0 <= self.cluster_thresh <= 1.0
         self.expected_coverage_thresh = expected_coverage_thresh
         self.indel_thresh = indel_thresh
 
