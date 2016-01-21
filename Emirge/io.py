@@ -500,9 +500,8 @@ class Pipe(FileLike):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # call other exits:
         for pname, pipe in self.stdpipes.iteritems():
-            if isinstance(pipe, FileLike):
+            if isinstance(pipe, FileLike) and pipe.isReader:
                 pipe.__exit__(exc_type, exc_val, exc_tb)
         for x in self.cmd:
             if isinstance(x, Pipe):
@@ -512,8 +511,19 @@ class Pipe(FileLike):
             self.__tmppipe = None
 
         self.close()
-        self.__proc.wait()
+        if exc_type is not None:
+            ERROR("Terminating '{}'".format(self.cmd[0]))
+            self.__proc.kill()
+        else:
+            DEBUG("waiting for subprocess to terminate ({"
+                  "})".format(repr(self.__proc)))
+            self.__proc.wait()
+            INFO("DONE Executing '{}'".format(self.cmd[0]))
         self.__proc = None
+
+        for pname, pipe in self.stdpipes.iteritems():
+            if isinstance(pipe, FileLike) and not pipe.isReader:
+                pipe.__exit__(exc_type, exc_val, exc_tb)
 
         if exc_type == PipeAbort:
             return True
