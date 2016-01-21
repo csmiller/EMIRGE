@@ -32,6 +32,6 @@ cdef class Kseq:
     cdef int l
     cdef kseq_t *ks
 
-    cdef open(self)
+    cdef Kseq open(self)
     cdef close(self, exc_type= *, exc_val= *, exc_tb= *)
     cdef int read_next_sequence(self)

@@ -626,20 +626,20 @@ def populate_reads_arrays(em):
     # first do /1 reads, then do /2 reads if present
     for reads_filepath, readtype_index in [(em.reads1_filepath, 0),
                                            (em.reads2_filepath, 1)]:
-        if reads_filepath is None:  # should only happen if no reads2_filepath present
+        if reads_filepath is None:
+            # should only happen if no reads2_filepath present
             continue
+        read_file = Kseq(reads_filepath).open()
         read_index = 0
-        ks = pykseq.Kseq(reads_filepath)
-        while 1:
-            ks_p = ks.c_read_sequence()
-            if ks_p == NULL:
-                break
-
-            readlengths[read_index] = ks_p.seq.l
-            for i in range(0, ks_p.seq.l):
-                reads[read_index, readtype_index, i] = base_alpha2int(ks_p.seq.s[i])
-                quals[read_index, readtype_index, i] = ks_p.qual.s[i] - ascii_offset
+        while not read_file.read_next_sequence() < 0:
+            readlengths[read_index] = read_file.ks.seq.l
+            for i in range(0, read_file.ks.seq.l):
+                reads[read_index, readtype_index, i] = \
+                    base_alpha2int(read_file.ks.seq.s[i])
+                quals[read_index, readtype_index, i] = \
+                    read_file.ks.qual.s[i] - ascii_offset
             read_index += 1
+        read_file.close()
 
 
 def process_bamfile(em, int ascii_offset):

@@ -23,7 +23,7 @@ cdef class Kseq:
         self.open()
         return self
 
-    cdef open(self):
+    cdef Kseq open(self):
         if isinstance(self.file, int):
             self.fd = self.file
         elif isinstance(self.file, FileLike):
