@@ -30,6 +30,7 @@ class PipeAbort(Exception):
     pass
 
 
+
 def ispipe(path):
     """Checks if file at @path is a pipe"""
     try:
@@ -659,3 +660,6 @@ class AlignmentFile(object):
             self.__file_or_object.__exit__(exc_type, exc_val, exc_tb)
         self.__AlignmentFile.__exit__(exc_type, exc_val, exc_tb)
         return False
+
+#  add Kseq to this module
+from Emirge._kseq import Kseq

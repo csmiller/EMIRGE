@@ -220,9 +220,9 @@ typedef struct __kstring_t {
 // hard code this in here to always use zlib
 // KSEQ_INIT(gzFile, gzread)
 
-KSTREAM_INIT(gzFile, gzread, 4096)
-__KSEQ_TYPE(gzFile)
-__KSEQ_BASIC(gzFile)
+KSTREAM_INIT(int, read, 4096)
+__KSEQ_TYPE(int)
+__KSEQ_BASIC(int)
 __KSEQ_READ
 
 #endif

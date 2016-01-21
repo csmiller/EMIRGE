@@ -283,5 +283,19 @@ def test_AlignmentFile():
         yield check_AlignmentFile, obj(sam_file), "r"
 
 
+def test_Kseq():
+    reads = 0
+    bp = 0
+    x = io.Kseq(io.File(read_file_1))
+    with io.Kseq(io.File(read_file_1)) as f:
+        for seq in f:
+            reads +=1
+            assert_equal(len(seq.seq), len(seq.qual))
+            bp += len(seq.seq)
+
+    assert_equal(reads, 50000)
+    assert_equal(bp, 50000*150)
+
+
 if __name__ == '__main__':
     test_Pipe_cmd_subst()

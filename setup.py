@@ -86,7 +86,7 @@ class DummyBuildSrc(Command):
 
 class CheckSDist(sdist):
     """Custom sdist that ensures Cython has compiled all pyx files to c."""
-    _pyxfiles = ["Emirge/pykseq.pyx",
+    _pyxfiles = ["Emirge/_kseq.pyx",
                  "Emirge/common.pyx",
                  "Emirge/amplicon.pyx"]
 
@@ -160,7 +160,7 @@ else:
 
 
 extensions = [
-    Extension("Emirge.pykseq", ["Emirge/pykseq.pyx"],
+    Extension("Emirge._kseq", ["Emirge/_kseq.pyx"],
               include_dirs=['./Emirge/']),
     Extension("Emirge.common", ["Emirge/common.pyx"],
               extra_compile_args=["-O3"],
