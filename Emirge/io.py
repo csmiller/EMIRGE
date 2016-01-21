@@ -432,6 +432,7 @@ class Pipe(FileLike):
     """
 
     cmd = None
+    name = "#PipeObj#"
 
     def __init__(self, stdin=None, stdout=PIPE, stderr=None):
         """
