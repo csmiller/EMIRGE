@@ -266,6 +266,20 @@ class EM(object):
         # read through reads file again, fill these.
         amplicon.populate_reads_arrays(self)
 
+    def do_initial_mapping(self):
+        workdir = os.path.join(self.cwd, "initial_mapping")
+        os.mkdir(workdir)
+
+        self.fragments_mapped, self.current_bam_filename = \
+            self.mapper.map_reads(self.current_reference_fasta_filename,
+                                  workdir)
+
+    def do_mapping(self, filename):
+        self.current_reference_fasta_filename = filename
+        self.fragments_mapped, self.current_bam_filename = \
+            self.mapper.map_reads(self.current_reference_fasta_filename,
+                                  self.iterdir)
+
     @log.timed("Reading bam file")
     def read_bam(self, bam_filename, reference_fasta_filename):
         """
