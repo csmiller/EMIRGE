@@ -279,7 +279,7 @@ class Bowtie2(Mapper):
 
         # TODO:delete index
 
-        return frags_mapped, bam_file
+        return frags_mapped, bam_file.reader()
 
     @staticmethod
     def have_index(indexname, fastafile=None):
