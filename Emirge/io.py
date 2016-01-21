@@ -14,6 +14,10 @@ from Emirge.log import ERROR, DEBUG, INFO, timed
 
 PIPE = subprocess.PIPE
 
+# comment the two lines below to enable DEBUG info for this module
+def DEBUG(*args):
+    pass
+
 
 class FileError(Exception):
     """Raised when file operations fail"""
