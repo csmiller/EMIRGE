@@ -279,7 +279,9 @@ class Bowtie2(Mapper):
                 if match is not None:
                     raise MappingFailure("Bowtie2 failed: '{}'".format(line))
 
-        INFO("Bowtie 2 reported {} alignments".format(frags_mapped))
+        INFO("Bowtie 2 reported {} alignments written to '{}'".format(
+                frags_mapped, bam_file.name
+        ))
 
         # TODO:delete index
 
@@ -360,7 +362,7 @@ class Bowtie2(Mapper):
                 raise last_exception
         return indexname
 
-    @log.timed("Building Bowtie 2 index {fastafile} from {indexname}")
+    @log.timed("Building Bowtie 2 index {indexname} from {fastafile}")
     def build_index(self, fastafile, indexname):
         """Build a index for fastafile named indexname.
 
