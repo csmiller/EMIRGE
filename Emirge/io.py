@@ -14,6 +14,7 @@ from Emirge.log import ERROR, DEBUG, INFO, timed
 
 PIPE = subprocess.PIPE
 
+
 # comment the two lines below to enable DEBUG info for this module
 def DEBUG(*args):
     pass
@@ -23,9 +24,11 @@ class FileError(Exception):
     """Raised when file operations fail"""
     pass
 
+
 class PipeAbort(Exception):
     """Raise this to abort running a pipe when in with clause"""
     pass
+
 
 def ispipe(path):
     """Checks if file at @path is a pipe"""
@@ -33,6 +36,7 @@ def ispipe(path):
         return stat.S_ISFIFO(os.stat(path).st_mode)
     except OSError:
         return False
+
 
 def command_avail(cmd):
     try:
@@ -44,6 +48,7 @@ def command_avail(cmd):
         return True
     else:
         return True
+
 
 class Record(object):
     """
@@ -129,6 +134,7 @@ def reindex_reads(reads_filepath):
 class TempDir(object):
     """Creates a temporary directory
     The directory is cleaned automatically at object deletion."""
+
     def __init__(self, suffix="", prefix="tmp", dir=None):
         self.__suffix = suffix
         self.__prefix = prefix
@@ -201,7 +207,7 @@ class OutputFileName(FileName):
         if not os.path.isfile(name) and not ispipe(name):
             if not os.access(os.path.dirname(name), os.W_OK):
                 raise Exception(msg + "cannot be created: " +
-                                      "directory is not writable")
+                                "directory is not writable")
         if os.path.isfile(name):
             if not overwrite:
                 raise Exception(msg + "exists; cowardly refusing to overwrite")
@@ -220,6 +226,7 @@ class FileLike(object):
      - have a file-descriptor / fileno() function
 
     """
+
     def __init__(self):
         self.__isReader = True
         self.__fileobj = None
@@ -387,6 +394,7 @@ class Popen(subprocess.Popen):
     - can have File objects as argument
     - prints log when executing command
     """
+
     def __init__(self, args, *otherargs, **kwargs):
         self.__args = _expand_args(args)
         kwargs["close_fds"] = True
@@ -401,8 +409,6 @@ class Popen(subprocess.Popen):
     def __repr__(self):
         return "Emirge.io.Popen('{}',{})".format(
                 self.cmdline(), repr(self.__kwargs))
-
-
 
 
 def check_call(args, *otherargs, **kwargs):
@@ -495,8 +501,8 @@ class Pipe(FileLike):
 
         if unbound is not None:
             self._setFileObj(getattr(self.__proc, unbound))
-            if unbound=="stderr":
-                self.nobuffer=True
+            if unbound == "stderr":
+                self.nobuffer = True
 
         return self
 
@@ -540,6 +546,7 @@ class Pipe(FileLike):
 def make_pipe(name, args):
     def __init__(self, *cargs, **kwargs):
         Pipe.__init__(self, *cargs, **kwargs)
+
     return type(name, (Pipe,), {"__init__": __init__,
                                 "cmd": args})
 
@@ -572,10 +579,10 @@ def decompressed(filething):
 
 
 EnumerateReads = make_pipe(
-    "EnumerateReads",
-    ['awk',
-     '{ if ((NR-1) % 4 == 0) { print "@"(NR-1)/4 }'
-     'else { print } }']
+        "EnumerateReads",
+        ['awk',
+         '{ if ((NR-1) % 4 == 0) { print "@"(NR-1)/4 } '
+         'else { print } }']
 )
 LineCount = make_pipe("LineCount", ['wc', '-l'])
 Cat = make_pipe("cat", ["cat"])
@@ -585,7 +592,6 @@ Cat = make_pipe("cat", ["cat"])
 def fastq_count_reads(filename):
     with LineCount(decompressed(filename)) as f:
         return int(f.next().strip()) / 4
-
 
 
 def filter_fastq(infile, readnames, outfile=None):
@@ -612,6 +618,7 @@ def filter_fastq(infile, readnames, outfile=None):
             DEBUG("read {}: '{}'".format(reads, line.strip()))
 
     return outfile, reads, matches
+
 
 class FileObjWrapper(object):
     """
