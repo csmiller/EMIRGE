@@ -76,7 +76,8 @@ class Mapper(object):
     """
     binary = None
 
-    def __init__(self, candidates, fwd_reads, rev_reads=None, phred33=False,
+    def __init__(self, candidates, candidates_index, fwd_reads, rev_reads=None,
+                 phred33=False,
                  threads=cpu_count(), reindex=True, workdir=None,
                  insert_mean=1500, insert_sd=500, prefilter_reads=False):
         """Create new mapper.
@@ -101,6 +102,7 @@ class Mapper(object):
             rev_reads = decompressed(rev_reads)
 
         self.candidates = candidates
+        self.candidates_index = candidates_index
         self.phred33 = phred33
         self.threads = threads
         self.insert_mean = insert_mean
@@ -182,7 +184,7 @@ class Bowtie2(Mapper):
         # prepare bowtie2 command
         cmd = self.make_basecmd()
         cmd += [
-            "-x", self.prep_index(self.candidates),  # index
+            "-x", self.prep_index(self.candidates, self.candidates_index),
             "--very-sensitive-local",
             "-k", "1",  # report up to 1 alignments per read
             "--no-unal",  # suppress SAM records for unaligned reads
@@ -517,6 +519,7 @@ def get_mapper(opts, workdir, candidates, fwd_reads, rev_reads, threads,
     assert issubclass(mapperclass, Mapper)
     INFO("Using read mapper '{}'".format(mapperclass.__name__))
     mpr = mapperclass(candidates=candidates,
+                      candidates_index=opts.mapper_index,
                       workdir=workdir,
                       fwd_reads=fwd_reads,
                       rev_reads=rev_reads,
