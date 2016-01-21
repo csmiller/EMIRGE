@@ -264,13 +264,13 @@ class Bowtie2(Mapper):
                 "--no-discordant",  # suppress discordant alignments
             ]
 
-        BowtieMapper = make_pipe("Bowtie Mapper", cmd)
+        bowtie_mapper = make_pipe("Bowtie Mapper", cmd)
         bam_file = File(os.path.join(workdir, "bt2.bam"))
         bam_writer = Sam2Bam_aligned_only(stdin=PIPE, stdout=bam_file)
         frags_mapped = 0
 
-        with BowtieMapper(stdout=bam_writer, stderr=PIPE) as mapper:
-            for line in mapper:
+        with bowtie_mapper(stdout=bam_writer, stderr=PIPE) as stderr:
+            for line in stderr:
                 INFO("BOWTIE2: " + line.rstrip())
                 match = re.search("\s([0-9]+) .* aligned .*1 time", line)
                 if match is not None:
@@ -452,14 +452,14 @@ def get_options(parser):
     assert isinstance(parser, optparse.OptionParser)
 
     # check which mappers are available on system
-    mappers_avail = ["'{}'".format(mapper.__name__) for mapper in _mappers
-                     if mapper.available()]
+    mappers_avail = ["'{}'".format(mpr.__name__) for mpr in _mappers
+                     if mpr.available()]
     if len(mappers_avail) == 0:
         parser.error(_msg_no_mapper_found)
 
     # prepare help message for not available mappers
-    mappers_supported = ["'{}'".format(mapper.__name__) for mapper in _mappers
-                         if not mapper.available()]
+    mappers_supported = ["'{}'".format(mpr.__name__) for mpr in _mappers
+                         if not mpr.available()]
     mappers_supported_msg = ""
     if len(mappers_supported) > 0:
         mappers_supported_msg = "; supported (but not installed): {}".format(
@@ -472,7 +472,7 @@ def get_options(parser):
             choices=mappers_avail, default=mappers_avail[0],
             help="Choose read mapper to use. "
                  "(default: %default; available: {}{})"
-                .format(", ".join(mappers_avail), mappers_supported_msg)
+                 .format(", ".join(mappers_avail), mappers_supported_msg)
     )
     opts.add_option(
             "-b", "--mapper-index",
@@ -505,22 +505,22 @@ def get_options(parser):
 def get_mapper(opts, workdir, candidates, fwd_reads, rev_reads, threads,
                phred33, ):
     mapperclass = None
-    for mapper in _mappers:
-        if mapper.__name__ == opts.mapper.strip("'"):
-            mapperclass = mapper
+    for mpr in _mappers:
+        if mpr.__name__ == opts.mapper.strip("'"):
+            mapperclass = mpr
             break
     if mapperclass is None:
         raise Exception("Could not find selected mapper?! (mapper={})"
                         .format(opts.mapper))
     assert issubclass(mapperclass, Mapper)
     INFO("Using read mapper '{}'".format(mapperclass.__name__))
-    mapper = mapperclass(candidates=candidates,
-                         workdir=workdir,
-                         fwd_reads=fwd_reads,
-                         rev_reads=rev_reads,
-                         threads=threads,
-                         phred33=phred33,
-                         insert_mean=opts.insert_mean,
-                         insert_sd=opts.insert_stddev,
-                         prefilter_reads=opts.prefilter_reads)
-    return mapper
+    mpr = mapperclass(candidates=candidates,
+                      workdir=workdir,
+                      fwd_reads=fwd_reads,
+                      rev_reads=rev_reads,
+                      threads=threads,
+                      phred33=phred33,
+                      insert_mean=opts.insert_mean,
+                      insert_sd=opts.insert_stddev,
+                      prefilter_reads=opts.prefilter_reads)
+    return mpr
