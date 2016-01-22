@@ -23,8 +23,27 @@ https://github.com/csmiller/EMIRGE
 for help, type:
 python emirge_amplicon.py --help
 """
+import cPickle
+import csv
+import multiprocessing
+import os
+import re
+import sys
+from datetime import timedelta
+from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
+from subprocess import Popen, PIPE, check_call
+from time import ctime, time
+
+import Emirge.amplicon as amplicon
+import numpy as np
+import pysam
+from Bio import SeqIO
+from scipy import sparse
+
+from Emirge import io, log, mapping
 from Emirge.io import make_pipe
 from Emirge.log import DEBUG, INFO
+from emirge_rename_fasta import rename
 
 USAGE = """usage: %prog DIR <required_parameters> [options]
 
@@ -52,25 +71,6 @@ Subsurface Sediments.
 PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 """
 
-import cPickle
-import csv
-import multiprocessing
-import os
-import re
-import sys
-from datetime import timedelta
-from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
-from subprocess import Popen, PIPE, check_call
-from time import ctime, time
-
-import Emirge.amplicon as amplicon
-import numpy as np
-import pysam
-from Bio import SeqIO
-from scipy import sparse
-
-from Emirge import io, log, mapping
-from emirge_rename_fasta import rename
 
 BOWTIE_l = 20
 BOWTIE_e = 300
@@ -263,7 +263,7 @@ class EM(object):
         # and second dimension is read number (0 or 1 ==> read /1 or read /2)
         # 3rd dimension for reads and quals is max_readlen
         self.reads = np.empty((self.n_reads, 2, self.max_read_length),
-                                 dtype=np.uint8)
+                              dtype=np.uint8)
         self.quals = np.empty_like(self.reads)
         self.readlengths = np.empty((self.n_reads, 2), dtype=np.uint16)
 
@@ -450,7 +450,7 @@ class EM(object):
         # culls and splits
         self.write_consensus(consensus_filename,
                              self.current_reference_fasta_filename)
-        #if self.iteration_i == self.max_iterations:
+        # if self.iteration_i == self.max_iterations:
         # merge sequences that have evolved to be the same (VSEARCH)
         self.cluster_sequences(consensus_filename)
 
@@ -473,7 +473,7 @@ class EM(object):
             of = file(ofname, 'w')
         else:
             of = file(os.path.join(self.iterdir,
-                                   "priors.iter.%02d.txt" % (self.iteration_i)),
+                                   "priors.iter.%02d.txt" % self.iteration_i),
                       'w')
         sequence_i2sequence_name_array = \
             np.array(self.sequence_i2sequence_name)  # faster slicing?
@@ -489,7 +489,7 @@ class EM(object):
         pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
         cPickle.dump(self.probN, file(pickled_filename, 'w'),
                      cPickle.HIGHEST_PROTOCOL)
-        check_call("gzip -f %s" % (pickled_filename),
+        check_call("gzip -f %s" % pickled_filename,
                    shell=True, stdout=sys.stdout, stderr=sys.stderr)
 
     def calc_priors(self):
@@ -521,13 +521,13 @@ class EM(object):
                 sequences.
 
         """
-        log.info("\tsnp_minor_prob_thresh = %.3f" % (self.snp_minor_prob_thresh))
-        log.info("\tsnp_percentage_thresh = %.3f" % (self.snp_percentage_thresh))
+        INFO("\tsnp_minor_prob_thresh = %.3f" % self.snp_minor_prob_thresh)
+        INFO("\tsnp_percentage_thresh = %.3f" % self.snp_percentage_thresh)
 
         splitcount = 0
         of = file(outputfilename, 'w')
         tmp_fastafilename = outputfilename + ".tmp.fasta" 
-        of_tmp = file(tmp_fastafilename,'w')
+        of_tmp = file(tmp_fastafilename, 'w')
 
         # DEBUG:
         times_split = []
@@ -544,7 +544,7 @@ class EM(object):
         # just to make sure this is in row-access-friendly format
         self.posteriors[-1] = self.posteriors[-1].tolil()
         reference_fastafile = pysam.Fastafile(reference_fasta_filename)
-        self.num_seqs=0
+        self.num_seqs = 0
         loop_t0 = time()
         for seq_i in range(len(self.probN)):
             seq_i_t0 = time()
@@ -573,36 +573,36 @@ class EM(object):
             # else passes culling thresholds
             title = str(self.sequence_i2sequence_name[seq_i])
             consensus = np.array([i2base.get(x, "N")
-                                     for x in np.argsort(
-                                       self.probN[seq_i])[:,-1]])
+                                  for x in np.argsort(
+                                       self.probN[seq_i])[:, -1]])
             orig_bases = np.array(reference_fastafile.fetch(title).lower(),
-                                     dtype='c')
+                                  dtype='c')
 
             # check for deletion, collect deletion sites:
             # need to decide relative weight of competing insertions/deletions
-            deletion_threshold  = self.indel_thresh/2
+            deletion_threshold = self.indel_thresh / 2
             # retrieve single numpy matrix of prob_indel values for seq_i from
             # prob_indels list of numpy matrices
             prob_indels_single = self.prob_indels[seq_i]
-            del_hits=[]
-            for base_i in range (prob_indels_single.shape[0]):
+            del_hits = []
+            for base_i in range(prob_indels_single.shape[0]):
                 # Eval if deletion exists at base position
                 # Divides weight of deletion, by the sum of both deletions
                 # and matches
-                denominator = (prob_indels_single[base_i,0] +
-                               prob_indels_single[base_i,2])
+                denominator = (prob_indels_single[base_i, 0] +
+                               prob_indels_single[base_i, 2])
                 if denominator < 0:
                     raise ValueError(
                             "denominator should never be < 0 (actual: %s)"
-                            %denominator
+                            % denominator
                     )
                 else:
-                    if (prob_indels_single[base_i,2] / denominator) \
+                    if (prob_indels_single[base_i, 2] / denominator) \
                             > deletion_threshold:
                         del_hits.append(base_i)
                     else:
-                        self.probN[seq_i][base_i,4] = 0
-            deletion_indices=np.array(del_hits)
+                        self.probN[seq_i][base_i, 4] = 0
+            deletion_indices = np.array(del_hits)
 
             # check for minor allele consensus, SPLIT sequence into two
             # candidate sequences if passes thresholds.
@@ -633,15 +633,15 @@ class EM(object):
             # Prior(seq_i) * number of MAPPED reads * avg read length
             # * 2 seq per pair
             expected_coverage_minor = \
-                ( self.priors[-1][seq_i] * minor_fraction_avg *
-                  self.n_reads_mapped * self.mean_read_length ) / \
+                (self.priors[-1][seq_i] * minor_fraction_avg *
+                 self.n_reads_mapped * self.mean_read_length) / \
                 self.probN[seq_i].shape[0]
             expected_coverage_major = \
-                ( self.priors[-1][seq_i] * (1-minor_fraction_avg)
-                  * self.n_reads_mapped * self.mean_read_length ) / \
+                (self.priors[-1][seq_i] * (1-minor_fraction_avg) *
+                 self.n_reads_mapped * self.mean_read_length) / \
                 self.probN[seq_i].shape[0]
 
-            # multipy by 2 because n_reads_mapped is actually number of
+            # multiply by 2 because n_reads_mapped is actually number of
             # mapped pairs
             if self.reads2_filepath is not None:
                 expected_coverage_minor *= 2.0
@@ -672,7 +672,7 @@ class EM(object):
                         [i2base.get(x, "N")
                          for x in np.argsort(
                                 self.probN[seq_i][minor_indices]
-                         )[:,-2]]
+                         )[:, -2]]
                 )
                 # get a copy of the consensus
                 minor_consensus = consensus.copy()
@@ -696,10 +696,10 @@ class EM(object):
                 # now check for any known name with same root and a _m on it.
                 previous_m_max = max([0] + [
                     int(x) for x in re.findall(
-                            r'%s_m(\d+)'%re.escape(title_root),
+                            r'%s_m(\d+)' % re.escape(title_root),
                             " ".join(self.sequence_i2sequence_name))
                     ])
-                m_title = "%s_m%02d"%(title_root, previous_m_max+1)
+                m_title = "%s_m%02d" % (title_root, previous_m_max+1)
 
                 # also split out Priors and Posteriors (which will be used in
                 # next round), split with average ratio of major to minor
@@ -734,16 +734,22 @@ class EM(object):
                                         newprobNarray.shape[0], 1)
                 probNtoadd.append(newprobNarray)
 
-                #why are we doing this?!?!?
+                # why are we doing this?!?!?
                 self.base_coverages.append(np.zeros_like(
                         self.base_coverages[seq_i]))
 
                 # MAJOR
-                minor_base_i = np.argsort(self.probN[seq_i][minor_indices])[:, -2]
+                minor_base_i = np.argsort(
+                        self.probN[seq_i][minor_indices]
+                )[:, -2]
                 self.probN[seq_i][(minor_indices, minor_base_i)] = 0
-                self.probN[seq_i] = self.probN[seq_i] / np.sum(self.probN[seq_i], axis=1).reshape(self.probN[seq_i].shape[0], 1)
+                self.probN[seq_i] = self.probN[seq_i] / \
+                                    np.sum(self.probN[seq_i], axis=1
+                                           ).reshape(self.probN[seq_i].shape[0],
+                                                     1)
 
-                new_priors = np.zeros(seq_i_minor + 1, dtype=self.priors[-1].dtype)
+                new_priors = np.zeros(seq_i_minor + 1,
+                                      dtype=self.priors[-1].dtype)
                 new_priors[:-1] = self.priors[-1].copy()
                 new_priors[seq_i_minor] = old_prior * minor_fraction_avg
                 trash = self.priors.pop()
@@ -755,56 +761,76 @@ class EM(object):
                 # matrix construction, instead of each iteration.
 
                 t_posterior = time()
-                # new_read_probs, new_rows, new_cols = adjust_posteriors_for_split(AAAA, BBBB, CCCC) # TODO: could move to Cython
-                # updating posteriors. for each seq-read pair with prob > 0, split prob out to major and minor seq.
-                new_cols = self.posteriors[-1].rows[seq_i] # col in coo format
-                new_read_probs  = [x * minor_fraction_avg for x in self.posteriors[-1].data[seq_i]]  # data in coo format
-                new_rows = [seq_i_minor for x in new_cols]  # row in coo
+                # new_read_probs, new_rows, new_cols =
+                #   adjust_posteriors_for_split(AAAA, BBBB, CCCC) # TODO:
+                # could move to Cython
+                # updating posteriors. for each seq-read pair with prob > 0,
+                # split prob out to major and minor seq.
+                new_cols = self.posteriors[-1].rows[seq_i]  # col in coo format
+                # data in coo format:
+                new_read_probs = [x * minor_fraction_avg
+                                   for x in self.posteriors[-1].data[seq_i]]
+                new_rows = [seq_i_minor for _ in new_cols]  # row in coo
 
-                # add new read probs to cache of new read probs to add at end of loop
+                # add new read probs to cache of new read probs to add at
+                # end of loop
                 rows_to_add.extend(new_rows)
                 cols_to_add.extend(new_cols)
                 data_to_add.extend(new_read_probs)
 
                 # adjust old read probs to reflect major strain
-                self.posteriors[-1].data[seq_i] = [x * major_fraction_avg for x in self.posteriors[-1].data[seq_i]]
+                self.posteriors[-1].data[seq_i] = \
+                    [x * major_fraction_avg
+                     for x in self.posteriors[-1].data[seq_i]]
                 times_posteriors.append(time() - t_posterior)
 
-                # adjust self.unmapped_bases (used in clustering).  For now give same pattern as parent
+                # adjust self.unmapped_bases (used in clustering).
+                # For now give same pattern as parent
                 self.unmapped_bases.append(self.unmapped_bases[seq_i].copy())
 
                 # write out minor strain consensus
-                of.write(">%s\n"%(m_title))
-                of_tmp.write(">%s\n"%(m_title))
-                minor_consensus = self.eval_indels(seq_i, minor_consensus, m_title,orig_bases,mask="soft") # added for indels
-                of.write("%s\n"%("".join(minor_consensus)))
-                of_tmp.write("%s\n"%("".join(minor_consensus)))
-                self.unmapped_bases.append(np.zeros(len(consensus),dtype=np.uint8))
-                print "new sequence %s is length %s"%(title,len(consensus))
-                self.num_seqs+=1
+                of.write(">%s\n" % m_title)
+                of_tmp.write(">%s\n" % m_title)
+                # added for indels:
+                minor_consensus = self.eval_indels(seq_i, minor_consensus,
+                                                   m_title, orig_bases,
+                                                   mask="soft")
+                of.write("%s\n" % "".join(minor_consensus))
+                of_tmp.write("%s\n" % "".join(minor_consensus))
+                self.unmapped_bases.append(np.zeros(len(consensus),
+                                                    dtype=np.uint8))
+                print "new sequence %s is length %s" % (title, len(consensus))
+                self.num_seqs += 1
                 log.info("splitting sequence %d (%s) to %d (%s)...\n"
                          % (seq_i, title, seq_i_minor, m_title))
                 times_split.append(time() - seq_i_t0)
 
-            # now write major strain consensus, regardless of whether there was a minor strain consensus
-            of.write(">%s\n"%(title))
-            of_tmp.write(">%s\n"%(title))
-            consensus = self.eval_indels(seq_i, consensus, title, orig_bases,mask="soft")  # added for indels
-            of.write("%s\n"%("".join(consensus)))
-            of_tmp.write("%s\n"%("".join(consensus)))
-            self.num_seqs+=1
+            # now write major strain consensus, regardless of whether there
+            # was a minor strain consensus
+            of.write(">%s\n" % title)
+            of_tmp.write(">%s\n" % title)
+            consensus = self.eval_indels(seq_i, consensus, title, orig_bases,
+                                         mask="soft")  # added for indels
+            of.write("%s\n" % "".join(consensus))
+            of_tmp.write("%s\n" % "".join(consensus))
+            self.num_seqs += 1
 
         # END LOOP
         loop_t_total = time() - loop_t0
-        # update posteriors matrix with newly added minor sequences new_posteriors via coo, then convert to csr.
-        new_posteriors = self.posteriors[-1].tocoo()  # first make a copy in coo format
-        # then create new coo matrix with new shape, appending new row, col, data to old row, col, data
+        # update posteriors matrix with newly added minor sequences
+        # new_posteriors via coo, then convert to csr.
+        # first make a copy in coo format:
+        new_posteriors = self.posteriors[-1].tocoo()
+        # then create new coo matrix with new shape, appending new row, col,
+        # data to old row, col, data
 
-        new_posteriors = sparse.coo_matrix((np.concatenate((new_posteriors.data, data_to_add)),
-                                            (np.concatenate((new_posteriors.row, rows_to_add)),
-                                             np.concatenate((new_posteriors.col, cols_to_add)))),
-                                           shape=(self.n_sequences, self.posteriors[-1].shape[1]),
-                                           dtype=new_posteriors.dtype).tocsr()
+        new_posteriors = sparse.coo_matrix(
+                (np.concatenate((new_posteriors.data, data_to_add)),
+                 (np.concatenate((new_posteriors.row, rows_to_add)),
+                  np.concatenate((new_posteriors.col, cols_to_add)))),
+                shape=(self.n_sequences, self.posteriors[-1].shape[1]),
+                dtype=new_posteriors.dtype
+        ).tocsr()
 
         # finally, exchange in this new matrix
         trash = self.posteriors.pop()
@@ -814,63 +840,77 @@ class EM(object):
         # update probN array:
         self.probN.extend(probNtoadd)
 
-        log.info("Split out %d new minor strain sequences." % (splitcount))
+        log.info("Split out %d new minor strain sequences." % splitcount)
         if splitcount > 0:
             log.info("Average time for split sequence: [%.6f seconds]"
                      % np.mean(times_split))
             log.info("Average time for posterior update: [%.6f seconds]"
                      % np.mean(times_posteriors))
             log.info("Average time for non-split sequences: [%.6f seconds]"
-                     % ((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
+                     % ((loop_t_total - sum(times_split)) /
+                        (seqs_to_process - len(times_split))))
 
-    def eval_indels(self, seq_i, consensus, title, orig_bases,mask):
-        # Evaluates consensus sequence for write outs against the prob_indels array.  deletes or inserts bases as appropriate
+    def eval_indels(self, seq_i, consensus, title, orig_bases, mask):
+        # Evaluates consensus sequence for write outs against the prob_indels
+        # array.  deletes or inserts bases as appropriate
         # OUT:   returns a list of single character bases as new consensus
         insertion_threshold = self.indel_thresh
         new_cons = []
-        prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
+        # retrieve single numpy matrix of prob_indel values for seq_i from
+        # prob_indels list of numpy matrices
+        prob_indels_single = self.prob_indels[seq_i]
         unmapped_bases_single = self.unmapped_bases[seq_i]
         del_count = 0
-        for base_i in range (prob_indels_single.shape[0]):
+        for base_i in range(prob_indels_single.shape[0]):
             # Eval if deletion exists at base position
-            # Divides weight of deletion, by the sum of both deletions and matches
-            denominator = (prob_indels_single[base_i,0] + prob_indels_single[base_i,2])
+            # Divides weight of deletion, by the sum of both deletions and
+            # matches
+            denominator = (prob_indels_single[base_i, 0] +
+                           prob_indels_single[base_i, 2])
             
             if denominator < 0:
-                raise ValueError, "denominator should never be < 0 (actual: %s)" % denominator
-
-            elif denominator == 0:  # nothing mapped to this base.  Use consensus base from reference
+                raise ValueError(
+                        "denominator should never be < 0 (actual: %s)"
+                        % denominator
+                )
+            elif denominator == 0:
+                # nothing mapped to this base.
+                # Use consensus base from reference
                 new_cons.append(consensus[base_i])
-
             else:
                 if unmapped_bases_single[base_i] == 1:
                     if mask == "hard":
                         new_cons.append("N")
                     elif mask == "soft":
-                        new_cons.append(orig_bases[base_i]) # return to original base if unmapped / ambiguous
-                
+                        # return to original base if unmapped / ambiguous
+                        new_cons.append(orig_bases[base_i])
                 elif consensus[base_i] != "D":
-                    new_cons.append(consensus[base_i]) # not deleted
-                
+                    # not deleted
+                    new_cons.append(consensus[base_i])
                 else:
                     # delete (add nothing to new consensus)
-                    log.info("Modified reference sequence %d (%s) with a deletion of base %d "
-                             % (seq_i, title, base_i))
-                    del_count+=1
+                    INFO("Modified reference sequence %d (%s) with a deletion "
+                         "of base %d " % (seq_i, title, base_i))
+                    del_count += 1
     
-            # Keep insertions in seqs without deletions - DEBUG
-                if del_count >0:
+                # Keep insertions in seqs without deletions - DEBUG
+                if del_count > 0:
                     continue
-            # Eval if insertion exists after base position
-                elif (prob_indels_single[base_i,1]) == 0:  # no evidence for insertion
+                # Eval if insertion exists after base position
+                elif (prob_indels_single[base_i, 1]) == 0:
+                    # no evidence for insertion
                     continue
-            # if summed weights of insertion is greater than sum of reads mapped nearby (at base on left flank of proposed insertion (because it's easy), i-1)
-                elif (prob_indels_single[base_i,1] / denominator) > insertion_threshold: 
-                    for i in range(int(prob_indels_single[base_i,3])):
+                # if summed weights of insertion is greater than sum of reads
+                # mapped nearby (at base on left flank of proposed insertion
+                #  (because it's easy), i-1)
+                elif (prob_indels_single[base_i, 1] / denominator) > \
+                        insertion_threshold:
+                    for i in range(int(prob_indels_single[base_i, 3])):
                         new_cons.append('N')
                     log.info("Modified reference sequence %d (%s) with an "
                              "insertion of %s bases after base %d"
-                             % (seq_i, title, str(int(prob_indels_single[base_i,3])),base_i))
+                             % (seq_i, title, str(int(prob_indels_single[
+                                                          base_i, 3])), base_i))
                 else:  # no insertion
                     continue
   
@@ -896,7 +936,8 @@ class EM(object):
         Merge two sequences if the *NON-GAPPED* positions have %
         identity >= self.cluster_thresh
 
-        also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after merging.
+        also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after
+        merging.
         """
         # Hard threshold in place for EMIRGE2.  cluster_thresh from -j flag
         # is now applied only in post-processing steps
@@ -904,7 +945,8 @@ class EM(object):
 
         tocleanup = []  # list of temporary files to remove after done
 
-        # get posteriors ready for slicing (just prior to this call, is csr matrix?):
+        # get posteriors ready for slicing (just prior to this call,
+        # is csr matrix?):
         self.posteriors[-1] = self.posteriors[-1].tolil()
 
         # NOTE that this fasta file now contains N's where there are
@@ -912,15 +954,17 @@ class EM(object):
         # positions aligned to these bases in the identity calculation
 
         tmp_fastafilename = fastafilename + ".tmp.fasta"
-        #num_seqs = self.write_consensus_with_mask(fastafilename, tmp_fastafilename, mask="soft")
         tocleanup.append(tmp_fastafilename)
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
-        tocleanup.append("%s.fai" % (tmp_fastafilename))
+        tocleanup.append("%s.fai" % tmp_fastafilename)
         # do global alignments with VSEARCH
         # I don't use --cluster because it doesn't report alignments
-        # vsearch is fast but will sometimes miss things -- I've tried to tune params as best as I can.
-        # and I use different parameters depending on how many input sequences there are
-        # Also, I use a lower %ID thresh than specified for joining because I really calculate %ID over *mapped* sequence positions.
+        # vsearch is fast but will sometimes miss things -- I've tried to tune
+        # params as best as I can.
+        # and I use different parameters depending on how many input sequences
+        #  there are
+        # Also, I use a lower %ID thresh than specified for joining because I
+        # really calculate %ID over *mapped* sequence positions.
 
         # sens_string = "--maxaccepts 8 --maxrejects 256"
         # if self.iteration_i == self.max_iterations:
@@ -939,14 +983,19 @@ class EM(object):
         if self.num_seqs < 500:
             sens_string = "--maxaccepts 32 --maxrejects 256"
         if self.num_seqs < 150:
-            algorithm="-usearch_global"
-            sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
-        # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
+            algorithm = "-usearch_global"
+            # slower, but more sensitive.
+            sens_string = "--maxaccepts 0 --maxrejects 0"
+        # if really few seqs, then no use not doing smith-waterman or needleman
+        # wunsch alignments
         if self.num_seqs < 50:
-            algorithm="-usearch_global"
+            algorithm = "-usearch_global"
             sens_string = "-fulldp"
 
-        cmd = "vsearch %s %s --db %s --id %.3f --query_cov 0.5 --target_cov 0.5 --strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi --threads %d %s --quiet"%\
+        cmd = "vsearch %s %s --db %s --id %.3f --query_cov 0.5 " \
+              "--target_cov 0.5 --strand plus --userout %s.us.txt " \
+              "--userfields query+target+id+caln+qlo+qhi+tlo+thi " \
+              "--threads %d %s --quiet" % \
               (algorithm,
                tmp_fastafilename, tmp_fastafilename,
                uclust_id,
@@ -954,18 +1003,21 @@ class EM(object):
                self.n_cpus,
                sens_string)
 
-        log.info("vsearch command was:\n%s" % (cmd))
+        log.info("vsearch command was:\n%s" % cmd)
 
         check_call(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
-        # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
+        # read clustering file to adjust Priors and Posteriors, summing merged
+        # reference sequences
         tocleanup.append("%s.us.txt" % tmp_fastafilename)
 
         nummerged = 0
         alnstring_pat = re.compile(r'(\d*)([MDI])')
         already_removed = set()  # seq_ids
-        # this is a bit slow and almost certainly could be sped up with algorithmic improvements.
+        # this is a bit slow and almost certainly could be sped up with
+        # algorithmic improvements.
         times = []  # DEBUG
-        for row in csv.reader(file("%s.us.txt" % tmp_fastafilename), delimiter='\t'):
+        for row in csv.reader(file("%s.us.txt" % tmp_fastafilename),
+                              delimiter='\t'):
             # each row an alignment in userout file
             # member == query
             member_name = row[0]
@@ -974,45 +1026,62 @@ class EM(object):
                 continue  # vsearch allows self-hits, which we don't care about
             member_seq_id = self.sequence_name2sequence_i.get(member_name)
             seed_seq_id = self.sequence_name2sequence_i.get(seed_name)
-            if member_seq_id in already_removed or seed_seq_id in already_removed:
+            if member_seq_id in already_removed or \
+                            seed_seq_id in already_removed:
                 continue
-            #if sequences are different lengths, can't be 100% ID right? So continue
-            if self.unmapped_bases[member_seq_id].shape[0] != self.unmapped_bases[seed_seq_id].shape[0]:
+            # if sequences are different lengths, can't be 100% ID right?
+            # So continue
+            if self.unmapped_bases[member_seq_id].shape[0] != \
+                    self.unmapped_bases[seed_seq_id].shape[0]:
                 continue
             if len(alnstring_pat.findall(row[3])) > 1:
-                continue # problem dealing with array lengths in _emirge.count_cigar_aln, so bypassing for now
-                #not sure if this is right approach, but should be excluding non-identical sequences (where cigarstring indicates D or I)
-            # decide if these pass the cluster_thresh *over non-gapped, mapped columns*
-            # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
-            #   0     1     2   3   4   5  6    7
+                continue
+                # problem dealing with array lengths in _emirge.count_cigar_aln,
+                # so bypassing for now not sure if this is right approach, but
+                # should be excluding non-identical sequences (where
+                # cigarstring indicates D or I)
+                # decide if these pass the cluster_thresh *over non-gapped,
+                # mapped columns*
+                # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
+                #   0     1     2   3   4   5  6    7
             member_start = int(row[4]) - 1  # printed as 1-based by vsearch now
             seed_start = int(row[6]) - 1
 
-            # print >> sys.stderr, "DEBUG", alnstring_pat.findall(row[3])
-            aln_columns, matches = amplicon.count_cigar_aln(tmp_fastafile.fetch(seed_name),
-                                                            tmp_fastafile.fetch(member_name),
-                                                            self.unmapped_bases[seed_seq_id],
-                                                            self.unmapped_bases[member_seq_id],
-                                                            seed_start,
-                                                            member_start,
-                                                            alnstring_pat.findall(row[3]))
-            ## print >> sys.stderr, "DEBUG: %.6e seconds"%(time()-t0)# timedelta(seconds = time()-t0)
+            aln_columns, matches = amplicon.count_cigar_aln(
+                    tmp_fastafile.fetch(seed_name),
+                    tmp_fastafile.fetch(member_name),
+                    self.unmapped_bases[seed_seq_id],
+                    self.unmapped_bases[member_seq_id],
+                    seed_start,
+                    member_start,
+                    alnstring_pat.findall(row[3])
+            )
 
-            # if alignment is less than 1000 bases, or identity over those 500+ bases is not above thresh, then continue
+            # if alignment is less than 1000 bases, or identity over those
+            # 500+ bases is not above thresh, then continue
 
-            
-            if (aln_columns < 500) \
-                   or ((float(matches) / aln_columns) < 1.0):  # Fixed merging threshold for EMIRGE2.  During iterations only merge seqs that are 100% identical. Rest are cleaned up in post-processing steps.
-                    #or ((float(matches) / aln_columns) < self.cluster_thresh):
-                   # or (float(aln_columns) / min(seed_n_mapped_bases, member_n_mapped_bases) < 0.9)
+            if aln_columns < 500 \
+               or ((float(matches) / aln_columns) < 1.0):
+                # Fixed merging threshold for EMIRGE2.  During iterations only
+                #  merge seqs that are 100% identical. Rest are cleaned up in
+                # post-processing steps.
+                # or ((float(matches) / aln_columns) < self.cluster_thresh):
+                # or (float(aln_columns) / min(seed_n_mapped_bases,
+                # member_n_mapped_bases) < 0.9)
                 continue
 
-            minimum_residence_time = -1  # how many iters does a newly split out seq have to be around before it's allowed to merge again.  -1 to turn this off.
-            member_first_appeared = self.split_seq_first_appeared.get(member_seq_id)
-            if member_first_appeared is not None and self.iteration_i - member_first_appeared <= minimum_residence_time:
+            # how many iters does a newly split out seq have to be around
+            # before it's allowed to merge again.  -1 to turn this off.
+            minimum_residence_time = -1
+            member_first_appeared = \
+                self.split_seq_first_appeared.get(member_seq_id)
+            if member_first_appeared is not None and \
+               self.iteration_i - member_first_appeared <= \
+               minimum_residence_time:
                 continue
             seed_first_appeared = self.split_seq_first_appeared.get(seed_seq_id)
-            if seed_first_appeared is not None and self.iteration_i - seed_first_appeared <= minimum_residence_time:
+            if seed_first_appeared is not None and \
+               self.iteration_i - seed_first_appeared <= minimum_residence_time:
                 continue
 
             if self.num_seqs < 50:
@@ -1021,7 +1090,8 @@ class EM(object):
                          % (member_seq_id, member_name, seed_seq_id, seed_name,
                             float(matches) / aln_columns, aln_columns, row[2]))
 
-            # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
+            # if above thresh, then first decide which sequence to keep,
+            # (one with higher prior probability).
             percent_id = (float(matches) / aln_columns) * 100.
             t0 = time()
             if self.priors[-1][seed_seq_id] > self.priors[-1][member_seq_id]:
@@ -1039,20 +1109,29 @@ class EM(object):
             self.priors[-1][keep_seq_id] += self.priors[-1][remove_seq_id]
             self.priors[-1][remove_seq_id] = 0.0
 
-            # now merge posteriors (all removed probs from remove_seq_id go to keep_seq_id).
+            # now merge posteriors (all removed probs from remove_seq_id go to
+            # keep_seq_id).
             # self.posteriors[-1] at this point is lil_matrix
-            # some manipulations of underlying sparse matrix data structures for efficiency here.
-            # 1st, do addition in csr format (fast), convert to lil format, and store result in temporary array.
-            new_row = (self.posteriors[-1].getrow(keep_seq_id).tocsr() + self.posteriors[-1].getrow(remove_seq_id).tocsr()).tolil()
-            # then change linked lists directly in the posteriors data structure -- this is very fast
+            # some manipulations of underlying sparse matrix data structures
+            # for efficiency here.
+            # 1st, do addition in csr format (fast), convert to lil format, and
+            # store result in temporary array.
+            new_row = (self.posteriors[-1].getrow(keep_seq_id).tocsr() +
+                       self.posteriors[-1].getrow(remove_seq_id).tocsr()
+                       ).tolil()
+            # then change linked lists directly in the posteriors data
+            # structure -- this is very fast
             self.posteriors[-1].data[keep_seq_id] = new_row.data[0]
             self.posteriors[-1].rows[keep_seq_id] = new_row.rows[0]
-            # these two lines remove the row from the linked list (or rather, make them empty rows), essentially setting all elements to 0
+            # these two lines remove the row from the linked list (or rather,
+            # make them empty rows), essentially setting all elements to 0
             self.posteriors[-1].rows[remove_seq_id] = []
             self.posteriors[-1].data[remove_seq_id] = []
 
-            # set self.probN[removed] to be None -- note that this doesn't really matter, except for
-            # writing out probN.pkl.gz every iteration, as probN is recalculated from bam file
+            # set self.probN[removed] to be None -- note that this doesn't
+            # really matter, except for
+            # writing out probN.pkl.gz every iteration, as probN is recalculated
+            # from bam file
             # with each iteration
             self.probN[remove_seq_id] = None
 
@@ -1065,25 +1144,19 @@ class EM(object):
                      % (remove_seq_id, remove_name, keep_seq_id, keep_name,
                         percent_id, aln_columns, times[-1]))
 
-        # if len(times) and self._VERBOSE:  # DEBUG
-        #     sys.stderr.write("merges: %d\n"%(len(times)))
-        #     sys.stderr.write("total time for all merges: %.3f seconds\n"%(np.sum(times)))
-        #     sys.stderr.write("average time per merge: %.3f seconds\n"%(np.mean(times)))
-        #     sys.stderr.write("min time per merge: %.3f seconds\n"%(np.min(times)))
-        #     sys.stderr.write("max time per merge: %.3f seconds\n"%(np.max(times)))
-
         # write new fasta file with only new sequences
-        log.info("Writing new fasta file for iteration %d" % (self.iteration_i))
+        log.info("Writing new fasta file for iteration %d" % self.iteration_i)
         tmp_fastafile.close()
-        #tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
-        # file above not being found, why not written now?
-        recordstrings=""
+        recordstrings = ""
         num_seqs = 0
-        for record in io.FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
+        # read through file again, overwriting orig file if we keep the seq
+        for record in io.FastIterator(file(fastafilename)):
             seqname = record.title.split()[0]
             seq_id = self.sequence_name2sequence_i.get(seqname)
             if seq_id not in already_removed:
-                recordstrings += str(record) # could do a better job here of actually "merging" a new consensus, rather than just keeping one or the other.
+                # could do a better job here of actually "merging" a new
+                # consensus, rather than just keeping one or the other.
+                recordstrings += str(record)
                 num_seqs += 1
         outfile = file(fastafilename, 'w')
         outfile.write(recordstrings)
@@ -1093,10 +1166,9 @@ class EM(object):
         for fn in tocleanup:
             os.remove(fn)
             
-        log.info("\tremoved %d sequences after merging" % (nummerged))
+        log.info("\tremoved %d sequences after merging" % nummerged)
         log.info("\tsequences remaining for iteration %02d: %d"
                  % (self.iteration_i, num_seqs))
-
 
     def get_n_alignments_from_bowtie(self):
         """
@@ -1115,8 +1187,10 @@ class EM(object):
         """
         sets self.likelihoods  (seq_n x read_n) for this round
         """
-        # first calculate self.probN from mapped reads, previous round's posteriors
-        self.calc_probN()  # (handles initial iteration differently within this method)
+        # first calculate self.probN from mapped reads, previous
+        # round's posteriors
+        # (handles initial iteration differently within this method):
+        self.calc_probN()
 
         # Cython function for heavy lifting.
         amplicon.calc_likelihood(self)
@@ -1135,21 +1209,13 @@ class EM(object):
         previous round's posterior.
         """
 
-        # here do looping in Cython (this loop is about 95% of the time in this method on test data):
+        # here do looping in Cython (this loop is about 95% of the time in this
+        # method on test data):
         amplicon.calc_probN(self)
 
     @log.timed("Calculating posteriors for iteration {self.iteration_i}")
     def calc_posteriors(self):
         amplicon.calc_posteriors(self)
-
-    def iterations_done(self):
-        """
-        check if we are done iterating, i.e. are the current reference sequences the same as that from the last round
-
-        returns True or False
-        """
-
-        return False
 
     def calc_cutoff_threshold(self):  # done at the end of the final iteration
         """
@@ -1168,14 +1234,14 @@ class EM(object):
         log.warning("Fragments mapped = %.9d"
                     % self.fragments_mapped)
         self.prob_min = (self.avg_emirge_seq_length * float(self.cov_thresh)) \
-                        / (self.fragments_mapped * ((int(self.paired_end)+1)*
-                                                  self.mean_read_length))
+            / (self.fragments_mapped * ((int(self.paired_end)+1) *
+                                        self.mean_read_length))
 
 
 def do_iterations(em, max_iter):
     """
-    an EM object is passed in, so that one could in theory start from a saved state
-    this should be moved into the EM object.
+    an EM object is passed in, so that one could in theory start from a saved
+    state this should be moved into the EM object.
     """
     os.chdir(em.cwd)
 
@@ -1204,23 +1270,23 @@ def post_process(em, working_dir):
     # first need to do rename(em) with no probmin - keeping all sequences for
     # clustering and writing out the raw output file
     nomin_fasta_filename = os.path.join(working_dir,
-                                        em.output_files_prefix
-                                        + "_nomin_iter."'%02d'
-                                        % em.max_iterations +".RAW.fasta")
+                                        em.output_files_prefix +
+                                        "_nomin_iter."'%02d'
+                                        % em.max_iterations + ".RAW.fasta")
     if os.path.exists(nomin_fasta_filename):
         log.warning("WARNING: overwriting file %s" % nomin_fasta_filename)
 
     rename(em.iterdir, nomin_fasta_filename,  em.output_files_prefix,
-           prob_min=None,no_N = False, no_trim_N = True)
+           prob_min=None, no_N=False, no_trim_N=True)
 
     # next need to cluster using vsearch at the user specified threshold,
     # default =0.97
-    centroids=os.path.join(working_dir,"centroids.tmp")
-    uc=os.path.join(working_dir,"uc.tmp")
+    centroids = os.path.join(working_dir, "centroids.tmp")
+    uc = os.path.join(working_dir, "uc.tmp")
     cmd = "vsearch --cluster_smallmem %s -usersort -notrunclabels -id %.2f" \
-          " -centroids %s -uc %s " % (nomin_fasta_filename,em.cluster_thresh,
-                                     centroids,uc)
-    log.info("vsearch command was:\n%s" % (cmd))
+          " -centroids %s -uc %s " % (nomin_fasta_filename, em.cluster_thresh,
+                                      centroids, uc)
+    log.info("vsearch command was:\n%s" % cmd)
 
     check_call(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
 
@@ -1228,9 +1294,9 @@ def post_process(em, working_dir):
     # abundance over cutoff
     log.warning("Minimum abundance for estimated %.2dX coverage is %.6f"
                 % (em.cov_thresh, em.prob_min))
-    clustered_fasta=os.path.join(working_dir,em.output_files_prefix
-                                 + "_iter."'%02d'%em.max_iterations
-                                 + "_"'%.6f'%em.prob_min+".fasta")
+    clustered_fasta = os.path.join(working_dir, em.output_files_prefix +
+                                   "_iter."'%02d' % em.max_iterations +
+                                   "_"'%.6f' % em.prob_min + ".fasta")
     outfile = open(clustered_fasta, 'w')
     size_pattern = re.compile(r'NormPrior=([0-9\.]+)')
 
@@ -1239,27 +1305,33 @@ def post_process(em, working_dir):
         atoms = line.strip().split('\t')
         if atoms[0] == 'S':  # seed
             # get seed size, add to current cluster size
-            cluster_sizes[atoms[8]] = cluster_sizes.get(atoms[8], 0) + \
-                                      float(size_pattern.search(atoms[8]).groups()[0])
+            cluster_sizes[atoms[8]] = \
+                cluster_sizes.get(atoms[8], 0) + \
+                float(size_pattern.search(atoms[8]).groups()[0])
         elif atoms[0] == 'H':  # hit
             # get hit size, add to current cluster size
-            cluster_sizes[atoms[9]] = cluster_sizes.get(atoms[9], 0) + \
-                                      float(size_pattern.search(atoms[8]).groups()[0])
+            cluster_sizes[atoms[9]] = \
+                cluster_sizes.get(atoms[9], 0) + \
+                float(size_pattern.search(atoms[8]).groups()[0])
         elif atoms[0] == 'C':
             break
         else:
-            raise ValueError, "Unknown code in uc file: %s" % atoms[0]
-
+            raise ValueError("Unknown code in uc file: %s" % atoms[0])
 
     good_ids = {}
     for line in open(centroids, 'r'):
         if line.startswith('>'):
-            ID = line.strip().split(">")[1]
-            if cluster_sizes[ID] >= em.prob_min:
-                good_ids[ID]=((size_pattern.sub('comb_abund=%f'%cluster_sizes[ID], line)))  # collect IDs of those sequences whose combined cluster abundance is over the calculated$
+            id = line.strip().split(">")[1]
+            if cluster_sizes[id] >= em.prob_min:
+                # collect IDs of those sequences whose combined cluster
+                # abundance is over the calculated$
+                good_ids[id] = ((size_pattern.sub(
+                        'comb_abund=%f' % cluster_sizes[id], line
+                )))
 
-    # header should be just containing comb_abund.  As it stands, haven't replaced/removed Prior=
-    for record in SeqIO.parse(open(centroids,'r'),'fasta'):
+    # header should be just containing comb_abund.  As it stands, haven't
+    # replaced/removed Prior=
+    for record in SeqIO.parse(open(centroids, 'r'), 'fasta'):
         if record.description in good_ids:
             atoms = good_ids[record.description].strip(">").split(" ")
             record.id = atoms[0]
@@ -1283,21 +1355,23 @@ def dependency_check():
     working_minor = 1
     working_minor_minor = 0
     match = re.search(r'vsearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)',
-                      Popen("vsearch --version", shell=True, stdout=PIPE).stdout.read())
+                      Popen("vsearch --version", shell=True, stdout=PIPE
+                            ).stdout.read())
     if match is None:
         log.critical("FATAL: vsearch not found in path!")
         exit(0)
-    binary_name, vsearch_major, vsearch_minor, vsearch_minor_minor = match.groups()
+    binary_name, vsearch_major, vsearch_minor, vsearch_minor_minor = \
+        match.groups()
     vsearch_major = int(vsearch_major)
     vsearch_minor = int(vsearch_minor)
     vsearch_minor_minor = int(vsearch_minor_minor)
     if vsearch_major < working_maj or \
-       (vsearch_major == working_maj and (vsearch_minor < working_minor or \
-                                          (vsearch_minor == working_minor and vsearch_minor_minor < working_minor_minor))):
+            (vsearch_major == working_maj and
+                 (vsearch_minor < working_minor or
+                      (vsearch_minor == working_minor and
+                           vsearch_minor_minor < working_minor_minor))):
         log.critical("FATAL: vsearch version found was %s.%s.%s.\n"
                      "emirge works with version >=  %s.%s.%s\n"
-                     "vsearch has different command line arguments and minor bugs"
-                     "in previous versions that can cause problems."
                      % (vsearch_major, vsearch_minor, vsearch_minor_minor,
                         working_maj, working_minor, working_minor_minor))
         exit(0)
@@ -1575,7 +1649,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     # TODO
     
     sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"
-                     % (ctime(), timedelta(seconds = time()-total_start_time)))
+                     % (ctime(), timedelta(seconds=time() - total_start_time)))
 
 
 if __name__ == '__main__':
