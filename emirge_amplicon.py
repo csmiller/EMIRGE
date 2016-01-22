@@ -64,7 +64,7 @@ from subprocess import Popen, PIPE, check_call
 from time import ctime, time
 
 import Emirge.amplicon as amplicon
-import numpy
+import numpy as np
 import pysam
 from Bio import SeqIO
 from scipy import sparse
@@ -257,15 +257,15 @@ class EM(object):
                  % self.n_reads)
 
         # bool vector indicating whether read n was ever seen mapped
-        self.reads_seen = numpy.zeros(self.n_reads, dtype=numpy.uint8)
+        self.reads_seen = np.zeros(self.n_reads, dtype=np.uint8)
 
         # where 1st dimension is read index (from rewritten file headers)
         # and second dimension is read number (0 or 1 ==> read /1 or read /2)
         # 3rd dimension for reads and quals is max_readlen
-        self.reads = numpy.empty((self.n_reads, 2, self.max_read_length),
-                                 dtype=numpy.uint8)
-        self.quals = numpy.empty_like(self.reads)
-        self.readlengths = numpy.empty((self.n_reads, 2), dtype=numpy.uint16)
+        self.reads = np.empty((self.n_reads, 2, self.max_read_length),
+                                 dtype=np.uint8)
+        self.quals = np.empty_like(self.reads)
+        self.readlengths = np.empty((self.n_reads, 2), dtype=np.uint16)
 
         # read through reads file again, fill these.
         amplicon.populate_reads_arrays(self)
@@ -335,12 +335,12 @@ class EM(object):
         self.n_sequences = len(self.sequence_name2sequence_i)
         INFO("Number of references with mappings: %s" % self.n_sequences)
 
-        self.priors.append(numpy.zeros(self.n_sequences, dtype=numpy.float))
+        self.priors.append(np.zeros(self.n_sequences, dtype=np.float))
         self.likelihoods = sparse.coo_matrix(
-            (self.n_sequences, self.n_reads), dtype=numpy.float
+            (self.n_sequences, self.n_reads), dtype=np.float
         )  # init all to zero.
         self.posteriors.append(sparse.lil_matrix(
-            (self.n_sequences + 1, self.n_reads + 1), dtype=numpy.float)
+            (self.n_sequences + 1, self.n_reads + 1), dtype=np.float)
         )
 
         # TODO: is this necessary any more?
@@ -351,7 +351,7 @@ class EM(object):
         self.unmapped_bases = [None] * self.n_sequences
         # need to calculate this each time? can't we set this once as
         # self.readlengths doesn't change with iters?
-        self.mean_read_length = numpy.mean(self.readlengths)
+        self.mean_read_length = np.mean(self.readlengths)
 
         # reset probN for valid sequences (from
         # current_reference_fasta_filename). is this still necessary?
@@ -404,13 +404,13 @@ class EM(object):
         # (all seq_i in priors should be nonzero initially)
         # only divide cells with at least one count.
         # Set all others to Pr(S) = 0
-        nonzero_indices = numpy.nonzero(self.priors[-1])
+        nonzero_indices = np.nonzero(self.priors[-1])
         # turn these into probabilities
         self.priors[-1] = self.priors[-1][nonzero_indices] / \
                           self.priors[-1][nonzero_indices].sum()
 
         if randomize_priors:
-            numpy.random.shuffle(self.priors[-1])
+            np.random.shuffle(self.priors[-1])
 
         # push this back to t-1 (index == -2)
         self.priors.append(self.priors[-1].copy())
@@ -476,7 +476,7 @@ class EM(object):
                                    "priors.iter.%02d.txt" % (self.iteration_i)),
                       'w')
         sequence_i2sequence_name_array = \
-            numpy.array(self.sequence_i2sequence_name)  # faster slicing?
+            np.array(self.sequence_i2sequence_name)  # faster slicing?
         for seq_i, prior in enumerate(self.priors[-1]):
             seqname = sequence_i2sequence_name_array[seq_i]
             of.write("%d\t%s\t%.10f\n" % (seq_i, seqname, prior))
@@ -501,7 +501,7 @@ class EM(object):
         # therefore, should be csc sparse type for efficient summing
         self.posteriors[-1] = self.posteriors[-1].tocsc()
         self.priors[-1] = \
-            numpy.asarray(self.posteriors[-1].sum(axis=1)).flatten() / \
+            np.asarray(self.posteriors[-1].sum(axis=1)).flatten() / \
             self.posteriors[-1].sum()
 
     @log.timed("Writing consensus for iteration {self.iteration_i}")
@@ -572,10 +572,10 @@ class EM(object):
 
             # else passes culling thresholds
             title = str(self.sequence_i2sequence_name[seq_i])
-            consensus = numpy.array([i2base.get(x, "N")
-                                     for x in numpy.argsort(
+            consensus = np.array([i2base.get(x, "N")
+                                     for x in np.argsort(
                                        self.probN[seq_i])[:,-1]])
-            orig_bases = numpy.array(reference_fastafile.fetch(title).lower(),
+            orig_bases = np.array(reference_fastafile.fetch(title).lower(),
                                      dtype='c')
 
             # check for deletion, collect deletion sites:
@@ -602,22 +602,22 @@ class EM(object):
                         del_hits.append(base_i)
                     else:
                         self.probN[seq_i][base_i,4] = 0
-            deletion_indices=numpy.array(del_hits)
+            deletion_indices=np.array(del_hits)
 
             # check for minor allele consensus, SPLIT sequence into two
             # candidate sequences if passes thresholds.
-            minor_indices = numpy.argwhere(
+            minor_indices = np.argwhere(
                     (
                         self.probN[seq_i] >= self.snp_minor_prob_thresh
                     ).sum(axis=1) >= 2
             )[:, 0]
             if minor_indices.shape[0] > 0:
                 minor_fraction_avg = \
-                    numpy.mean(
+                    np.mean(
                             self.probN[seq_i][
                                 (
                                     minor_indices,
-                                    numpy.argsort(
+                                    np.argsort(
                                             self.probN[seq_i][minor_indices]
                                     )[:, -2]
                                 )
@@ -654,7 +654,7 @@ class EM(object):
             #    for i in minor_indices:
             #            if i not in deletion_indices:
             #                mi.append(i)
-            #    minor_indices=numpy.array(mi)
+            #    minor_indices=np.array(mi)
 
             if deletion_indices.shape[0] > 0 or (
                 (deletion_indices.shape[0] + minor_indices.shape[0]) /
@@ -668,9 +668,9 @@ class EM(object):
                 # minors)
                 major_fraction_avg = 1.-minor_fraction_avg
                 # -2 gets second most probable base:
-                minor_bases = numpy.array(
+                minor_bases = np.array(
                         [i2base.get(x, "N")
-                         for x in numpy.argsort(
+                         for x in np.argsort(
                                 self.probN[seq_i][minor_indices]
                          )[:,-2]]
                 )
@@ -685,7 +685,7 @@ class EM(object):
                 # for i in range(minor_consensus.shape[0]):
                 #    if not i in deletion_indices:
                 #        new_minor_c.append(minor_consensus[i])
-                # new_minor_c = numpy.array(new_minor_c)
+                # new_minor_c = np.array(new_minor_c)
 
                 # now deal with naming.
                 title_root = re.search(r'(.+)(_m(\d+))$', title)
@@ -724,26 +724,26 @@ class EM(object):
                 # to other bases for minor, and set prob(minor base) = 0 and
                 # redistribute prob to other bases for major
                 # MINOR
-                major_base_i = numpy.argsort(
+                major_base_i = np.argsort(
                         self.probN[seq_i][minor_indices]
                 )[:, -1]
                 newprobNarray = self.probN[seq_i].copy()
                 newprobNarray[(minor_indices, major_base_i)] = 0
                 newprobNarray = newprobNarray / \
-                                numpy.sum(newprobNarray, axis=1).reshape(
+                                np.sum(newprobNarray, axis=1).reshape(
                                         newprobNarray.shape[0], 1)
                 probNtoadd.append(newprobNarray)
 
                 #why are we doing this?!?!?
-                self.base_coverages.append(numpy.zeros_like(
+                self.base_coverages.append(np.zeros_like(
                         self.base_coverages[seq_i]))
 
                 # MAJOR
-                minor_base_i = numpy.argsort(self.probN[seq_i][minor_indices])[:, -2]
+                minor_base_i = np.argsort(self.probN[seq_i][minor_indices])[:, -2]
                 self.probN[seq_i][(minor_indices, minor_base_i)] = 0
-                self.probN[seq_i] = self.probN[seq_i] / numpy.sum(self.probN[seq_i], axis=1).reshape(self.probN[seq_i].shape[0], 1)
+                self.probN[seq_i] = self.probN[seq_i] / np.sum(self.probN[seq_i], axis=1).reshape(self.probN[seq_i].shape[0], 1)
 
-                new_priors = numpy.zeros(seq_i_minor + 1, dtype=self.priors[-1].dtype)
+                new_priors = np.zeros(seq_i_minor + 1, dtype=self.priors[-1].dtype)
                 new_priors[:-1] = self.priors[-1].copy()
                 new_priors[seq_i_minor] = old_prior * minor_fraction_avg
                 trash = self.priors.pop()
@@ -779,7 +779,7 @@ class EM(object):
                 minor_consensus = self.eval_indels(seq_i, minor_consensus, m_title,orig_bases,mask="soft") # added for indels
                 of.write("%s\n"%("".join(minor_consensus)))
                 of_tmp.write("%s\n"%("".join(minor_consensus)))
-                self.unmapped_bases.append(numpy.zeros(len(consensus),dtype=numpy.uint8))
+                self.unmapped_bases.append(np.zeros(len(consensus),dtype=np.uint8))
                 print "new sequence %s is length %s"%(title,len(consensus))
                 self.num_seqs+=1
                 log.info("splitting sequence %d (%s) to %d (%s)...\n"
@@ -800,9 +800,9 @@ class EM(object):
         new_posteriors = self.posteriors[-1].tocoo()  # first make a copy in coo format
         # then create new coo matrix with new shape, appending new row, col, data to old row, col, data
 
-        new_posteriors = sparse.coo_matrix((numpy.concatenate((new_posteriors.data, data_to_add)),
-                                            (numpy.concatenate((new_posteriors.row, rows_to_add)),
-                                             numpy.concatenate((new_posteriors.col, cols_to_add)))),
+        new_posteriors = sparse.coo_matrix((np.concatenate((new_posteriors.data, data_to_add)),
+                                            (np.concatenate((new_posteriors.row, rows_to_add)),
+                                             np.concatenate((new_posteriors.col, cols_to_add)))),
                                            shape=(self.n_sequences, self.posteriors[-1].shape[1]),
                                            dtype=new_posteriors.dtype).tocsr()
 
@@ -817,9 +817,9 @@ class EM(object):
         log.info("Split out %d new minor strain sequences." % (splitcount))
         if splitcount > 0:
             log.info("Average time for split sequence: [%.6f seconds]"
-                     % numpy.mean(times_split))
+                     % np.mean(times_split))
             log.info("Average time for posterior update: [%.6f seconds]"
-                     % numpy.mean(times_posteriors))
+                     % np.mean(times_posteriors))
             log.info("Average time for non-split sequences: [%.6f seconds]"
                      % ((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
 
@@ -1067,10 +1067,10 @@ class EM(object):
 
         # if len(times) and self._VERBOSE:  # DEBUG
         #     sys.stderr.write("merges: %d\n"%(len(times)))
-        #     sys.stderr.write("total time for all merges: %.3f seconds\n"%(numpy.sum(times)))
-        #     sys.stderr.write("average time per merge: %.3f seconds\n"%(numpy.mean(times)))
-        #     sys.stderr.write("min time per merge: %.3f seconds\n"%(numpy.min(times)))
-        #     sys.stderr.write("max time per merge: %.3f seconds\n"%(numpy.max(times)))
+        #     sys.stderr.write("total time for all merges: %.3f seconds\n"%(np.sum(times)))
+        #     sys.stderr.write("average time per merge: %.3f seconds\n"%(np.mean(times)))
+        #     sys.stderr.write("min time per merge: %.3f seconds\n"%(np.min(times)))
+        #     sys.stderr.write("max time per merge: %.3f seconds\n"%(np.max(times)))
 
         # write new fasta file with only new sequences
         log.info("Writing new fasta file for iteration %d" % (self.iteration_i))
@@ -1159,7 +1159,7 @@ class EM(object):
         """
 
         with io.AlignmentFile(self.current_bam_filename, "rb") as bamfile:
-            self.avg_emirge_seq_length = numpy.mean(bamfile.lengths)
+            self.avg_emirge_seq_length = np.mean(bamfile.lengths)
 
         log.warning("Average read length is %.4d"
                     % self.mean_read_length)
