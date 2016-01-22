@@ -496,12 +496,14 @@ def get_options(parser):
     opts.add_option(
             "-i", "--insert_mean",
             type="int", default=1500,
-            help="Insert size distribution mean. (default: %default)")
+            help="Insert size distribution mean.    There should not be a need "
+                 "to change this, except for extremely unusual sequencing "
+                 "libraries. (default: %default)")
     opts.add_option(
             "-s", "--insert_stddev",
             type="int", default=500,
-            help="Insert size distribution standard deviation. (default: "
-                 "%default")
+            help="Insert size distribution standard deviation. See insert "
+                 "mean above. (default: %default")
     opts.add_option(
             "-P", "--prefilter-reads",
             action="store_true", default=False,
