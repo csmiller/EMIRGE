@@ -182,7 +182,6 @@ class EM(object):
         self.avg_emirge_seq_length = None
         self.prob_min = None
 
-
         # keeps track of which iteration we are on.
         self.iteration_i = None
 
@@ -224,8 +223,8 @@ class EM(object):
         self.n_reads_mapped = 0
         self.n_sequences = 0
 
-        self.num_seqs = 0 #this is used in sequence clustering - might need
-        #to rename it for clarity
+        self.num_seqs = 0  # this is used in sequence clustering - might need
+        # to rename it for clarity
 
         # other constants, potentially changeable, tunable later,
         # or could incorporate into probabilistic model:
@@ -238,11 +237,11 @@ class EM(object):
         # NOT YET IMPLEMENTED
         self.min_prior = None
 
-        self.base_coverages = [] # list of numpy arrays -- per base coverage values.
+        # list of numpy arrays -- per base coverage values.
+        self.base_coverages = []
         # EXPERIMENTAL:  Minimum coverage in order to be counted in
         #                min_length_coverage
         self.min_length_coverage_def = 1
-
 
         # cov_thresh=options.min_coverage_threshold
         self.cov_thresh = cov_thresh
@@ -334,7 +333,7 @@ class EM(object):
         amplicon.process_bamfile(self, bamfile, BOWTIE_ASCII_OFFSET)
 
         self.n_sequences = len(self.sequence_name2sequence_i)
-        print "after bamfile, n_sequences is: %s"%self.n_sequences
+        INFO("Number of references with mappings: %s" % self.n_sequences)
 
         self.priors.append(numpy.zeros(self.n_sequences, dtype=numpy.float))
         self.likelihoods = sparse.coo_matrix(
@@ -359,7 +358,6 @@ class EM(object):
         # Or do I keep probN bookkeeping in order already?
         amplicon.reset_probN(self, bamfile)  # also updates coverage values and
         # culls via fraction of length covered, NEW: resets prob_indels as well
-        # print >> sys.stderr, "DEBUG: reset_probN loop time: %s"%(timedelta(seconds = time()-t_check))
 
         for d in [self.priors, self.posteriors]:
             if len(d) > 2:
@@ -370,13 +368,18 @@ class EM(object):
     def initialize_EM(self, randomize_priors=False):
         """
         Set up EM with two things so that first iteration can proceed:
-           - Initial guesses of Pr(S) are made purely based on read counts, where each read is only allowed to
-             map only once to a single best reference  (**if more than one alignment reported per read, raise exception!**).
-           - Initial guess of Pr(N=n) (necessary for likelihood in Pr(S|R) is also calculated simply, with the assumption
-             of 1 read (the best again) mapped to exactly 1 sequence.  Thus Pr(N=n) only takes the base call errors
-             into account.  This is actually not done here, but rather the first time self.calc_probN is called.
+           - Initial guesses of Pr(S) are made purely based on read counts,
+             where each read is only allowed to map only once to a single best
+             reference  (**if more than one alignment reported per read, raise
+             exception!**).
+           - Initial guess of Pr(N=n) (necessary for likelihood in Pr(S|R) is
+             also calculated simply, with the assumption of 1 read (the best
+             again) mapped to exactly 1 sequence.  Thus Pr(N=n) only takes the
+             base call errors into account.  This is actually not done here,
+             but rather the first time self.calc_probN is called.
 
-           - bamfile for iteration 0 is assumed to have just one ("best") mapping per read.
+           - bamfile for iteration 0 is assumed to have just one ("best")
+             mapping per read.
            - there is no t-1 for t = 0, hence the need to set up Pr(S)
 
            if randomize_priors == True, then after calculating priors,
@@ -389,20 +392,28 @@ class EM(object):
         self.iteration_i = -1
         self.read_bam()
 
-        # initialize priors.  Here just adding a count for each read mapped to each reference sequence
-        # since bowtie run with --best and reporting just 1 alignment at random, there is some stochasticity here.
+        # initialize priors.  Here just adding a count for each read mapped to
+        # each reference sequence
+        # since bowtie run with --best and reporting just 1 alignment at
+        # random, there is some stochasticity here.
         for (seq_i, read_i, pair_i, rlen, pos, is_reverse) in self.bamfile_data:
             # if self.probN[seq_i] is not None:
             self.priors[-1][seq_i] += 1
 
-        # this shouldn't be necessary with way I do initial mapping right now (all seq_i in priors should be nonzero initially)
-        nonzero_indices = numpy.nonzero(self.priors[-1])  # only divide cells with at least one count.  Set all others to Pr(S) = 0
-        self.priors[-1] = self.priors[-1][nonzero_indices] / self.priors[-1][nonzero_indices].sum()  # turn these into probabilities
+        # this shouldn't be necessary with way I do initial mapping right now
+        # (all seq_i in priors should be nonzero initially)
+        # only divide cells with at least one count.
+        # Set all others to Pr(S) = 0
+        nonzero_indices = numpy.nonzero(self.priors[-1])
+        # turn these into probabilities
+        self.priors[-1] = self.priors[-1][nonzero_indices] / \
+                          self.priors[-1][nonzero_indices].sum()
 
         if randomize_priors:
             numpy.random.shuffle(self.priors[-1])
 
-        self.priors.append(self.priors[-1].copy())  # push this back to t-1 (index == -2)
+        # push this back to t-1 (index == -2)
+        self.priors.append(self.priors[-1].copy())
 
         # write priors as special case:
         self.print_priors(os.path.join(self.cwd, "priors.initialized.txt"))
@@ -461,8 +472,11 @@ class EM(object):
         if ofname is not None:
             of = file(ofname, 'w')
         else:
-            of = file(os.path.join(self.iterdir, "priors.iter.%02d.txt" % (self.iteration_i)), 'w')
-        sequence_i2sequence_name_array = numpy.array(self.sequence_i2sequence_name)  # faster slicing?
+            of = file(os.path.join(self.iterdir,
+                                   "priors.iter.%02d.txt" % (self.iteration_i)),
+                      'w')
+        sequence_i2sequence_name_array = \
+            numpy.array(self.sequence_i2sequence_name)  # faster slicing?
         for seq_i, prior in enumerate(self.priors[-1]):
             seqname = sequence_i2sequence_name_array[seq_i]
             of.write("%d\t%s\t%.10f\n" % (seq_i, seqname, prior))
@@ -473,8 +487,10 @@ class EM(object):
     def print_probN(self):
         # python gzip.GzipFile is slow.  Use system call to gzip instead
         pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
-        cPickle.dump(self.probN, file(pickled_filename, 'w'), cPickle.HIGHEST_PROTOCOL)
-        check_call("gzip -f %s" % (pickled_filename), shell=True, stdout=sys.stdout, stderr=sys.stderr)
+        cPickle.dump(self.probN, file(pickled_filename, 'w'),
+                     cPickle.HIGHEST_PROTOCOL)
+        check_call("gzip -f %s" % (pickled_filename),
+                   shell=True, stdout=sys.stdout, stderr=sys.stderr)
 
     def calc_priors(self):
         """
@@ -484,19 +500,25 @@ class EM(object):
         # here we do have column summing with the posteriors
         # therefore, should be csc sparse type for efficient summing
         self.posteriors[-1] = self.posteriors[-1].tocsc()
-        self.priors[-1] = numpy.asarray(self.posteriors[-1].sum(axis=1)).flatten() / self.posteriors[-1].sum()
+        self.priors[-1] = \
+            numpy.asarray(self.posteriors[-1].sum(axis=1)).flatten() / \
+            self.posteriors[-1].sum()
 
     @log.timed("Writing consensus for iteration {self.iteration_i}")
     def write_consensus(self, outputfilename, reference_fasta_filename):
         """
-        writes a consensus, taking the most probable base at each position, according to current
-        values in Pr(N=n) (self.probN)
+        writes a consensus, taking the most probable base at each position,
+        according to current values in Pr(N=n) (self.probN)
 
         only write sequences with coverage above self.min_depth (culling)
         split sequences with many minor alleles:
-             self.snp_minor_prob_thresh     # if prob(N) for minor allele base N is >= this threshold, call site a minor allele
-             self.snp_percentage_thresh     # if >= this percentage of bases are minor alleles (according to self.snp_minor_prob_thresh),
-                                            # then split this sequence into two sequences.
+             self.snp_minor_prob_thresh
+                if prob(N) for minor allele base N is >= this threshold,
+                call site a minor allele
+             self.snp_percentage_thresh
+                if >= this percentage of bases are minor alleles (according to
+                self.snp_minor_prob_thresh), then split this sequence into two
+                sequences.
 
         """
         log.info("\tsnp_minor_prob_thresh = %.3f" % (self.snp_minor_prob_thresh))
@@ -507,64 +529,100 @@ class EM(object):
         tmp_fastafilename = outputfilename + ".tmp.fasta" 
         of_tmp = file(tmp_fastafilename,'w')
 
-        times_split   = []              # DEBUG
-        times_posteriors   = []              # DEBUG
-        seqs_to_process = len(self.probN) # DEBUG
+        # DEBUG:
+        times_split = []
+        times_posteriors = []
+        seqs_to_process = len(self.probN)
 
         i2base = self.i2base
-        rows_to_add = []                # these are for updating posteriors at end with new minor strains
+        # these are for updating posteriors at end with new minor strains
+        rows_to_add = []
         cols_to_add = []
         data_to_add = []
-        probNtoadd  = []  # for newly split out sequences
+        probNtoadd = []  # for newly split out sequences
 
-        self.posteriors[-1] = self.posteriors[-1].tolil()  # just to make sure this is in row-access-friendly format
+        # just to make sure this is in row-access-friendly format
+        self.posteriors[-1] = self.posteriors[-1].tolil()
         reference_fastafile = pysam.Fastafile(reference_fasta_filename)
         self.num_seqs=0
         loop_t0 = time()
         for seq_i in range(len(self.probN)):
             seq_i_t0 = time()
-            if self.probN[seq_i] is None: # means this sequence is no longer present in this iteration or was culled in reset_probN
+            if self.probN[seq_i] is None:
+                # this sequence is no longer present in this iteration
+                # or was culled in reset_probN
                 continue
-            # FOLLOWING CULLING RULES REMOVED in favor of length-coverage culling in reset_probN()
-            # check if coverage passes self.min_depth, if not don't write it (culling happens here)
-            # if self.min_depth is not None and self.coverage[seq_i] < self.min_depth: #  and self.iteration_i > 5:
+            # FOLLOWING CULLING RULES REMOVED in favor of length-coverage
+            # culling in reset_probN()
+            # check if coverage passes self.min_depth, if not don't write it
+            # (culling happens here)
+            # if self.min_depth is not None and self.coverage[seq_i] \
+            #    < self.min_depth: #  and self.iteration_i > 5:
             #     # could adjust priors and posteriors here, but because
             #     # prior will already be low (b/c of low coverage) and
             #     # because next round will have 0 mappings (no sequence
             #     # in reference file to map to), this seems
             #     # unnecessary.
 
-            #     # probNarray = None  # NOT PASSED BY REF, assignment is only local?
+            #     # probNarray = None  # NOT PASSED BY REF, assignment is only
+            #                            local?
             #     self.probN[seq_i] = None
             #     cullcount += 1
             #     continue # continue == don't write it to consensus.
 
             # else passes culling thresholds
             title = str(self.sequence_i2sequence_name[seq_i])
-            consensus = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i])[:,-1]])
-            orig_bases = numpy.array(reference_fastafile.fetch(title).lower(), dtype='c')
+            consensus = numpy.array([i2base.get(x, "N")
+                                     for x in numpy.argsort(
+                                       self.probN[seq_i])[:,-1]])
+            orig_bases = numpy.array(reference_fastafile.fetch(title).lower(),
+                                     dtype='c')
 
             # check for deletion, collect deletion sites:
-            deletion_threshold  = self.indel_thresh/2 #need to decide relative weight of competing insertions/deletions
-            prob_indels_single = self.prob_indels[seq_i] #retreive single numpy matrix of prob_indel values for seq_i from prob_indels list of numpy matrices
+            # need to decide relative weight of competing insertions/deletions
+            deletion_threshold  = self.indel_thresh/2
+            # retrieve single numpy matrix of prob_indel values for seq_i from
+            # prob_indels list of numpy matrices
+            prob_indels_single = self.prob_indels[seq_i]
             del_hits=[]
             for base_i in range (prob_indels_single.shape[0]):
-            # Eval if deletion exists at base position
-            # Divides weight of deletion, by the sum of both deletions and matches
-                denominator = (prob_indels_single[base_i,0] + prob_indels_single[base_i,2])
+                # Eval if deletion exists at base position
+                # Divides weight of deletion, by the sum of both deletions
+                # and matches
+                denominator = (prob_indels_single[base_i,0] +
+                               prob_indels_single[base_i,2])
                 if denominator < 0:
-                    raise ValueError, "denominator should never be < 0 (actual: %s)"%denominator
+                    raise ValueError(
+                            "denominator should never be < 0 (actual: %s)"
+                            %denominator
+                    )
                 else:
-                    if (prob_indels_single[base_i,2] / denominator) > deletion_threshold:
+                    if (prob_indels_single[base_i,2] / denominator) \
+                            > deletion_threshold:
                         del_hits.append(base_i)
                     else:
                         self.probN[seq_i][base_i,4] = 0
             deletion_indices=numpy.array(del_hits)
 
-            # check for minor allele consensus, SPLIT sequence into two candidate sequences if passes thresholds.
-            minor_indices = numpy.argwhere((self.probN[seq_i] >= self.snp_minor_prob_thresh).sum(axis=1) >= 2)[:, 0]
+            # check for minor allele consensus, SPLIT sequence into two
+            # candidate sequences if passes thresholds.
+            minor_indices = numpy.argwhere(
+                    (
+                        self.probN[seq_i] >= self.snp_minor_prob_thresh
+                    ).sum(axis=1) >= 2
+            )[:, 0]
             if minor_indices.shape[0] > 0:
-                minor_fraction_avg = numpy.mean(self.probN[seq_i][(minor_indices, numpy.argsort(self.probN[seq_i][minor_indices])[:, -2])])
+                minor_fraction_avg = \
+                    numpy.mean(
+                            self.probN[seq_i][
+                                (
+                                    minor_indices,
+                                    numpy.argsort(
+                                            self.probN[seq_i][minor_indices]
+                                    )[:, -2]
+                                )
+                            ]
+                    )
             else:
                 minor_fraction_avg = 0.0
             # NEW rule: only split sequence if *expected* coverage
@@ -572,15 +630,25 @@ class EM(object):
             # coverage over reconstructed sequence) is > some
             # threshold.  Here, expected coverage is calculated
             # based on:
-            # Prior(seq_i) * number of MAPPED reads * avg read length * 2 seq per pair
-            expected_coverage_minor = ( self.priors[-1][seq_i] * minor_fraction_avg * self.n_reads_mapped * self.mean_read_length ) / self.probN[seq_i].shape[0]
-            expected_coverage_major = ( self.priors[-1][seq_i] * (1-minor_fraction_avg) * self.n_reads_mapped * self.mean_read_length ) / self.probN[seq_i].shape[0]
+            # Prior(seq_i) * number of MAPPED reads * avg read length
+            # * 2 seq per pair
+            expected_coverage_minor = \
+                ( self.priors[-1][seq_i] * minor_fraction_avg *
+                  self.n_reads_mapped * self.mean_read_length ) / \
+                self.probN[seq_i].shape[0]
+            expected_coverage_major = \
+                ( self.priors[-1][seq_i] * (1-minor_fraction_avg)
+                  * self.n_reads_mapped * self.mean_read_length ) / \
+                self.probN[seq_i].shape[0]
 
-            if self.reads2_filepath is not None:  # multipy by 2 because n_reads_mapped is actually number of mapped pairs
+            # multipy by 2 because n_reads_mapped is actually number of
+            # mapped pairs
+            if self.reads2_filepath is not None:
                 expected_coverage_minor *= 2.0
                 expected_coverage_major *= 2.0
 
-            # Deletions will override minor indices, so remove conflicting indices from minor_indices array:
+            # Deletions will override minor indices, so remove conflicting
+            # indices from minor_indices array:
             # if deletion_indices.shape[0] > 0:
             #    mi=[]
             #    for i in minor_indices:
@@ -588,20 +656,33 @@ class EM(object):
             #                mi.append(i)
             #    minor_indices=numpy.array(mi)
 
-            if (deletion_indices.shape[0])>0 or (((deletion_indices.shape[0] + minor_indices.shape[0])) / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
-                   expected_coverage_minor >= self.expected_coverage_thresh):
-            #if minor_indices.shape[0] / float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and \
-                   #expected_coverage_minor >= self.expected_coverage_thresh:
+            if deletion_indices.shape[0] > 0 or (
+                (deletion_indices.shape[0] + minor_indices.shape[0]) /
+                float(self.probN[seq_i].shape[0]) >=
+                self.snp_percentage_thresh and
+                expected_coverage_minor >= self.expected_coverage_thresh
+            ):
                 # We split!
                 splitcount += 1
-                major_fraction_avg = 1.-minor_fraction_avg # if there's >=3 alleles, major allele keeps prob of other minors)
-                minor_bases   = numpy.array([i2base.get(x, "N") for x in numpy.argsort(self.probN[seq_i][minor_indices])[:,-2]]) # -2 gets second most probable base
-                minor_consensus = consensus.copy()               # get a copy of the consensus
-                minor_consensus[minor_indices] = minor_bases     # replace the bases that pass minor threshold
+                # if there's >=3 alleles, major allele keeps prob of other
+                # minors)
+                major_fraction_avg = 1.-minor_fraction_avg
+                # -2 gets second most probable base:
+                minor_bases = numpy.array(
+                        [i2base.get(x, "N")
+                         for x in numpy.argsort(
+                                self.probN[seq_i][minor_indices]
+                         )[:,-2]]
+                )
+                # get a copy of the consensus
+                minor_consensus = consensus.copy()
+                # replace the bases that pass minor threshold
+                minor_consensus[minor_indices] = minor_bases
 
-                #remove deletion bases from minor_consensus - deletions form part of this new sequence
-                #new_minor_c=[]
-                #for i in range(minor_consensus.shape[0]):
+                # remove deletion bases from minor_consensus - deletions form
+                # part of this new sequence
+                # new_minor_c=[]
+                # for i in range(minor_consensus.shape[0]):
                 #    if not i in deletion_indices:
                 #        new_minor_c.append(minor_consensus[i])
                 # new_minor_c = numpy.array(new_minor_c)
@@ -613,10 +694,16 @@ class EM(object):
                 else:
                     title_root = title_root.groups()[0]
                 # now check for any known name with same root and a _m on it.
-                previous_m_max = max([0] + [int(x) for x in re.findall(r'%s_m(\d+)'%re.escape(title_root), " ".join(self.sequence_i2sequence_name))])
+                previous_m_max = max([0] + [
+                    int(x) for x in re.findall(
+                            r'%s_m(\d+)'%re.escape(title_root),
+                            " ".join(self.sequence_i2sequence_name))
+                    ])
                 m_title = "%s_m%02d"%(title_root, previous_m_max+1)
 
-                # also split out Priors and Posteriors (which will be used in next round), split with average ratio of major to minor alleles.
+                # also split out Priors and Posteriors (which will be used in
+                # next round), split with average ratio of major to minor
+                # alleles.
                 # updating priors first:
                 old_prior = self.priors[-1][seq_i]
                 self.priors[-1][seq_i] = old_prior * major_fraction_avg
@@ -629,21 +716,27 @@ class EM(object):
                 self.split_seq_first_appeared[seq_i] = self.iteration_i
                 self.refseq_lengths.append(consensus.shape[0])
                 assert len(self.refseq_lengths) == self.n_sequences
-                # how I adjust probN here for newly split seq doesn't really matter,
-                # as it is re-calculated next iter.
-                # this only matters for probN.pkl.gz file left behind for this iteration.
-                # for now just set prob(major base) = 0 and redistribute prob to other bases for minor,
-                # and set prob(minor base) = 0 and redistribute prob to other bases for major
+                # how I adjust probN here for newly split seq doesn't really
+                # matter, as it is re-calculated next iter.
+                # this only matters for probN.pkl.gz file left behind for this
+                # iteration.
+                # for now just set prob(major base) = 0 and redistribute prob
+                # to other bases for minor, and set prob(minor base) = 0 and
+                # redistribute prob to other bases for major
                 # MINOR
-                major_base_i = numpy.argsort(self.probN[seq_i][minor_indices])[:, -1]
+                major_base_i = numpy.argsort(
+                        self.probN[seq_i][minor_indices]
+                )[:, -1]
                 newprobNarray = self.probN[seq_i].copy()
                 newprobNarray[(minor_indices, major_base_i)] = 0
-                #if deletion_indices.shape[0]> 0:
-                 #   deletion_base_i = numpy.argsort(self.probN[seq_i][deletion_indices])[:,-1]
-                  #  newprobNarray[(deletion_indices,deletion_base_i)] = 0  #set major to 0 for deletion base?
-                newprobNarray = newprobNarray / numpy.sum(newprobNarray, axis=1).reshape(newprobNarray.shape[0], 1)
+                newprobNarray = newprobNarray / \
+                                numpy.sum(newprobNarray, axis=1).reshape(
+                                        newprobNarray.shape[0], 1)
                 probNtoadd.append(newprobNarray)
-                self.base_coverages.append(numpy.zeros_like(self.base_coverages[seq_i])) #why are we doing this?!?!?
+
+                #why are we doing this?!?!?
+                self.base_coverages.append(numpy.zeros_like(
+                        self.base_coverages[seq_i]))
 
                 # MAJOR
                 minor_base_i = numpy.argsort(self.probN[seq_i][minor_indices])[:, -2]
