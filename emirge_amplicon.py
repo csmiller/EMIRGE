@@ -131,8 +131,7 @@ class EM(object):
                  indel_thresh=0.3,
                  mapping_nice=None,
                  reads_ascii_offset=64,
-                 expected_coverage_thresh=10,
-                 rewrite_reads=True
+                 expected_coverage_thresh=10
                  ):
         """
         n_cpus is how many processors to use for multithreaded steps
@@ -1348,14 +1347,6 @@ def main(argv=sys.argv[1:]):
             "--randomize_init_priors",
             action="store_true", default=False,
             help=SUPPRESS_HELP)
-
-    # if this flag is set, then it is assumed that N reads in input
-    # files are labeled with integer names from 0 to N-1, and the read
-    # files will not be rewritten as a first step by emirge
-    group_opt.add_option(
-            "--no_rewrite_reads",
-            action="store_true", default=False,
-            help=SUPPRESS_HELP)
     # --- END HIDDEN ---
 
     parser.add_option_group(group_opt)
@@ -1466,7 +1457,6 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             n_cpus=options.processors,
             cwd=working_dir,
             reads_ascii_offset={False: 64, True: 33}[options.phred33],
-            rewrite_reads=not options.no_rewrite_reads,
             snp_percentage_thresh=options.snp_fraction_thresh,
             snp_minor_prob_thresh=options.variant_fraction_thresh,
             min_length_coverage=options.min_length_coverage)
