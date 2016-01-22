@@ -41,6 +41,7 @@ from Bio import SeqIO
 from scipy import sparse
 
 from Emirge import io, log, mapping
+from Emirge.clustering import vsearch
 from Emirge.io import make_pipe
 from Emirge.log import DEBUG, INFO
 from emirge_rename_fasta import rename
@@ -1343,47 +1344,11 @@ def post_process(em, working_dir):
     os.remove(uc)
 
 
-def dependency_check():
-    """
-    check presence, versions of programs used in emirge
-    TODO: right now just checking vsearch, as the command line params
-    and behavior are finicky and seem to change from version to
-    version
-    """
-    # vsearch
-    working_maj = 1
-    working_minor = 1
-    working_minor_minor = 0
-    match = re.search(r'vsearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)',
-                      Popen("vsearch --version", shell=True, stdout=PIPE
-                            ).stdout.read())
-    if match is None:
-        log.critical("FATAL: vsearch not found in path!")
-        exit(0)
-    binary_name, vsearch_major, vsearch_minor, vsearch_minor_minor = \
-        match.groups()
-    vsearch_major = int(vsearch_major)
-    vsearch_minor = int(vsearch_minor)
-    vsearch_minor_minor = int(vsearch_minor_minor)
-    if vsearch_major < working_maj or \
-            (vsearch_major == working_maj and
-                 (vsearch_minor < working_minor or
-                      (vsearch_minor == working_minor and
-                           vsearch_minor_minor < working_minor_minor))):
-        log.critical("FATAL: vsearch version found was %s.%s.%s.\n"
-                     "emirge works with version >=  %s.%s.%s\n"
-                     % (vsearch_major, vsearch_minor, vsearch_minor_minor,
-                        working_maj, working_minor, working_minor_minor))
-        exit(0)
-
-
 def main(argv=sys.argv[1:]):
     """
     command line interface to emirge
 
     """
-    dependency_check()
-
     parser = OptionParser(USAGE)
 
     # REQUIRED
@@ -1522,6 +1487,9 @@ def main(argv=sys.argv[1:]):
 
     # ACTUALLY PARSE ARGS
     (options, args) = parser.parse_args(argv)
+
+    if not vsearch.available():
+        parser.error("Please install vsearch")
 
     # configure log level:
     log.setup(quiet=options.quiet, debug=options.debug)
