@@ -23,8 +23,8 @@ https://github.com/csmiller/EMIRGE
 for help, type:
 python emirge_amplicon.py --help
 """
-from Emirge.io import make_pipe, File
-from Emirge.log import DEBUG
+from Emirge.io import make_pipe
+from Emirge.log import DEBUG, INFO
 
 USAGE = """usage: %prog DIR <required_parameters> [options]
 
