@@ -1,0 +1,35 @@
+TODO:
+
+- Usability improvements
+    - Detect quality value encoding
+    - Detect max read length
+    - Detect convergence (instead of -n)
+    - Add "keep intermediary files"
+    - Test file permissions at start
+    - rename emirge_amplicon to emirge (or emirge2?)
+    - don't show date in log messages (just makes it long)
+    
+- File cleanup
+    - compress sam/bam to cram if available?
+    - check naming/places
+    
+- Janitoring
+    - check/add docstrings
+    - remove side effects of methods/functions
+    - remove redirections (load cython methods into EM class?)
+    - document all EM class properties
+
+- Output refinement
+    - do chimera check?
+    - check for repeated regions?
+
+- Detect convergence
+    - show number of nucs changed
+    - (calc overall likelihood?)
+
+- Algorithmic
+    - make num-matches-reported (-k) for initial/subsequent runs 
+      configurable
+      
+DONE:
+    
