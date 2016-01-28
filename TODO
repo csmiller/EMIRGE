@@ -8,6 +8,10 @@ TODO:
     - Test file permissions at start
     - rename emirge_amplicon to emirge (or emirge2?)
     - don't show date in log messages (just makes it long)
+    - default DIR to cwd/EMIRGE2_runXXX_<timestamp>
+    - write parameters to DIR
+    - create symlinks to input data in DIR?
+    - allow for "advanced" options not shown with --help
     
 - File cleanup
     - compress sam/bam to cram if available?
