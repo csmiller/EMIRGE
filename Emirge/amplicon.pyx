@@ -634,7 +634,8 @@ def populate_reads_arrays(em):
         read_file = Kseq(reads_filepath).open()
         read_index = 0
         while not read_file.read_next_sequence() < 0:
-            readlengths[read_index] = read_file.ks.seq.l
+            readlengths[read_index, readtype_index] \
+                = read_file.ks.seq.l
             for i in range(0, read_file.ks.seq.l):
                 reads[read_index, readtype_index, i] = \
                     base_alpha2int(read_file.ks.seq.s[i])
