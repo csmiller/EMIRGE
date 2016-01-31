@@ -439,8 +439,13 @@ class EM(object):
         self.read_bam()
 
         # m-step
-        self.calc_likelihoods()
-        self.calc_posteriors()
+
+        # first calculate self.probN from mapped reads, previous
+        # round's posteriors
+        # (handles initial iteration differently within this method):
+        amplicon.calc_probN(self)
+        amplicon.calc_likelihood(self)
+        amplicon.calc_posteriors(self)
 
         # now e-step
         self.calc_priors()
@@ -1182,41 +1187,6 @@ class EM(object):
             n = samtools.next()
         return int(n)
 
-    @log.timed("Calculating likelihood {self.likelihoods.shape} "
-               "for iteration {self.iteration_i}")
-    def calc_likelihoods(self):
-        """
-        sets self.likelihoods  (seq_n x read_n) for this round
-        """
-        # first calculate self.probN from mapped reads, previous
-        # round's posteriors
-        # (handles initial iteration differently within this method):
-        self.calc_probN()
-
-        # Cython function for heavy lifting.
-        amplicon.calc_likelihood(self)
-
-    @log.timed("Calculating Pr(N=n) for iteration {self.iteration_i}")
-    def calc_probN(self):
-        """
-        Pr(N=n)
-
-        If read or sequence is new this round (not seen at t-1), then
-        there is no Pr(S|R) from previous round, so we substitute
-        Pr(S), the unbiased prior
-
-        If initial iteration, all reads and seqs are new, so all calcs
-        for Pr(N=n) use the prior as weighting factor instead of
-        previous round's posterior.
-        """
-
-        # here do looping in Cython (this loop is about 95% of the time in this
-        # method on test data):
-        amplicon.calc_probN(self)
-
-    @log.timed("Calculating posteriors for iteration {self.iteration_i}")
-    def calc_posteriors(self):
-        amplicon.calc_posteriors(self)
 
     def calc_cutoff_threshold(self):  # done at the end of the final iteration
         """
