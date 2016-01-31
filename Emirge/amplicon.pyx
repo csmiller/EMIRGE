@@ -91,10 +91,12 @@ cpdef inline unsigned char complement_numeric_base(unsigned char c):
     # ==> xor with c >> 2, which is 1 only for N (=100) to unset last bit
 
 
+@logger.timed("Calculating likelihood {em.likelihoods.shape} "
+            "for iteration {em.iteration_i}")
 @cython.boundscheck(False)
 def calc_likelihood(em):
     """
-    Cython helper function with typed data structures, fast looping.
+    ? sets self.likelihoods  (seq_n x read_n) for this round
     """
     cdef np.ndarray[np.uint32_t, ndim=2] bamfile_data = em.bamfile_data
     cdef np.ndarray[np.uint8_t, ndim=3] reads = em.reads
@@ -255,7 +257,8 @@ def calc_likelihood(em):
                 result = c_pow(M_E, p)
     
         if pair_collected:
-            # for either good seq or dead seq, add the values to the coo construction arrays
+            # for either good seq or dead seq, add the values to the coo
+            # construction arrays
             lik_row_seqi[result_i] = seq_i
             lik_col_readi[result_i] = read_i
             lik_data[result_i] = result
@@ -264,11 +267,21 @@ def calc_likelihood(em):
     
     em.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), em.likelihoods.shape, dtype=em.likelihoods.dtype).tocsr()
 
+
+@logger.timed("Calculating Pr(N=n) for iteration {self.iteration_i}")
 @cython.boundscheck(False)
 def calc_probN(em):
     """
-    helper function to emirge_amplicon.py calc_probN
-    
+     Pr(N=n)
+
+        If read or sequence is new this round (not seen at t-1), then
+        there is no Pr(S|R) from previous round, so we substitute
+        Pr(S), the unbiased prior
+
+        If initial iteration, all reads and seqs are new, so all calcs
+        for Pr(N=n) use the prior as weighting factor instead of
+        previous round's posterior.
+
     calculates effect of *all* reads on probN
     i.e. loop over entire bamfile_data.
     
@@ -518,7 +531,8 @@ def calc_probN(em):
 
     return
 
-# will I want to add @cython.boundscheck(False) ?
+
+@logger.timed("Calculating posteriors for iteration {self.iteration_i}")
 @cython.boundscheck(False)
 def calc_posteriors(em):
     """
