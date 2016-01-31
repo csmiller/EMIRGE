@@ -268,7 +268,7 @@ def calc_likelihood(em):
     em.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), em.likelihoods.shape, dtype=em.likelihoods.dtype).tocsr()
 
 
-@logger.timed("Calculating Pr(N=n) for iteration {self.iteration_i}")
+@logger.timed("Calculating Pr(N=n) for iteration {em.iteration_i}")
 @cython.boundscheck(False)
 def calc_probN(em):
     """
@@ -532,7 +532,7 @@ def calc_probN(em):
     return
 
 
-@logger.timed("Calculating posteriors for iteration {self.iteration_i}")
+@logger.timed("Calculating posteriors for iteration {em.iteration_i}")
 @cython.boundscheck(False)
 def calc_posteriors(em):
     """
