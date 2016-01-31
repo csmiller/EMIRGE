@@ -103,7 +103,11 @@ def timed(msg, *msg_args):
             for key, value in zip(argnames, args):
                 lenv[key] = value
 
-            info(msg.format(**lenv))
+            try:
+                info(msg.format(**lenv))
+            except AttributeError as e:
+                warning('Failed to format log msg <<<{}>>> with args {}: "{}"'
+                     .format(msg, lenv.keys(), e.message))
             start_time = time()
             result = fn(*args, **kwargs)
             end_time = time()
