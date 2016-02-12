@@ -360,7 +360,7 @@ def _calc_probN(em):
             continue
         # get sequence for nonmapped bases.  Just get for all, even though only need for ones with nonmapped.
         # not sure if this is particularly slow.
-        py_seq = em.fastafile.fetch(sequence_i2sequence_name_array[seq_i])
+        py_seq = em.fastafile.fetch(str(sequence_i2sequence_name_array[seq_i]))
         seq = py_seq  # necessary workaround for strings in Cython
         seq_bases = seq_alpha2int(seq, len(py_seq))
 
