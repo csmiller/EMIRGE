@@ -80,7 +80,7 @@ cpdef np.ndarray[np.uint8_t, ndim=1] seq_alpha2int(char* seq, int seqlen):
     return np_as_ints
 
 
-cpdef inline unsigned char complement_numeric_base(unsigned char c):
+cpdef inline unsigned char complement_numeric_base(unsigned char c) nogil:
     return (c ^ 1) ^ (c >> 2)
     # Explanation:
     # (c ^ 1) because:
