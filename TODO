@@ -12,11 +12,13 @@ TODO:
     - write parameters to DIR
     - create symlinks to input data in DIR?
     - allow for "advanced" options not shown with --help
-    
+    - support single file for read pairs
+    - use TRAVIS mascots
+
 - File cleanup
     - compress sam/bam to cram if available?
     - check naming/places
-    
+
 - Janitoring
     - check/add docstrings
     - remove side effects of methods/functions
@@ -32,8 +34,22 @@ TODO:
     - (calc overall likelihood?)
 
 - Algorithmic
-    - make num-matches-reported (-k) for initial/subsequent runs 
+    - make num-matches-reported (-k) for initial/subsequent runs
       configurable
-      
+    - deal with ACACACAC type reads
+        - remove low complexity reads
+        - mask low entropy regions from reference
+            - trim if trailing
+            - toss? if middle
+
+- Speed
+    - only re-do mapping on changed sequences.
+
+- Mappers
+    - catch BBMap Exceptions
+
+- Errors to catch
+    - guard against cons fasta having 0 sequences
+      (currently leads to crash)
+
 DONE:
-    
