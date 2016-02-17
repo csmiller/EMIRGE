@@ -91,6 +91,24 @@ cpdef inline unsigned char complement_numeric_base(unsigned char c) nogil:
     # ==> xor with c >> 2, which is 1 only for N (=100) to unset last bit
 
 
+cdef extern from *:
+    ctypedef size_t size_t
+
+
+@cython.boundscheck(False) #
+cpdef void complement_sequence(np.ndarray[np.uint8_t, ndim=1] sequence,
+                               np.ndarray[np.uint8_t, ndim=1] result):
+    cdef size_t i
+    for i in range(sequence.shape[0]):
+        result[i] = complement_numeric_base(sequence[i])
+
+
+@cython.boundscheck(False)
+cpdef void complement_sequence_mv(char [:] sequence, char [:] out) nogil:
+    cdef size_t i
+    for i in range(sequence.shape[0]):
+        out[i] = complement_numeric_base(sequence[i])
+
 @logger.timed("Calculating likelihood {self.likelihoods.shape} "
               "for iteration {self.iteration_i}")
 @cython.boundscheck(False)
