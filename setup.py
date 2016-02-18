@@ -168,6 +168,9 @@ extensions = [
     Extension("Emirge.amplicon", ["Emirge/amplicon.pyx"],
               extra_compile_args=["-O3"],
               include_dirs=['./Emirge/']),
+    Extension("Emirge.cio", ["Emirge/cio.pyx"],
+              extra_compile_args=["-O3"],
+              include_dirs=['./Emirge/'])
     ]
 
 
