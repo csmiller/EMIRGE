@@ -23,7 +23,14 @@ def test_enumerate_fastq():
 
 def test_fastq_detect_len_and_encoding():
     with File(read_file_1) as f:
-        read_len, phred33 = fastq_detect_len_and_encoding(f)
+        reads, read_len, phred33 = fastq_detect_len_and_encoding(f)
+    assert_equal(reads, 1000)
+    assert_equal(read_len, 150)
+    assert_equal(phred33, True)
+
+    with File(read_file_1) as f:
+        reads, read_len, phred33 = fastq_detect_len_and_encoding(f,num=0)
+    assert_equal(reads, 50000)
     assert_equal(read_len, 150)
     assert_equal(phred33, True)
 

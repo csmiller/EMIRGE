@@ -1,8 +1,9 @@
-cimport cython
-from libc.stdio cimport FILE, fdopen, fclose, fread, fwrite, getline
-from libc.stdlib cimport malloc, free
+from sys import maxsize
 
-from Emirge.log import INFO, timed
+from libc.stdio cimport FILE, fdopen, fclose, fread, fwrite, getline
+from libc.stdlib cimport free
+
+from Emirge.log import timed
 
 @timed("Re-numbering reads")
 def enumerate_fastq(object filein, object fileout):
@@ -40,19 +41,27 @@ def enumerate_fastq(object filein, object fileout):
 
         fqline = lineno % 4
         if fqline == 0:  # @header
+            # rewrite to @<read-number>
             header = "@{}\n".format(lineno/4)
             ptr_header = header
             res = fwrite(ptr_header, 1, len(header), ptr_out)
         elif fqline == 1:  # sequence
+            # copy out
             res = fwrite(ptr_linebuf, 1, res, ptr_out)
         elif fqline == 2:  # +
+            # just write "+"
+            # (legacy line, but some tools like fastq-dump still put
+            #  the read id after, no need to waste that space)
             res = fwrite(plus, 1, 2, ptr_out)
         elif fqline == 3:  # quality
             if not phred33:
+                # if we find a character <64, we must be parsing
+                # phred 33 encoded fastq
                 for i in range(res-1):
                     if ptr_linebuf[i] < 64:
                         phred33=True
                         break
+
             max_readlen = max(max_readlen, res-1)
             res = fwrite(ptr_linebuf, 1, res, ptr_out)
 
@@ -65,22 +74,27 @@ def enumerate_fastq(object filein, object fileout):
 
     return lineno / 4, max_readlen, phred33
 
+
 @timed("Detecting read length and quality encoding")
-def fastq_detect_len_and_encoding(object filein, int num=1000):
+def fastq_detect_len_and_encoding(object filein, Py_ssize_t num=1000):
     """
         Parses first num lines of fastq file to guess max read length and quality
-        encoding.
+        encoding. If num is 0, all lines are parsed.
 
         :param filein: Input file object, needs to have fileno()
         :param num: Number of reads to check from beginning of file
-        :return: (max_readlen, is_phred33)
+        :return: (# reads parsed, max read len, is phred33)
         """
     cdef FILE *ptr_in  # input FILE pointer
     cdef char *ptr_linebuf = <char *> 0  # getline buffer pointer
     cdef size_t linebuf_len = 0  # getline buffer length
     cdef int lineno = 0  # line number
+    cdef Py_ssize_t res  # return code from getline
     cdef bint phred33 = False  # have we found phred33 characters?
     cdef int max_readlen = 0  # max read length
+
+    if num == 0:
+        num = maxsize
 
     ptr_in = fdopen(filein.fileno(), "rb")
 
@@ -98,7 +112,7 @@ def fastq_detect_len_and_encoding(object filein, int num=1000):
             max_readlen = max(max_readlen, res-1)
 
         lineno += 1
-        if lineno > num * 4:
+        if lineno/4 >= num:
             break
 
-    return max_readlen, phred33
+    return lineno/4, max_readlen, phred33
