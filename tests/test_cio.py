@@ -4,7 +4,7 @@ from timeit import Timer
 from nose.tools import assert_equal
 from numpy.lib.function_base import median
 
-from Emirge.cio import enumerate_fastq, fastq_detect_len_and_encoding
+from Emirge.cio import enumerate_fastq, fastq_inspect
 from Emirge.io import File, check_call
 from Emirge.log import INFO
 
@@ -23,13 +23,13 @@ def test_enumerate_fastq():
 
 def test_fastq_detect_len_and_encoding():
     with File(read_file_1) as f:
-        reads, read_len, phred33 = fastq_detect_len_and_encoding(f)
+        reads, read_len, phred33 = fastq_inspect(f)
     assert_equal(reads, 1000)
     assert_equal(read_len, 150)
     assert_equal(phred33, True)
 
     with File(read_file_1) as f:
-        reads, read_len, phred33 = fastq_detect_len_and_encoding(f,num=0)
+        reads, read_len, phred33 = fastq_inspect(f, num=0)
     assert_equal(reads, 50000)
     assert_equal(read_len, 150)
     assert_equal(phred33, True)

@@ -76,7 +76,7 @@ def enumerate_fastq(object filein, object fileout):
 
 
 @timed("Detecting read length and quality encoding")
-def fastq_detect_len_and_encoding(object filein, Py_ssize_t num=1000):
+def fastq_inspect(object filein, Py_ssize_t num=1000):
     """
         Parses first num lines of fastq file to guess max read length and quality
         encoding. If num is 0, all lines are parsed.
