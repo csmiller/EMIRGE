@@ -76,23 +76,34 @@ class Mapper(object):
     """
     binary = None
 
-    def __init__(self, candidates, candidates_index, fwd_reads, rev_reads=None,
-                 phred33=False,
-                 threads=cpu_count(), reindex=True, workdir=None,
-                 insert_mean=1500, insert_sd=500, prefilter_reads=False):
-        """Create new mapper.
+    def __init__(self,
+                 candidates,
+                 candidates_index,
+                 fwd_reads,
+                 rev_reads=None,
+                 phred33=None,
+                 threads=cpu_count(),
+                 reindex=True,
+                 workdir=None,
+                 insert_mean=1500,
+                 insert_sd=500,
+                 prefilter_reads=False):
+        """Initialize Mapping base class
 
         Args:
-            candidates -- fasta file containing reference sequences
-            fwd_reads  -- forward reads file
-            rev_reads  -- reverse reads file, may be none for single ended
-            phred33    -- true if quality encoded as phred33, false for 64
-            threads    -- number of threads mappers should use
-            reindex    -- change read names to consecutive numbers
-            workdir    -- (optional) designed work directory
-            insert_mean -- mean insert size
-            insert_sd   -- std dev of insert size
-            prefilter_reads -- if true, pre-filter reads using candidates
+            candidates:       FastA file containing reference sequences.
+            candidates_index: Pre-computed index on candidates file
+            fwd_reads:        FastQ file containing reads
+            rev_reads:        FastQ file containing reverse read pair (optional)
+            phred33:          Quality encoding. True: phred33, False: phred64
+                                                None: Auto-detect
+            threads:          Number of Threads to use
+            reindex:          Change reads IDs to consecutive numbers (True)
+            workdir:          Directory to place files in
+            insert_mean:      Average insert size (None: Auto-detect)
+            insert_sd:        Stddev of insert size (None: Auto-detect)
+            prefilter_reads:  Pre-Filter reads, keeping only those matching
+                              candidates file.
         """
         super(Mapper, self).__init__()
 
