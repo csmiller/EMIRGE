@@ -8,11 +8,14 @@ import re
 from multiprocessing import cpu_count
 from subprocess import CalledProcessError
 
+import numpy
+
 import Emirge.log as log
-from Emirge.io import EnumerateReads, filter_fastq, decompressed, make_pipe, \
+from Emirge.cio import fastq_process
+from Emirge.io import decompressed, make_pipe, \
     check_call, TempDir, File, PIPE, command_avail, \
-    fastq_count_reads, AlignmentFile
-from Emirge.log import INFO, DEBUG, WARNING
+    AlignmentFile
+from Emirge.log import INFO, DEBUG, WARNING, CRITICAL
 
 
 # comment the two lines below to enable DEBUG info for this module
@@ -66,8 +69,8 @@ class Mapper(object):
         fwd_reads  -- forward reads file (may be changed by filtering)
         rev_reads  -- None or as fwd_reads
         phred33    -- use phred33 quality encoding if true, phred64 otherwise
+        max_rlen   -- maximum read length
         threads    -- number of threads mappers may use
-        reindex    -- True if reads should be renamed to consecutive numbers
         workdir    -- directory to hold generated files
         insert_mean -- mean insert size
         insert_sd   -- std dev of insert size
@@ -82,8 +85,8 @@ class Mapper(object):
                  fwd_reads,
                  rev_reads=None,
                  phred33=None,
+                 max_rlen=None,
                  threads=cpu_count(),
-                 reindex=True,
                  workdir=None,
                  insert_mean=1500,
                  insert_sd=500,
@@ -97,21 +100,18 @@ class Mapper(object):
             rev_reads:        FastQ file containing reverse read pair (optional)
             phred33:          Quality encoding. True: phred33, False: phred64
                                                 None: Auto-detect
+            max_rlen:         Max read length. None: Auto-detect
             threads:          Number of Threads to use
-            reindex:          Change reads IDs to consecutive numbers (True)
             workdir:          Directory to place files in
             insert_mean:      Average insert size (None: Auto-detect)
             insert_sd:        Stddev of insert size (None: Auto-detect)
             prefilter_reads:  Pre-Filter reads, keeping only those matching
                               candidates file.
         """
+
         super(Mapper, self).__init__()
 
-        if isinstance(fwd_reads, str):
-            fwd_reads = decompressed(fwd_reads)
-        if isinstance(rev_reads, str):
-            rev_reads = decompressed(rev_reads)
-
+        # assign passed parameters
         self.candidates = candidates
         self.candidates_index = candidates_index
         self.phred33 = phred33
@@ -119,19 +119,22 @@ class Mapper(object):
         self.insert_mean = insert_mean
         self.insert_sd = insert_sd
         self.do_prefiltering = prefilter_reads
-        self.n_reads = None  # filled by prefilter reads
+        self.n_reads = None  # filled by prepare_reads
+        self.max_rlen = max_rlen  # filled by prepare_reads
 
-        if reindex:
-            fwd_reads = EnumerateReads(fwd_reads)
-            if rev_reads:
-                rev_reads = EnumerateReads(rev_reads)
-
-        self.fwd_reads, self.rev_reads = fwd_reads, rev_reads
-
+        # make sure we have a workdir
         if workdir is None:
             self.tmp_workdir = TempDir()
             workdir = self.tmp_workdir.name
         self.workdir = workdir
+
+        # replace read files with de-compressor if necessary
+        if isinstance(fwd_reads, str):
+            fwd_reads = decompressed(fwd_reads)
+        if isinstance(rev_reads, str):
+            rev_reads = decompressed(rev_reads)
+        self.fwd_reads, self.rev_reads = fwd_reads, rev_reads
+
 
     @classmethod
     def available(cls):
@@ -142,11 +145,125 @@ class Mapper(object):
             cls.__available = command_avail(cls.binary)
             return cls.__available
 
+    def set_detected_encoding(self, phred33, phred33_2=None):
+        """Store detected quality encoding, talking to user
+
+        Args:
+            phred33: True if phred33 detected
+            phred33_2: True if phred33 detected in second read file
+
+        Raises:
+            Will exit if phred not configured from command line and detected
+            encoding from read files does not match.
+        """
+        # we have three phred33 settings: from conf, read1 and read2
+        # conf and read2 may be None
+        # if conf is set, us that, but warn about mismatching conditions
+        # if conf is None and read1 != read2 => fail
+        INFO("Detected quality encoding {} for read file 1."
+             .format(33 if phred33 else 64))
+
+        if phred33_2 is not None:
+            INFO("Detected quality encoding {} for read file 2."
+                 .format(33 if phred33 else 64))
+
+            if phred33 != phred33_2:
+                WARNING("Detected encoding differs between read files!")
+                if self.phred33 is None:
+                    CRITICAL("Failed to auto-detect encoding. Please provide "
+                             "--phred33 or --phred64 on command line.")
+                    exit(2)
+
+        if self.phred33 is not None:
+            if self.phred33 != phred33:
+                WARNING("Configured encoding does not match detected encoding"
+                        "for read file 1.")
+            if self.phred33 != phred33_2:
+                WARNING("Configured encoding does not match detected encoding"
+                        "for read file 2")
+        else:
+            self.phred33 = phred33
+
+
+    def set_detected_read_length(self, max_rlen, max_rlen2=None):
+        """Store detected max read length, talking to user
+
+        Args:
+            max_rlen:  max read length in read file 1
+            max_rlen2: max read length in read file 2, or None
+
+        Raises:
+            Will exit if reads longer than configured max read length were
+            detected.
+        """
+        if max_rlen2 is not None:
+            if max_rlen2 > max_rlen:
+                WARNING("Detected longer max read length in file 2 than in "
+                        "file 1 ({1} > {2}). Continuing with {1}."
+                        .format(max_rlen2, max_rlen))
+                max_rlen = max_rlen2
+            elif max_rlen > max_rlen2:
+                WARNING("Detected longer max read length in file  than in "
+                        "file 1 ({1} > {2}. Continuing with {1}"
+                        .format(max_rlen, max_rlen2))
+        if self.max_rlen is None:
+            INFO("Detected max read length {}".format(max_rlen))
+            self.max_rlen = max_rlen
+        else:
+            if self.max_rlen > max_rlen:
+                WARNING("Configured max read length {} > detected length {}"
+                        .format(self.max_rlen, max_rlen))
+            elif self.max_rlen < max_rlen:
+                CRITICAL("Read file(s) contain reads longer than configured "
+                         "maximum read length. Please verify read files and "
+                         "command line parameters.")
+                exit(2)
+
+    def set_detected_n_reads(self, n_reads, n_reads_2=None):
+        """Store detected number of reads, talking to user
+
+        Args:
+            n_reads: number of reads in read file 1
+            n_reads_2: number of reads in read file 2
+
+        Raises:
+            Will exit if number of reads does not match
+        """
+        if n_reads_2 is not None:
+            if n_reads != n_reads_2:
+                CRITICAL("Found differing number of reads in read files. "
+                         "Please check files!")
+                exit(2)
+        INFO("Found {} input reads.".format(n_reads))
+        self.n_reads = n_reads
+
     def prepare_reads(self):
+        """Prepare read files for Emirge
+
+        - pre-filter if this was configured
+        - re-index reads
+        - detect length and quality encoding
+        """
         if self.do_prefiltering:
             self.prefilter_reads()
         else:
-            self.n_reads = fastq_count_reads(self.fwd_reads)
+            outfile = File("{}/renumbered_{}.fq".format(self.workdir, 1))
+            with outfile.writer() as outf, self.fwd_reads.reader() as inf:
+                n_reads, max_rlen, phred33 = fastq_process(inf, outf)
+            self.fwd_reads = outfile.reader()
+
+            # same for rev_reads, if present
+            if self.rev_reads:
+                outfile = File("{}/renumbered_{}.fq".format(self.workdir, 2))
+                with outfile.writer() as outf, self.rev_reads.reader() as inf:
+                    n_reads2, max_rlen2, phred33_2 = fastq_process(inf, outf)
+                self.rev_reads = outfile.reader()
+            else:
+                n_reads2 = max_rlen2 = phred33_2 = None
+
+            self.set_detected_encoding(phred33, phred33_2)
+            self.set_detected_read_length(max_rlen, max_rlen2)
+            self.set_detected_n_reads(n_reads, n_reads2)
 
     def prefilter_reads(self):
         raise NotImplementedError()
@@ -192,6 +309,17 @@ class Bowtie2(Mapper):
         reads mapping (loosely) to the candidates file
         """
 
+        # Bowtie2 needs quality encoding on commandline. Peek at input files:
+        with self.fwd_reads.reader() as reads:
+            n_reads, max_rlen, phred33 = fastq_process(reads, num=1000)
+        if self.rev_reads is not None:
+            with self.rev_reads.reader() as reads:
+                n_reads2, max_rlen2, phred33_2 = fastq_process(reads, num=1000)
+        else:
+            max_rlen2 = phred33_2 = None
+        self.set_detected_read_length(max_rlen, max_rlen2)
+        self.set_detected_encoding(phred33, phred33_2)
+
         # prepare bowtie2 command
         cmd = self.make_basecmd()
         cmd += [
@@ -227,25 +355,20 @@ class Bowtie2(Mapper):
         os.mkdir(pathname)
         pathname = os.path.join(pathname, "pre_mapped_reads.{}.fastq")
 
-        with self.fwd_reads.reader() as reads, \
-                File(pathname.format("1")).writer() as outfile:
-            self.fwd_reads, fwd_count, fwd_matches = \
-                filter_fastq(reads, keepers, outfile=outfile)
+        fwd_reads_new = File(pathname.format("1"))
+        with self.fwd_reads.reader() as inf, fwd_reads_new.writer() as outf:
+            n_reads, _, _ = fastq_process(inf, outf, keepers)
+        self.fwd_reads = fwd_reads_new.reader()
 
         # if we have a reverse read file, do the same for that
         if self.rev_reads is not None:
-            with self.rev_reads.reader() as reads, \
-                    File(pathname.format("2")).writer() as outfile:
-                self.rev_reads, rev_count, rev_matches = \
-                    filter_fastq(reads, keepers, outfile=outfile)
-
-            # number of reads and must be identical for forward and reverse
-            assert fwd_count == rev_count
-            assert fwd_matches == rev_matches
-
-        INFO("Pre-Mapping: {} out of {} reads remaining"
-             .format(fwd_matches, fwd_count))
-        self.n_reads = fwd_matches
+            rev_reads_new = File(pathname.format("2"))
+            with self.rev_reads.reader() as inf, rev_reads_new.writer() as outf:
+                n_reads_2, _, _ = fastq_process(inf, outf, keepers)
+            self.rev_reads = rev_reads_new.reader()
+        else:
+            n_reads_2 = None
+        self.set_detected_n_reads(n_reads, n_reads_2)
 
     @log.timed('Mapping reads to "{fastafile}"')
     def map_reads(self, fastafile, workdir):
@@ -522,14 +645,30 @@ def get_options(parser):
                  "(loosely) matching the candidate db will be considered by "
                  "EMIRGE in all iterations. Recommended for metagenome data."
     )
+    opts.add_option(
+            "--phred33",
+            action="store_true", default=None,
+            help="Force read qualities in FastQ files treated as Phred+33 "
+                 "encoded. (Used by Illumina pipeline >= 1.8) and Sanger)"
+    )
+    opts.add_option(
+            "--phred64",
+            action="store_false", dest="phred33", default=None,
+            help="Force read qualities in FastQ files treated as Phred+64 "
+                 "encoded. (Used by Illumina pipeline < 1.8)"
+    )
+    opts.add_option(
+            "-l", "--max_read_length",
+            type="int", default=None,
+            help="""Length of longest read in input dat (default: detect)."""
+    )
     parser.add_option_group(opts)
 
     # TODO
     # -m, --mapping: path to pre-computed initial mapping file
 
 
-def get_mapper(opts, workdir, candidates, fwd_reads, rev_reads, threads,
-               phred33, ):
+def get_mapper(opts, workdir, candidates, fwd_reads, rev_reads, threads):
     mapperclass = None
     for mpr in _mappers:
         if mpr.__name__ == opts.mapper.strip("'"):
@@ -546,7 +685,8 @@ def get_mapper(opts, workdir, candidates, fwd_reads, rev_reads, threads,
                       fwd_reads=fwd_reads,
                       rev_reads=rev_reads,
                       threads=threads,
-                      phred33=phred33,
+                      phred33=opts.phred33,
+                      max_rlen=opts.max_read_length,
                       insert_mean=opts.insert_mean,
                       insert_sd=opts.insert_stddev,
                       prefilter_reads=opts.prefilter_reads)

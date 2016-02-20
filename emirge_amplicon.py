@@ -1342,10 +1342,6 @@ def main(argv=sys.argv[1:]):
             type="string",
             help="path to fasta file of candidate SSU sequences")
     group_reqd.add_option(
-            "-l", "--max_read_length",
-            type="int", default=0,
-            help="""length of longest read in input data.""")
-    group_reqd.add_option(
             "-o", "--output_files_prefix",
             type="string", default="EMIRGE",
             help="prefix to be used for final output fasta file and EMIRGE "
@@ -1424,14 +1420,6 @@ def main(argv=sys.argv[1:]):
                  "met, a candidate sequence is discarded for the next "
                  "iteration.  (default: %default; valid range: (0.0, 1.0])")
     group_opt.add_option(
-            "--phred33",
-            action="store_true", default=False,
-            help="Illumina quality values in fastq files are the (fastq "
-                 "standard) ascii offset of Phred+33.  This is the new default "
-                 "for Illumina pipeline >= 1.8. DEFAULT is still to assume "
-                 "that quality scores are Phred+64")
-
-    group_opt.add_option(
             '-t', '--min_coverage_threshold',
             type='int', default='20',
             help="Expected minimum depth coverage.  Sequences are only "
@@ -1509,7 +1497,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     sys.stdout.write("EMIRGE started at %s\n" % (ctime()))
     sys.stdout.flush()
 
-    for o in ["fastq_reads_1", "fasta_db", "max_read_length"]:
+    for o in ["fastq_reads_1", "fasta_db"]:
         if getattr(options, o) is None or getattr(options, o) == 0:
             if o == 'fasta_db':
                 parser.error("Fasta file for candidate database is "
@@ -1542,8 +1530,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
                                 candidates=options.fasta_db,
                                 fwd_reads=options.fastq_reads_1,
                                 rev_reads=options.fastq_reads_2,
-                                threads=options.processors,
-                                phred33=options.phred33)
+                                threads=options.processors)
 
     mapper.prepare_reads()
 
@@ -1556,12 +1543,12 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             insert_sd=options.insert_stddev,
             output_files_prefix=options.output_files_prefix,
             cov_thresh=options.min_coverage_threshold,
-            max_read_length=options.max_read_length,
+            max_read_length=mapper.max_rlen,
             cluster_thresh=options.join_threshold,
             indel_thresh=options.indel_thresh,
             n_cpus=options.processors,
             cwd=working_dir,
-            reads_ascii_offset={False: 64, True: 33}[options.phred33],
+            reads_ascii_offset={False: 64, True: 33}[mapper.phred33],
             snp_percentage_thresh=options.snp_fraction_thresh,
             snp_minor_prob_thresh=options.variant_fraction_thresh,
             min_length_coverage=options.min_length_coverage)
