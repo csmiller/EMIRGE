@@ -1,13 +1,12 @@
 TODO:
 
 - Usability improvements
-    - Detect quality value encoding
-    - Detect max read length
     - Detect convergence (instead of -n)
     - Add "keep intermediary files"
     - Test file permissions at start
     - rename emirge_amplicon to emirge (or emirge2?)
     - don't show date in log messages (just makes it long)
+    - show Levels other than INFO in messages
     - default DIR to cwd/EMIRGE2_runXXX_<timestamp>
     - write parameters to DIR
     - create symlinks to input data in DIR?
@@ -51,5 +50,5 @@ TODO:
 - Errors to catch
     - guard against cons fasta having 0 sequences
       (currently leads to crash)
-
-DONE:
+    - catch error in Bowtie2 pre-mapping. need to check stderr for
+      "Error"
