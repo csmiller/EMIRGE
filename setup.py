@@ -257,8 +257,8 @@ setup(
     tests_require=["nose"],
     license="GPLv3+",
     keywords=["rRNA", "EM"],
-    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython"],
-    setup_requires=["numpy"]
+    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython", "cython"],
+    setup_requires=["numpy", "cython"]
 )
 
 print """

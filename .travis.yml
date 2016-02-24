@@ -6,6 +6,7 @@ addons:
     packages:
       - python-numpy
       - python-scipy
+      - cython
 install:
   - "pip install ."
 script: nosetests
