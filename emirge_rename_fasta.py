@@ -1,4 +1,4 @@
-#!/usr/bin/python2
+#!/usr/bin/env python
 """
 EMIRGE: EM Iterative Reconstruction of Genes from the Environment
 Copyright (C) 2010 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
@@ -36,6 +36,8 @@ import cPickle
 from gzip import GzipFile
 import numpy
 import re
+
+from Emirge.log import ERROR
 
 USAGE = """
 usage: %prog [options] <iter.DIR> > renamed.fasta
@@ -107,8 +109,16 @@ def rename(wd=os.getcwd(), output_file="renamed.fasta", record_prefix='',
         name = record.description.split()[0]
         record.id = "%s%d|%s" % (record_prefix, name2seq_i[name], name)
         if not no_N:
-            record.seq = replace_with_Ns(probN, name2seq_i[name], record.seq,
-                                         not no_trim_N)
+            try:
+                record.seq = replace_with_Ns(probN, name2seq_i[name], record.seq,
+                                             not no_trim_N)
+            except IndexError as e:
+                ERROR("Caught exception: {}".format(repr(e.message)))
+                ERROR("Sequence length: {}  ProbN[i] length: {}".format(
+                        len(record.seq), len(probN[name2seq_i[name]])
+                ))
+                record.seq = ""
+
             if len(record.seq) == 0:
                 continue
         record.description = ""

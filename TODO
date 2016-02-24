@@ -1,0 +1,53 @@
+TODO:
+
+- Usability improvements
+    - Detect convergence (instead of -n)
+    - Add "keep intermediary files"
+    - Test file permissions at start
+    - don't show date in log messages (just makes it long)
+    - show Levels other than INFO in messages
+    - default DIR to cwd/EMIRGE2_runXXX_<timestamp>
+    - write parameters to DIR
+    - create symlinks to input data in DIR?
+    - allow for "advanced" options not shown with --help
+    - support single file for read pairs
+    - use TRAVIS mascots
+
+- File cleanup
+    - compress sam/bam to cram if available?
+    - check naming/places
+
+- Janitoring
+    - check/add docstrings
+    - remove side effects of methods/functions
+    - remove redirections (load cython methods into EM class?)
+    - document all EM class properties
+
+- Output refinement
+    - do chimera check?
+    - check for repeated regions?
+
+- Detect convergence
+    - show number of nucs changed
+    - (calc overall likelihood?)
+
+- Algorithmic
+    - make num-matches-reported (-k) for initial/subsequent runs
+      configurable
+    - deal with ACACACAC type reads
+        - remove low complexity reads
+        - mask low entropy regions from reference
+            - trim if trailing
+            - toss? if middle
+
+- Speed
+    - only re-do mapping on changed sequences.
+
+- Mappers
+    - catch BBMap Exceptions
+
+- Errors to catch
+    - guard against cons fasta having 0 sequences
+      (currently leads to crash)
+    - catch error in Bowtie2 pre-mapping. need to check stderr for
+      "Error"

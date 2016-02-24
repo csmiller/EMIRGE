@@ -86,7 +86,7 @@ class DummyBuildSrc(Command):
 
 class CheckSDist(sdist):
     """Custom sdist that ensures Cython has compiled all pyx files to c."""
-    _pyxfiles = ["Emirge/pykseq.pyx",
+    _pyxfiles = ["Emirge/_kseq.pyx",
                  "Emirge/common.pyx",
                  "Emirge/amplicon.pyx"]
 
@@ -160,7 +160,7 @@ else:
 
 
 extensions = [
-    Extension("Emirge.pykseq", ["Emirge/pykseq.pyx"],
+    Extension("Emirge._kseq", ["Emirge/_kseq.pyx"],
               include_dirs=['./Emirge/']),
     Extension("Emirge.common", ["Emirge/common.pyx"],
               extra_compile_args=["-O3"],
@@ -168,6 +168,9 @@ extensions = [
     Extension("Emirge.amplicon", ["Emirge/amplicon.pyx"],
               extra_compile_args=["-O3"],
               include_dirs=['./Emirge/']),
+    Extension("Emirge.cio", ["Emirge/cio.pyx"],
+              extra_compile_args=["-O3"],
+              include_dirs=['./Emirge/'])
     ]
 
 
@@ -250,13 +253,16 @@ setup(
     ext_modules=extensions,
     cmdclass=cmdclass,
     packages=find_packages(exclude=['tests', 'tests.*']),
+    test_suite='nose.collector',
+    tests_require=["nose"],
     license="GPLv3+",
     keywords=["rRNA", "EM"],
-    install_requires=["numpy", "pysam", "scipy", "biopython"],
+    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython"],
     setup_requires=["numpy"]
 )
 
-print ""
-print "NOTE:"
-print "To download a standard candidate SSU database to use with EMIRGE, run"
-print "python emirge_download_candidate_db.py"
+print """
+NOTE:
+To build a candidate SSU or LSU database based on the most recent SILVA
+release, run "python emirge_makedb.py".
+"""

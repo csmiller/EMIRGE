@@ -84,24 +84,10 @@ You can also install directly from the github repository::
 Running EMIRGE
 --------------
 
-There are two versions of EMIRGE:
-
-1. ``emirge.py`` -- this version was designed for metagenomic data
-2. ``emirge_amplicon.py`` -- this version was designed for PCR amplicon
-   data, and can handle up to a few million reads where the entire
-   sequencing allocation is devoted to a single gene.  In theory it
-   could also be used for RNASeq data where rRNA makes up a large
-   percentage of the reads.
-
-Both versions were designed for Illumina reads in FASTQ format, from
-pipeline version 1.3 and above.
-
 At the moment, there is no manual, though running the following is
 helpful::
 
   emirge.py --help
-
-  emirge_amplicon.py --help
 
 
 EMIRGE Output
@@ -155,8 +141,8 @@ recommended.  No matter your choice, you should run
 ``utils/fix_nonstandard_chars.py`` on your fasta file.  You will also need
 to first build a bowtie index, with something like::
 
-  bowtie-build SSU_candidate_db.fasta SSU_candidate_db_btindex 
- 
+  bowtie-build SSU_candidate_db.fasta SSU_candidate_db_btindex
+
 You might also consider changing the offrate (see
 http://bowtie-bio.sourceforge.net/manual.shtml).
 

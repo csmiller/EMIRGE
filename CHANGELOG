@@ -1,0 +1,3 @@
+ - autodetect maximum read length
+ - autodetect FastQ quality encoding
+ - emirge_amplicon now part of emirge
