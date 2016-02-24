@@ -4,7 +4,6 @@ TODO:
     - Detect convergence (instead of -n)
     - Add "keep intermediary files"
     - Test file permissions at start
-    - rename emirge_amplicon to emirge (or emirge2?)
     - don't show date in log messages (just makes it long)
     - show Levels other than INFO in messages
     - default DIR to cwd/EMIRGE2_runXXX_<timestamp>
