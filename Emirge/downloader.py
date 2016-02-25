@@ -1,3 +1,7 @@
+"""
+helpers for downloading things
+"""
+
 import os
 import sys
 import urllib
@@ -31,25 +35,25 @@ def fetch_url(url):
             )
 
 
-def print_progress(block, blocksize, total):
+def print_progress(block, block_size, total):
     """Callback function to print progress during download
 
     Args:
         block:     number of block downloaded
-        blocksize: size of a block in bytes
+        block_size: size of a block in bytes
         total:     total file size in bytes
 
     Returns:
     """
 
-    blocks = int((total-1)/blocksize) + 1
-    linewidth = min(77, blocks)
+    blocks = int((total-1) / block_size) + 1
+    line_width = min(77, blocks)
     if block == 0:
         print "Downloading file of size {0}:".format(total)
-        if (linewidth > 1):
-            print "|" + "-" * (linewidth-2) + "|"
+        if line_width > 1:
+            print "|" + "-" * (line_width-2) + "|"
     else:
-        if (block % (blocks/linewidth) == 0):
+        if block % (blocks/line_width) == 0:
             sys.stdout.write(".")
             sys.stdout.flush()
 
@@ -72,8 +76,8 @@ def download_url(url, folder):
     filename = os.path.join(folder, url.split("/")[-1])
     if os.path.isfile(filename):
         existing_file_size = os.path.getsize(filename)
-        urlinfo = urllib.urlopen(url).info()
-        remote_file_size = urlinfo.getheaders("Content-Length")[0]
+        url_info = urllib.urlopen(url).info()
+        remote_file_size = url_info.getheaders("Content-Length")[0]
         if int(existing_file_size) == int(remote_file_size):
             INFO(
                 "Found existing file matching remote size. Skipping download."
