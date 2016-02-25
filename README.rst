@@ -2,7 +2,6 @@
 EMIRGE -- :WARNING: Experimental Version :WARNING:
 ==================================================
 
-WARNING
 .. image:: https://travis-ci.org/epruesse/EMIRGE.svg?branch=master
    :target: https://travis-ci.org/epruesse/EMIRGE
 
