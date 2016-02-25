@@ -7,10 +7,7 @@ Large parts of this have been borrowed from the rlpy project
 (https://github.com/rlpy/rlpy) which have been permitted for use under the
 BSD license.
 """
-import distutils
 import sys
-
-import setuptools
 
 try:
     from setuptools import setup, Command, find_packages
