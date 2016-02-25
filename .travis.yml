@@ -12,6 +12,11 @@ addons:
       - liblapack-dev
       - gfortran
       - ccache
+
+before install:
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update          ; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install vsearch ; fi
+
 install:
   - "pip install --upgrade pip"
   - "pip install -r requirements.txt"
