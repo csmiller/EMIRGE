@@ -8,5 +8,6 @@ addons:
       - python-scipy
       - cython
 install:
+  - "pip install -r requirements.txt"
   - "pip install ."
 script: nosetests
