@@ -11,7 +11,11 @@ addons:
       - libblas-dev 
       - liblapack-dev
       - gfortran
+      - ccache
 install:
   - "pip install -r requirements.txt"
   - "pip install ."
 script: nosetests
+cache: 
+  - pip 
+  - ccache
