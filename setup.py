@@ -243,7 +243,6 @@ setup(
     url="https://github.com/csmiller/EMIRGE",
     scripts=[
         "emirge.py",
-        "emirge_amplicon.py",
         "emirge_rename_fasta.py",
         "emirge_makedb.py",
     ],
