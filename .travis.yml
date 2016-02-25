@@ -7,7 +7,7 @@ addons:
       - python-numpy
       - python-scipy
       - cython
-      - python-dev 
+      - python-dev
       - libblas-dev
       - liblapack-dev
       - gfortran
@@ -16,7 +16,7 @@ install:
   - "pip install --upgrade pip"
   - "pip install -r requirements.txt"
   - "pip install ."
-script: /bin/true
-cache: 
-  - pip 
+script: nosetests
+cache:
+  - pip
   - ccache
