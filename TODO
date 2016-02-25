@@ -12,6 +12,7 @@ TODO:
     - allow for "advanced" options not shown with --help
     - support single file for read pairs
     - use TRAVIS mascots
+    - remove dependency on biopython?
 
 - File cleanup
     - compress sam/bam to cram if available?
