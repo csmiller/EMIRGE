@@ -10,6 +10,7 @@ addons:
       - python-dev 
       - libblas-dev 
       - liblapack-dev
+      - gfortran
 install:
   - "pip install -r requirements.txt"
   - "pip install ."
