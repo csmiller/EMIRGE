@@ -81,9 +81,9 @@ class Mapper(object):
 
     def __init__(self,
                  candidates,
-                 candidates_index,
                  fwd_reads,
                  rev_reads=None,
+                 candidates_index = None,
                  phred33=None,
                  max_rlen=None,
                  threads=cpu_count(),
