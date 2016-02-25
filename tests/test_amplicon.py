@@ -10,7 +10,7 @@ from nose.tools import assert_equal
 
 from Emirge.log import INFO
 
-read_file_1 = "tests/test_data/ten_seq_community_000_50K_L150_I350.2.fastq"
+read_file_1 = "tests/test_data/ten_seq_community_000_50K_L150_I350.2.fastq.xz"
 
 
 sequence_sample = (
@@ -51,19 +51,29 @@ class Complement_test():
                              for x in cls.sequence]
         cls.nd_sequence = numpy.array(cls.sequence, dtype=numpy.uint8)
         cls.nd_sequence_comp = numpy.array(cls.sequence_comp, dtype=numpy.uint8)
+        cls.result_buf = numpy.zeros_like(cls.nd_sequence)
 
     def test_complement_sequence(self):
-        for start in 0, 50, 200:
-            for stop in 200, 201, 205:
-                res = amplicon.complement_sequence(self.nd_sequence[start:stop])
-                assert_array_equal(res, self.nd_sequence_comp[start:stop])
+        for start in 0, 20, 150:
+            for stop in 0, 1, 22, 149, 150:
+                if start+stop > 150 or stop < start:
+                    continue
+                res = amplicon.complement_sequence(
+                    self.nd_sequence[start:stop],
+                    self.result_buf
+                )
+                assert_array_equal(
+                    self.nd_sequence_comp[start:stop],
+                    self.result_buf[0:stop-start],
+                    "start={} stop={}".format(start,stop)
+                )
 
 
 
 class EM_test():
     @classmethod
     def setup_class(cls):
-        cls.reads1_filepath = io.File(read_file_1)
+        cls.reads1_filepath = io.decompressed(read_file_1)
         cls.reads2_filepath = None
         cls.n_reads = 50000
         cls.max_read_length = 150

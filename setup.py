@@ -7,7 +7,6 @@ Large parts of this have been borrowed from the rlpy project
 (https://github.com/rlpy/rlpy) which have been permitted for use under the
 BSD license.
 """
-
 import sys
 
 try:
@@ -87,7 +86,7 @@ class DummyBuildSrc(Command):
 class CheckSDist(sdist):
     """Custom sdist that ensures Cython has compiled all pyx files to c."""
     _pyxfiles = ["Emirge/_kseq.pyx",
-                 "Emirge/common.pyx",
+                 "Emirge/cio.pyx",
                  "Emirge/amplicon.pyx"]
 
     def initialize_options(self):
@@ -137,6 +136,7 @@ class CleanCommand(Command):
     def run(self):
         for clean_me in self._clean_me:
             try:
+                sys.stderr.write("rm {}\n".format(clean_me))
                 os.unlink(clean_me)
             except Exception:
                 pass
@@ -161,9 +161,6 @@ else:
 
 extensions = [
     Extension("Emirge._kseq", ["Emirge/_kseq.pyx"],
-              include_dirs=['./Emirge/']),
-    Extension("Emirge.common", ["Emirge/common.pyx"],
-              extra_compile_args=["-O3"],
               include_dirs=['./Emirge/']),
     Extension("Emirge.amplicon", ["Emirge/amplicon.pyx"],
               extra_compile_args=["-O3"],
@@ -246,7 +243,6 @@ setup(
     url="https://github.com/csmiller/EMIRGE",
     scripts=[
         "emirge.py",
-        "emirge_amplicon.py",
         "emirge_rename_fasta.py",
         "emirge_makedb.py",
     ],
@@ -257,8 +253,8 @@ setup(
     tests_require=["nose"],
     license="GPLv3+",
     keywords=["rRNA", "EM"],
-    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython"],
-    setup_requires=["numpy"]
+    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython", "cython"],
+    setup_requires=["numpy", "cython"]
 )
 
 print """

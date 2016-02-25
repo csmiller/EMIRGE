@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 
-import urllib2
-import urllib
-import re
-import sys
-import os
 import hashlib
-from optparse import OptionParser
+import os
 import random
+import re
 import subprocess
+import sys
+from optparse import OptionParser
+
+from Emirge.downloader import DownloadException, fetch_url, download_url
 
 USAGE = """usage: %prog [OPTIONS]
 
@@ -22,60 +22,6 @@ with random characters and 5) create a bowtie index.
 SILVA_BASEURL = "https://ftp.arb-silva.de"
 SILVA_SSUFILE = "SILVA_{0}_SSURef_Nr99_tax_silva_trunc.fasta.gz"
 SILVA_LSUFILE = "SILVA_{0}_LSURef_tax_silva_trunc.fasta.gz"
-
-
-class DownloadException(Exception):
-    """Used to pass the URL downwards for urllib(2) exceptions"""
-    pass
-
-
-def fetch_url(url):
-    """Fetches URL contents into variable"""
-    try:
-        return urllib2.urlopen(url).read()
-    except urllib2.URLError as e:
-        raise DownloadException(
-            "Unable to fetch \"{0}\":\n \"{1}\"".format(url, e.reason)
-            )
-
-
-def print_progress(block, blocksize, total):
-    """Callback function to print progress during download"""
-    blocks = int((total-1)/blocksize) + 1
-    linewidth = min(77, blocks)
-    if block == 0:
-        print "Downloading file of size {0}:".format(total)
-        if (linewidth > 1):
-            print "|" + "-" * (linewidth-2) + "|"
-    else:
-        if (block % (blocks/linewidth) == 0):
-            sys.stdout.write(".")
-            sys.stdout.flush()
-
-
-def download_url(url, folder):
-    """Downloads URL as file into folder. Returns filename."""
-    print "Downloading \"{0}\" to \"{1}\"".format(url, folder)
-
-    filename = os.path.join(folder, url.split("/")[-1])
-    if os.path.isfile(filename):
-        existing_file_size = os.path.getsize(filename)
-        urlinfo = urllib.urlopen(url).info()
-        remote_file_size = urlinfo.getheaders("Content-Length")[0]
-        if int(existing_file_size) == int(remote_file_size):
-            print (
-                "Found existing file matching remote size. Skipping download."
-            )
-            return filename
-        else:
-            print (
-                "Local file with size {0} does not match remote file size {1}."
-                .format(existing_file_size, remote_file_size)
-            )
-
-    (filename, header) = urllib.urlretrieve(url, filename, print_progress)
-
-    return filename
 
 
 def compute_file_md5(filename):

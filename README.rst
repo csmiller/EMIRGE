@@ -1,6 +1,10 @@
-======
-EMIRGE
-======
+==================================================
+EMIRGE -- :WARNING: Experimental Version :WARNING:
+==================================================
+
+.. image:: https://travis-ci.org/epruesse/EMIRGE.svg?branch=master
+   :target: https://travis-ci.org/epruesse/EMIRGE
+
 -------------------------------------------------------------------------------
 Expectation-Maximization Iterative Reconstruction of Genes from the Environment
 -------------------------------------------------------------------------------
