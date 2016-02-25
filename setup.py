@@ -7,8 +7,10 @@ Large parts of this have been borrowed from the rlpy project
 (https://github.com/rlpy/rlpy) which have been permitted for use under the
 BSD license.
 """
-
+import distutils
 import sys
+
+import setuptools
 
 try:
     from setuptools import setup, Command, find_packages
@@ -137,6 +139,7 @@ class CleanCommand(Command):
     def run(self):
         for clean_me in self._clean_me:
             try:
+                sys.stderr.write("rm {}\n".format(clean_me))
                 os.unlink(clean_me)
             except Exception:
                 pass
