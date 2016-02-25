@@ -10,7 +10,7 @@ from nose.tools import assert_equal
 
 from Emirge.log import INFO
 
-read_file_1 = "tests/test_data/ten_seq_community_000_50K_L150_I350.2.fastq"
+read_file_1 = "tests/test_data/ten_seq_community_000_50K_L150_I350.2.fastq.xz"
 
 
 sequence_sample = (
@@ -73,7 +73,7 @@ class Complement_test():
 class EM_test():
     @classmethod
     def setup_class(cls):
-        cls.reads1_filepath = io.File(read_file_1)
+        cls.reads1_filepath = io.decompressed(read_file_1)
         cls.reads2_filepath = None
         cls.n_reads = 50000
         cls.max_read_length = 150
