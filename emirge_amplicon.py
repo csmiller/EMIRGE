@@ -53,7 +53,7 @@ from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
 import pysam
 import numpy
 from scipy import sparse
-from subprocess import Popen, PIPE, check_call, CalledProcessError
+from subprocess import Popen, PIPE, check_call, CalledProcessError, check_output
 from time import ctime, time
 from datetime import timedelta
 import gzip
@@ -723,7 +723,7 @@ class EM(object):
         i2base_get = self.i2base.get # for speed
         of = file(output_fastafilename, 'w')
         reference_fastafile = pysam.Fastafile(reference_fastafilename)
-        
+
         for seq_i in range(len(self.probN)):
             if self.probN[seq_i] is None:
                 continue
@@ -1547,7 +1547,11 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     # DO INITIAL MAPPING if not provided with --mapping
     if options.mapping is None:
         options.mapping = do_initial_mapping(em, working_dir, options)
-
+    else:
+        # otherwise, count number of alignments in bamfile
+        em.n_alignments = int(check_output(["samtools", "view", "-c", "-F",
+                                            "0x100", options.mapping],
+                                           close_fds=True))
 
     #  if >= this percentage of bases are minor alleles, split candidate sequence
     em.snp_percentage_thresh = options.snp_fraction_thresh
