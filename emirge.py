@@ -591,8 +591,9 @@ class EM(object):
             # prob_indels list of numpy matrices
             prob_indels_single = self.prob_indels[seq_i]
             del_hits = []
+            insertion_hits = []
             for base_i in range(prob_indels_single.shape[0]):
-                # Eval if deletion exists at base position
+                # Eval if insertion or deletion exists at base position
                 # Divides weight of deletion, by the sum of both deletions
                 # and matches
                 denominator = (prob_indels_single[base_i, 0] +
@@ -608,7 +609,14 @@ class EM(object):
                         del_hits.append(base_i)
                     else:
                         self.probN[seq_i][base_i, 4] = 0
+                    
+                    if (prob_indels_single[base_i, 1] / denominator) \
+                        > self.indel_thresh:
+                            insertion_hits.append(base_i)
+                         
             deletion_indices = np.array(del_hits)
+            insertion_indices = np.array(insertion_hits)
+        
 
             # check for minor allele consensus, SPLIT sequence into two
             # candidate sequences if passes thresholds.
@@ -653,21 +661,15 @@ class EM(object):
                 expected_coverage_minor *= 2.0
                 expected_coverage_major *= 2.0
 
-            # Deletions will override minor indices, so remove conflicting
-            # indices from minor_indices array:
-            # if deletion_indices.shape[0] > 0:
-            #    mi=[]
-            #    for i in minor_indices:
-            #            if i not in deletion_indices:
-            #                mi.append(i)
-            #    minor_indices=np.array(mi)
 
-            if deletion_indices.shape[0] > 0 or (
-                (deletion_indices.shape[0] + minor_indices.shape[0]) /
-                float(self.probN[seq_i].shape[0]) >=
-                self.snp_percentage_thresh and
-                expected_coverage_minor >= self.expected_coverage_thresh
-            ):
+            #if deletion_indices.shape[0] or insertion_indices.shape[0] > 0 or (
+            #    (deletion_indices.shape[0] + insertion_indices.shape[0] + \
+            #    minor_indices.shape[0]) /
+            #    float(self.probN[seq_i].shape[0]) >=
+            #    self.snp_percentage_thresh and
+            #    expected_coverage_minor >= self.expected_coverage_thresh
+            #):
+            if minor_indices.shape[0]+ insertion_indices.shape[0] /float(self.probN[seq_i].shape[0]) >= self.snp_percentage_thresh and expected_coverage_minor >= self.expected_coverage_thresh:
                 # We split!
                 splitcount += 1
                 # if there's >=3 alleles, major allele keeps prob of other
@@ -678,7 +680,7 @@ class EM(object):
                         [i2base.get(x, "N")
                          for x in np.argsort(
                                 self.probN[seq_i][minor_indices]
-                         )[:, -2]]
+                         )[:, -2]]  # will this work?
                 )
                 # get a copy of the consensus
                 minor_consensus = consensus.copy()
@@ -800,12 +802,13 @@ class EM(object):
                 # added for indels:
                 minor_consensus = self.eval_indels(seq_i, minor_consensus,
                                                    m_title, orig_bases,
-                                                   mask="soft")
+                                                   mask="soft", major="minor")
                 of.write("%s\n" % "".join(minor_consensus))
                 of_tmp.write("%s\n" % "".join(minor_consensus))
                 self.unmapped_bases.append(np.zeros(len(consensus),
                                                     dtype=np.uint8))
-                print "new sequence %s is length %s" % (title, len(consensus))
+                log.info("new sequence %s is length %s" % (title, len(consensus)))
+                #print "new sequence %s is length %s" % (title, len(consensus))
                 self.num_seqs += 1
                 log.info("splitting sequence %d (%s) to %d (%s)...\n"
                          % (seq_i, title, seq_i_minor, m_title))
@@ -816,7 +819,7 @@ class EM(object):
             of.write(">%s\n" % title)
             of_tmp.write(">%s\n" % title)
             consensus = self.eval_indels(seq_i, consensus, title, orig_bases,
-                                         mask="soft")  # added for indels
+                                         mask="soft",major="major")  # added for indels
             of.write("%s\n" % "".join(consensus))
             of_tmp.write("%s\n" % "".join(consensus))
             self.num_seqs += 1
@@ -856,7 +859,7 @@ class EM(object):
                      % ((loop_t_total - sum(times_split)) /
                         (seqs_to_process - len(times_split))))
 
-    def eval_indels(self, seq_i, consensus, title, orig_bases, mask):
+    def eval_indels(self, seq_i, consensus, title, orig_bases, mask, major):
         # Evaluates consensus sequence for write outs against the prob_indels
         # array.  deletes or inserts bases as appropriate
         # OUT:   returns a list of single character bases as new consensus
@@ -866,11 +869,12 @@ class EM(object):
         # prob_indels list of numpy matrices
         prob_indels_single = self.prob_indels[seq_i]
         unmapped_bases_single = self.unmapped_bases[seq_i]
-        del_count = 0
+    
         for base_i in range(prob_indels_single.shape[0]):
             # Eval if deletion exists at base position
             # Divides weight of deletion, by the sum of both deletions and
             # matches
+            del_count = 0
             denominator = (prob_indels_single[base_i, 0] +
                            prob_indels_single[base_i, 2])
             
@@ -893,33 +897,43 @@ class EM(object):
                 elif consensus[base_i] != "D":
                     # not deleted
                     new_cons.append(consensus[base_i])
+                    del_count += 1
                 else:
                     # delete (add nothing to new consensus)
                     INFO("Modified reference sequence %d (%s) with a deletion "
                          "of base %d " % (seq_i, title, base_i))
-                    del_count += 1
-    
-                # Keep insertions in seqs without deletions - DEBUG
-                if del_count > 0:
                     continue
+                    
+                # Keep insertions in seqs without deletions - DEBUG
+                #if del_count > 0:
+                 #   continue
                 # Eval if insertion exists after base position
-                elif (prob_indels_single[base_i, 1]) == 0:
+                if (prob_indels_single[base_i, 1]) == 0:
                     # no evidence for insertion
                     continue
                 # if summed weights of insertion is greater than sum of reads
                 # mapped nearby (at base on left flank of proposed insertion
                 #  (because it's easy), i-1)
-                elif (prob_indels_single[base_i, 1] / denominator) > \
-                        insertion_threshold:
-                    for i in range(int(prob_indels_single[base_i, 3])):
-                        new_cons.append('N')
+                
+                elif (prob_indels_single[base_i, 1] /denominator) < insertion_threshold:
+                    continue # no insertion
+                
+                elif ((prob_indels_single[base_i, 1] / denominator) > 2*insertion_threshold) and major=="major":
+                        for i in range(int(prob_indels_single[base_i, 3])):
+                            new_cons.append('N')
+                        log.info("Modified reference sequence %d (%s) with an "
+                             "insertion of %s bases after base %d"
+                             % (seq_i, title, str(int(prob_indels_single[
+                                                          base_i, 3])), base_i))
+                else:
+                    if ((prob_indels_single[base_i, 1] / denominator) > insertion_threshold) and major=="minor":
+                        for i in range(int(prob_indels_single[base_i, 3])):
+                            new_cons.append('N')
                     log.info("Modified reference sequence %d (%s) with an "
                              "insertion of %s bases after base %d"
                              % (seq_i, title, str(int(prob_indels_single[
                                                           base_i, 3])), base_i))
-                else:  # no insertion
-                    continue
-  
+
         return new_cons
 
     def cluster_sequences(self, fastafilename):
@@ -1050,31 +1064,33 @@ class EM(object):
                 # mapped columns*
                 # query+target+id+caln+qlo+qhi+tlo+thi %s"%\
                 #   0     1     2   3   4   5  6    7
-            member_start = int(row[4]) - 1  # printed as 1-based by vsearch now
-            seed_start = int(row[6]) - 1
+            #member_start = int(row[4]) - 1  # printed as 1-based by vsearch now
+            #seed_start = int(row[6]) - 1
+            percent_id = float(row[2])
+            aln_columns = alnstring_pat.findall(row[3])[0][0]
 
-            aln_columns, matches = amplicon.count_cigar_aln(
-                    tmp_fastafile.fetch(seed_name),
-                    tmp_fastafile.fetch(member_name),
-                    self.unmapped_bases[seed_seq_id],
-                    self.unmapped_bases[member_seq_id],
-                    seed_start,
-                    member_start,
-                    alnstring_pat.findall(row[3])
-            )
+            #aln_columns, matches = amplicon.count_cigar_aln(
+            #        tmp_fastafile.fetch(seed_name),
+            #        tmp_fastafile.fetch(member_name),
+            #        self.unmapped_bases[seed_seq_id],
+            #        self.unmapped_bases[member_seq_id],
+            #        seed_start,
+            #        member_start,
+            #        alnstring_pat.findall(row[3])
+            #)
 
             # if alignment is less than 1000 bases, or identity over those
             # 500+ bases is not above thresh, then continue
 
-            if aln_columns < 500 \
-               or ((float(matches) / aln_columns) < 1.0):
+            #if aln_columns < 500 \
+             #  or ((float(matches) / aln_columns) < 1.0):
                 # Fixed merging threshold for EMIRGE2.  During iterations only
                 #  merge seqs that are 100% identical. Rest are cleaned up in
                 # post-processing steps.
                 # or ((float(matches) / aln_columns) < self.cluster_thresh):
                 # or (float(aln_columns) / min(seed_n_mapped_bases,
                 # member_n_mapped_bases) < 0.9)
-                continue
+              #  continue
 
             # how many iters does a newly split out seq have to be around
             # before it's allowed to merge again.  -1 to turn this off.
@@ -1090,15 +1106,15 @@ class EM(object):
                self.iteration_i - seed_first_appeared <= minimum_residence_time:
                 continue
 
-            if self.num_seqs < 50:
-                log.info("\t\t%s|%s vs %s|%s %.3f over %s aligned columns"
-                         "(vsearch %%ID: %s)"
-                         % (member_seq_id, member_name, seed_seq_id, seed_name,
-                            float(matches) / aln_columns, aln_columns, row[2]))
+            #if self.num_seqs < 50:
+            #    log.info("\t\t%s|%s vs %s|%s %.3f over %s aligned columns"
+            #             "(vsearch %%ID: %s)"
+            #             % (member_seq_id, member_name, seed_seq_id, seed_name,
+            #                float(matches) / aln_columns, aln_columns, row[2]))
 
             # if above thresh, then first decide which sequence to keep,
             # (one with higher prior probability).
-            percent_id = (float(matches) / aln_columns) * 100.
+            #percent_id = (float(matches) / aln_columns) * 100. 
             t0 = time()
             if self.priors[-1][seed_seq_id] > self.priors[-1][member_seq_id]:
                 keep_seq_id = seed_seq_id
@@ -1145,7 +1161,7 @@ class EM(object):
             nummerged += 1
 
             times.append(time() - t0)
-            log.info("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns)"
+            log.info("\t...merging %d|%s into %d|%s (%.2f%% ID over %s columns)"
                      "in %.3f seconds"
                      % (remove_seq_id, remove_name, keep_seq_id, keep_name,
                         percent_id, aln_columns, times[-1]))
