@@ -14,9 +14,10 @@ addons:
       - ccache
 install:
   - "pip install --upgrade pip"
-  - "pip install -r requirements.txt"
-  - "pip install -e ."
+  - "pip install --requirement requirements.txt"
+  - "pip install --editable --no-cache-dir ."
 script: nosetests
 cache:
+  directories:
   - pip
   - ccache
