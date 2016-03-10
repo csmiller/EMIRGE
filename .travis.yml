@@ -15,6 +15,7 @@ addons:
       - liblapack-dev
       - gfortran
       - ccache
+      - samtools
 
 before install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update          ; fi
