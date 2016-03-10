@@ -23,7 +23,7 @@ before install:
 install:
   - "pip install --upgrade pip"
   - "pip install --requirement requirements.txt"
-  - "pip install --editable --no-cache-dir ."
+  - "pip install --no-cache-dir --editable ."
   - "python -m Emirge.download bowtie2"
   - "unzip bowtie2*zip"
   - "ln -s bowtie2*/ bowtie2"
