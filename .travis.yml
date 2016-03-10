@@ -30,5 +30,5 @@ install:
 script: "PATH=./bowtie2:$PATH" nosetests
 cache:
   directories:
-  - .cache/pip
-  - .ccache
+  - $HOME/.cache/pip
+  - $HOME/.ccache
