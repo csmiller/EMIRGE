@@ -24,7 +24,10 @@ install:
   - "pip install --upgrade pip"
   - "pip install --requirement requirements.txt"
   - "pip install --editable --no-cache-dir ."
-script: nosetests
+  - "python -m Emirge.download bowtie2"
+  - "unzip bowtie2*zip"
+  - "ln -s bowtie2*/ bowtie2"
+script: "PATH=./bowtie2:$PATH" nosetests
 cache:
   directories:
   - pip

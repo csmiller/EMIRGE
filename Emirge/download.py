@@ -3,10 +3,13 @@ helpers for downloading things
 """
 
 import os
+import re
 import sys
 import urllib
 import urllib2
 from string import lower
+
+import time
 
 from Emirge.log import INFO
 
@@ -107,33 +110,64 @@ class BaseDownloader(object):
         return filename
 
 class SourceForgeDownloader(BaseDownloader):
-    FILESURL = "https://sourceforge.net/projects/{project}/files/{path}"
-    FILES_RE = 'latest version.*?title=./{path}([^/:]*)'
-    DOWNLOADURL = "http://downloads.sourceforge.net/project/{project}/{" \
-                  "path}?use_mirror=autoselect&ts={ts}"
+    FILESURL = "https://sourceforge.net/projects/{0.project}/files/{0.path}"
+    FILES_RE = 'latest version.*?title=./{0.path}([^/:]*)'
+    DOWNLOADURL = "http://downloads.sourceforge.net/project/" \
+                  "{0.project}/{0.path}{0.filename}" \
+                  "?use_mirror=autoselect&ts={0.ts}"
 
     project = None
     tool = None
+    version = None
+
+    @property
+    def path(self):
+        path = ""
+        if self.tool:
+            path += self.tool + "/"
+        if self.version:
+            path += self.version + "/"
+        return path
+
+    @property
+    def filename(self):
+        return "{0.tool}-{0.version}-{0.osname}-x86_64.zip" \
+               .format(self)
+
+    @property
+    def osname(self):
+        osname=os.uname()[0]
+        if osname == "Darwin":
+            return "macos"
+        elif osname == "Linux":
+            return "linux"
+        else:
+            return "unknown"
+
+    @property
+    def ts(self):
+        return str(int(time.time()))
 
     def get_current_version(self):
-        if path is not "" and path[-1] != "/":
-            path += "/"
-        doc = self.fetch_url(self.FILESURL.format(**self))
-        match = re.search(self.FILES_RE.format(path),
+        doc = self.fetch_url(self.FILESURL.format(self))
+        match = re.search(self.FILES_RE.format(self),
                           doc.replace("\n",""))
         if match is None:
             raise DownloadException("couldn't find latest version of {}"
-                                    .format(project + path))
+                                    .format(self.project + self.path))
         return match.groups()[0]
 
     def download_file(self):
         return super(SourceForgeDownloader, self).download_file(
-            self.DOWNLOADURL.format(**self),
+            self.DOWNLOADURL.format(self),
 
         )
 
     def run(self):
+        INFO("Retrieving version informatiom")
         self.version = self.get_current_version()
+        INFO("Most recent version is: {}".format(self.version))
+
         return self.download_file()
 
 
@@ -141,13 +175,15 @@ class Bowtie2Downloader(SourceForgeDownloader):
     project = "bowtie-bio"
     tool = "bowtie2"
 
-class BBMapDownloader(SourceForgeDownloader)
+class BBMapDownloader(SourceForgeDownloader):
     project = "bbmap"
 
 if __name__ == '__main__':
-    downloader = None
-    if lower(sys.argv[1]) == 'bowtie2':
+    cmd = lower(sys.argv[1])
+    if cmd == 'bowtie2':
         downloader = Bowtie2Downloader()
+    else:
+        print("can't download that")
+        exit()
 
-    if downloader is not None:
-        downloader.run()
+    downloader.run()
