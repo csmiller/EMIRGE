@@ -255,7 +255,6 @@ setup(
     keywords=["rRNA", "EM"],
     install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython", "cython"],
     setup_requires=["numpy", "cython"],
-    package_data=["CHANGELOG"]
 )
 
 print """
