@@ -22,7 +22,7 @@ import shutil
 import pkg_resources
 from os.path import join as pjoin
 
-version = '0.6.2a7'
+version = '2.0.0a2'
 
 try:
     from Cython.Distutils import build_ext as _build_ext
