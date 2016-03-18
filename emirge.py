@@ -23,6 +23,7 @@ https://github.com/csmiller/EMIRGE
 for help, type:
 python emirge_amplicon.py --help
 """
+from __future__ import print_function
 import cPickle
 import csv
 import multiprocessing
@@ -1444,6 +1445,11 @@ def main(argv=sys.argv[1:]):
                  "greater than this value (calculated based on "
                  "EMIRGE-estimated abundance and total number of reads "
                  "mapped).  Default: %default")
+    group_opt.add_option(
+            '-V', "--version",
+            action="store_true", default=False,
+            help="print version information"
+    )
 
     # --- HIDDEN --- for debugging or special use case
 
@@ -1462,6 +1468,11 @@ def main(argv=sys.argv[1:]):
 
     # ACTUALLY PARSE ARGS
     (options, args) = parser.parse_args(argv)
+
+    if options.version:
+        print("EMIRGE "+VERSION, file=sys.stderr)
+        sys.exit(0)
+
 
     if not vsearch.available():
         parser.error("Please install vsearch")
