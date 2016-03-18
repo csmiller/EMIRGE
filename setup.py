@@ -253,6 +253,7 @@ setup(
     scripts=["emirge.py",
              "emirge_amplicon.py",
              "emirge_rename_fasta.py"],
+    data_files=["pykseq/kseq.h"],
     ext_modules=extensions,
     cmdclass=cmdclass,
     packages=find_packages(exclude=['tests', 'tests.*']),
