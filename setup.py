@@ -27,12 +27,19 @@ version = '2.0.0a1'
 try:
     from Cython.Distutils import build_ext as _build_ext
     cython = True
+    print("Found Cython.")
 except ImportError:
     from distutils.command.build_ext import build_ext as _build_ext
     cython = False
+    print("Cython not installed.")
 
 
 class build_ext(_build_ext):
+    """extends build_ext to add numpy include dir at build time
+    Using numpy.get_includes() would require numpy to have already been
+    installed when this script is run. By deferring the time at which the
+    path is obtained, we should be able to install numpy with Emirge in one go.
+    """
     def build_extensions(self):
         numpy_incl = pkg_resources.resource_filename('numpy', 'core/include')
 
@@ -44,9 +51,12 @@ class build_ext(_build_ext):
 
 
 class CheckingBuildExt(build_ext):
-    """Subclass build_ext to get clearer report if Cython is necessary."""
-
-    def check_cython_extensions(self, extensions):
+    """extend build_ext to check that all Cython generated c sources are
+    present before going on to compile them. This is mainly to get a clearer
+    error message if neither cython nor the c files are available.
+    """
+    @staticmethod
+    def check_cython_extensions(extensions):
         for ext in extensions:
             for src in ext.sources:
                 if not os.path.exists(src):
@@ -99,8 +109,8 @@ class CheckSDist(sdist):
             for pyxfile in self._pyxfiles:
                 cfile = pyxfile[:-3] + 'c'
                 cppfile = pyxfile[:-3] + 'cpp'
-                msg = "C-source file '%s' not found." % (cfile) +\
-                      " Run 'setup.py cython' before sdist."
+                msg = "C-source file '%s' not found. Run 'setup.py cython' " \
+                      "before sdist." % cfile
                 assert os.path.isfile(cfile) or os.path.isfile(cppfile), msg
         sdist.run(self)
 
@@ -171,7 +181,7 @@ extensions = [
     ]
 
 
-def no_cythonize(extensions, **_ignore):
+def no_cythonize(extensions, **_):
     for extension in extensions:
         sources = []
         for sfile in extension.sources:
@@ -182,7 +192,7 @@ def no_cythonize(extensions, **_ignore):
                 else:
                     ext = '.c'
                 sfile = path + ext
-            elif ext in ('.pxd'):
+            elif ext in '.pxd':
                 continue
             sources.append(sfile)
         extension.sources[:] = sources
@@ -199,7 +209,7 @@ else:
 setup(
     name='EMIRGE',
     version=version,
-    description="EMIRGE reconstructs full length sequences from short" +
+    description="EMIRGE reconstructs full length sequences from short "
                 "sequencing reads",
     long_description="""
     EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes
@@ -231,8 +241,8 @@ setup(
         "Environment :: Console",
         "Intended Audience :: Developers",
         "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: GNU General Public License v3 or " +
-        "later (GPLv3+)",
+        "License :: OSI Approved :: GNU General Public License v3 or later "
+        "(GPLv3+)",
         "Operating System :: POSIX",
         "Programming Language :: Cython",
         "Programming Language :: Python :: 2.7",
@@ -246,6 +256,11 @@ setup(
         "emirge_rename_fasta.py",
         "emirge_makedb.py",
     ],
+    data_files=[
+        "Emirge/kseq.h",
+        "Emirge/tables.h"
+    ]
+    package_
     ext_modules=extensions,
     cmdclass=cmdclass,
     packages=find_packages(exclude=['tests', 'tests.*']),
@@ -253,8 +268,8 @@ setup(
     tests_require=["nose"],
     license="GPLv3+",
     keywords=["rRNA", "EM"],
-    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython", "cython"],
-    setup_requires=["numpy", "cython"],
+    install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython"],
+    setup_requires=["numpy"],
 )
 
 print """
