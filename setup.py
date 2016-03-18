@@ -259,8 +259,7 @@ setup(
     data_files=[
         "Emirge/kseq.h",
         "Emirge/tables.h"
-    ]
-    package_
+    ],
     ext_modules=extensions,
     cmdclass=cmdclass,
     packages=find_packages(exclude=['tests', 'tests.*']),
