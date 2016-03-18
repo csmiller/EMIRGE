@@ -25,6 +25,6 @@ deploy:
   user: epruesse
   password:
     secure: hHEpnYC+RrvsAxFUdGXBOP9CmVc3vc9Lhae64v4KZfcPT1s1JGSLk03oYbFtXzp0hD10NTZfEB9Y26qQ/ZU34mv5d5OvCr4AGKpb9uCDLyrKcWyGblj34S3X9nUnftcXgMCKGjvHswfeaL49PLndAg7UyTR91T2QiZPLaNOQh8A=
-  distributions: sdist bdist_wheel
+  distributions: sdist
   on:
     tags: true
