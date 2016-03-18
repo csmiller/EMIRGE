@@ -263,7 +263,7 @@ class Mapper(object):
             self.set_detected_read_length(max_rlen, max_rlen2)
             self.set_detected_n_reads(n_reads, n_reads2)
 
-    def prefilter_reads(self):
+    def prefilter_reads(self, *_):
         raise NotImplementedError()
 
 
