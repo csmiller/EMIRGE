@@ -40,7 +40,7 @@ import pysam
 from Bio import SeqIO
 from scipy import sparse
 
-from Emirge import io, log, mapping
+from Emirge import io, log, mapping, VERSION
 from Emirge.clustering import vsearch
 from Emirge.io import make_pipe
 from Emirge.log import DEBUG, INFO
@@ -48,10 +48,11 @@ from emirge_rename_fasta import rename
 
 USAGE = """usage: %prog DIR <required_parameters> [options]
 
-This version of EMIRGE (%prog) attempts to reconstruct rRNA SSU genes
-from Illumina amplicon data.  It can handle up to a few million rRNA
-reads at a time.
+EMIRGE {} (%prog) reconstructs rRNA genes from Illumina amplicon or metagenome
+data.  It can handle up to a few million rRNA reads at a time.
+
 DIR is the working directory to process data in.
+
 Use --help to see a list of required and optional arguments
 
 Additional information:
@@ -70,7 +71,7 @@ Banfield JF (2013)
 Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in
 Subsurface Sediments.
 PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
-"""
+""".format(VERSION)
 
 
 BOWTIE_l = 20
