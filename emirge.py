@@ -1025,7 +1025,7 @@ class EM(object):
                self.n_cpus,
                sens_string)
 
-        log.info("vsearch command was:\n%s" % cmd)
+        log.info("vsearch command was: %s" % cmd)
 
         check_call(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
         # read clustering file to adjust Priors and Posteriors, summing merged
@@ -1275,7 +1275,7 @@ def post_process(em, working_dir):
     cmd = "vsearch --cluster_smallmem %s -usersort -notrunclabels -id %.2f" \
           " -centroids %s -uc %s " % (nomin_fasta_filename, em.cluster_thresh,
                                       centroids, uc)
-    log.info("vsearch command was:\n%s" % cmd)
+    log.info("vsearch command was: %s" % cmd)
 
     check_call(cmd, shell=True, stdout=sys.stdout, stderr=sys.stderr)
 
@@ -1503,7 +1503,7 @@ def main(argv=sys.argv[1:]):
 
     working_dir = os.path.abspath(args[0])
 
-    sys.stdout.write("""\
+    print("""\
 If you use EMIRGE in your work, please cite these manuscripts, as appropriate.
 
 Miller CS, Baker BJ, Thomas BC, Singer SW, Banfield JF (2011)
@@ -1514,15 +1514,15 @@ Genome biology 12: R44. doi:10.1186/gb-2011-12-5-r44.
 Miller CS, Handley KM, Wrighton KC, Frischkorn KR, Thomas BC, Banfield JF (2013)
 Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in
 Subsurface Sediments.
-PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
+PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 
-    sys.stdout.write("imported _emirge C functions from: %s\n"
-                     % amplicon.__file__)
-    sys.stdout.write("Command:\n")
-    sys.stdout.write(' '.join([__file__] + argv))
-    sys.stdout.write('\n\n')
+""")
+    print("imported _emirge C functions from:", amplicon.__file__)
+    print("Command line:", __file__,  *argv)
+    print()
+    print()
     total_start_time = time()
-    sys.stdout.write("EMIRGE started at %s\n" % (ctime()))
+    print("EMIRGE started at", ctime())
     sys.stdout.flush()
 
     for o in ["fastq_reads_1", "fasta_db"]:
@@ -1539,7 +1539,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         os.mkdir(working_dir)
     elif len(os.listdir(working_dir)) > 1:
         # allow 1 file in case log file is redirected here.
-        print >> sys.stderr, os.listdir(working_dir)
+        print(os.listdir(working_dir), file=sys.stderr)
         parser.error(
             "Directory not empty: %s\n"
             "It is recommended you run emirge in a new directory each run; "
@@ -1584,9 +1584,9 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     em.do_initial_mapping()
 
     if options.randomize_init_priors:
-        print >> sys.stderr, "*" * 60
-        print >> sys.stderr, "DEBUG: initialized priors will be randomized " \
-                             "for testing purposes"
+        print("*" * 60 + "\n" +
+              "DEBUG: initialized priors will be randomized Efor testing "
+              "purposes", file=sys.stderr)
 
     em.initialize_EM(randomize_priors=options.randomize_init_priors)
 
@@ -1601,7 +1601,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
     # brief description, filename
     # TODO
     
-    sys.stdout.write("EMIRGE finished at %s.  Total time: %s\n"
+    print("EMIRGE finished at %s.  Total time: %s"
                      % (ctime(), timedelta(seconds=time() - total_start_time)))
 
 
