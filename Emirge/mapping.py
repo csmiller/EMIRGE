@@ -8,8 +8,6 @@ import re
 from multiprocessing import cpu_count
 from subprocess import CalledProcessError
 
-import numpy
-
 import Emirge.log as log
 from Emirge.cio import fastq_process
 from Emirge.io import decompressed, make_pipe, \
