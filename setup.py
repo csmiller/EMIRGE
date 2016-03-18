@@ -25,7 +25,7 @@ import pkg_resources
 from os.path import join as pjoin
 
 
-version = '0.60.2a5'
+version = '0.60.2a6'
 
 
 try:
