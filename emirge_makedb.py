@@ -27,8 +27,8 @@ SILVA_LSUFILE = "SILVA_{0}_LSURef_tax_silva_trunc.fasta.gz"
 def compute_file_md5(filename):
     """Computes the MD5 checksum of a file"""
     hash = hashlib.md5()
-    with open(filename, "rb") as file:
-        for chunk in iter(lambda: file.read(4096), b""):
+    with open(filename, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
             hash.update(chunk)
     return hash.hexdigest()
 
@@ -73,8 +73,8 @@ def silva_download_fasta(release, gene, tmpdir):
     silva_fasta = download_url(database_url, tmpdir)
     silva_md5 = download_url(database_url + ".md5", tmpdir)
     print "Verifying file...",
-    with open(silva_md5, "rb") as file:
-        silva_md5 = file.read().split(" ")[0]
+    with open(silva_md5, "rb") as f:
+        silva_md5 = f.read().split(" ")[0]
     local_md5 = compute_file_md5(silva_fasta)
     if (local_md5 == silva_md5):
         print "OK"
