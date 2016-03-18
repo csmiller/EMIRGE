@@ -457,7 +457,7 @@ class Pipe(FileLike):
         self.stdpipes = dict(stdin=stdin, stdout=stdout, stderr=stderr)
 
         npipe = 0
-        for pname, pipe in self.stdpipes.iteritems():
+        for _, pipe in self.stdpipes.iteritems():
             if pipe == PIPE:
                 npipe += 1
         assert npipe <= 1
@@ -612,7 +612,7 @@ def filter_fastq(infile, readnames, outfile=None):
                 outfile.write(infile.next())
             matches += 1
         else:
-            for n in range(3):
+            for _ in range(3):
                 infile.next()
         reads += 1
         if reads < 10:
