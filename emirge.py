@@ -32,7 +32,7 @@ import re
 import sys
 from datetime import timedelta
 from optparse import OptionParser, OptionGroup, SUPPRESS_HELP
-from subprocess import Popen, PIPE, check_call
+from subprocess import check_call
 from time import ctime, time
 
 import Emirge.amplicon as amplicon
@@ -611,11 +611,11 @@ class EM(object):
                         del_hits.append(base_i)
                     else:
                         self.probN[seq_i][base_i, 4] = 0
-                    
+
                     if (prob_indels_single[base_i, 1] / denominator) \
                         > self.indel_thresh:
                             insertion_hits.append(base_i)
-                         
+
             deletion_indices = np.array(del_hits)
             insertion_indices = np.array(insertion_hits)
         
