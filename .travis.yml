@@ -22,9 +22,9 @@ cache:
   - $HOME/.ccache
 deploy:
   provider: pypi
-  user: epruesse
+  user: chris.miller
   password:
-    secure: hHEpnYC+RrvsAxFUdGXBOP9CmVc3vc9Lhae64v4KZfcPT1s1JGSLk03oYbFtXzp0hD10NTZfEB9Y26qQ/ZU34mv5d5OvCr4AGKpb9uCDLyrKcWyGblj34S3X9nUnftcXgMCKGjvHswfeaL49PLndAg7UyTR91T2QiZPLaNOQh8A=
+    secure: Wy9o1QlZt8REYV/tLBy/UKjdY6UNXc5n8snFwego3mL8eDAeQfs5wXyFx13nFs7A8WlRDwS/m81VP/Zm7BaWCz16dfs9P1G4xv/nqTseZfSJ9gLyeMKdX5cxiqDv+wd6eXb2XQmvQGhjG2Ia0sI4EO+MPABlaU5KkaQYEDU4VVg4tC4vwo3uLKntPyB0HqAIHLmOZOg4dyL0llbxbe40jlAN9lUyZjMuqN8boQfITP3ezbD+r/sME/a/rAC5XX7xq7F4Cr86zO3WcXEttc20Z5P5ME1pcVzv9S17mJJpsHb+O0XpQq9aXS2iprm0D1PPxqit5hncqX1lIz61DuovaL7V5NnDzTey5iUdtzJJSXLndAXWiKPkjTEiVmq5Zu40d0ME7nJsHLd3SpAdrESmcNL54YL7ET8oggOuFCy0iuvxCg6BxVJL+0Mh7QlEL/o8GZyJmfdE2SbV47K793Ma+zELLXF2Cq574UiqkRFchfAXtBBWPop04X0BCvGRvICwQjY7fsHTtb6f+L/fXdsH6bjswR3c7Hgs5EH4HwVFK7hl93y99nHtLC3a9I1yNtDoo/stLLc83h6Ub00LN0JXJjzf98O65t6VNB5Z9pbG+jEwcCDjHPObhbyzDJQOQuWRBRz5DzL5BtLnLsiELN8r5iS0M1Qa2w+1oe9zqLsi200=
   distributions: sdist
   on:
     tags: true
