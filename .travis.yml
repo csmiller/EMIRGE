@@ -1,6 +1,6 @@
 language: python
 python:
-- "2.7"
+- '2.7'
 addons:
   apt:
     packages:
@@ -10,12 +10,21 @@ addons:
     - liblapack-dev
     - gfortran
     - samtools
-
 install:
-- "pip install --upgrade pip"
-- "pip install --no-cache-dir --editable ."
-script: "true"
+- pip install --upgrade pip
+- pip install cython
+- pip install -r requirements.txt
+- pip install --no-cache-dir --editable .
+script: 'true'
 cache:
   directories:
   - $HOME/.cache/pip
   - $HOME/.ccache
+deploy:
+  provider: pypi
+  user: epruesse
+  password:
+    secure: hHEpnYC+RrvsAxFUdGXBOP9CmVc3vc9Lhae64v4KZfcPT1s1JGSLk03oYbFtXzp0hD10NTZfEB9Y26qQ/ZU34mv5d5OvCr4AGKpb9uCDLyrKcWyGblj34S3X9nUnftcXgMCKGjvHswfeaL49PLndAg7UyTR91T2QiZPLaNOQh8A=
+  distributions: sdist bdist_wheel
+  on:
+    tags: true
