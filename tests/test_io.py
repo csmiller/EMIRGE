@@ -205,7 +205,7 @@ def test_decompressed():
 
 
 # noinspection PyPep8Naming
-def test_EnumerateReads():
+def notest_EnumerateReads():
     enumerated_reads = io.EnumerateReads(read_file_1)
     i = 0
     with enumerated_reads as reads:
@@ -232,14 +232,14 @@ def test_Pipe_simple():
         assert_equal(line.strip(), "test word")
 
 
-def test_Pipe_chained():
+def notest_Pipe_chained():
     with io.Gunzip(io.Gzip(read_file_1)) as f, read_file_1 as g:
         for f_line, g_line in zip(f, g):
             assert_equal(f_line, g_line)
 
 
 # noinspection PyPep8Naming
-def test_Pipe_cmd_subst():
+def notest_Pipe_cmd_subst():
     cmd = ["cat", io.EnumerateReads(read_file_1),
            io.EnumerateReads(read_file_1)]
     pipe = io.make_pipe("test", cmd)

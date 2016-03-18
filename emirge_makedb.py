@@ -8,7 +8,7 @@ import subprocess
 import sys
 from optparse import OptionParser
 
-from Emirge.downloader import DownloadException, fetch_url, download_url
+from Emirge.download import DownloadException, fetch_url, download_url
 
 USAGE = """usage: %prog [OPTIONS]
 

@@ -1,9 +1,6 @@
 language: python
 python:
   - "2.7"
-os:
-  - linux
-  - osx
 addons:
   apt:
     packages:
@@ -15,6 +12,7 @@ addons:
       - liblapack-dev
       - gfortran
       - ccache
+      - samtools
 
 before install:
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update          ; fi
@@ -23,9 +21,12 @@ before install:
 install:
   - "pip install --upgrade pip"
   - "pip install --requirement requirements.txt"
-  - "pip install --editable --no-cache-dir ."
-script: nosetests
+  - "pip install --no-cache-dir --editable ."
+  - "python -m Emirge.download bowtie2"
+  - "unzip bowtie2*zip"
+  - "ln -s bowtie2*/ bowtie2"
+script: "PATH=./bowtie2:$PATH nosetests"
 cache:
   directories:
-  - pip
-  - ccache
+    - $HOME/.cache/pip
+    - $HOME/.ccache

@@ -254,7 +254,7 @@ setup(
     license="GPLv3+",
     keywords=["rRNA", "EM"],
     install_requires=["numpy", "pysam>=0.8.4", "scipy", "biopython", "cython"],
-    setup_requires=["numpy", "cython"]
+    setup_requires=["numpy", "cython"],
 )
 
 print """
