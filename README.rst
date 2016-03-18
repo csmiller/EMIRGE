@@ -185,7 +185,7 @@ you if you try EMIRGE with single-end reads.
 COPYRIGHT AND LICENSE
 ---------------------
 
-Copyright (C) 2010-2012 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
+Copyright (C) 2010-2016 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
