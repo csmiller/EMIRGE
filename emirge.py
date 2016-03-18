@@ -534,7 +534,7 @@ class EM(object):
 
         splitcount = 0
         of = file(outputfilename, 'w')
-        tmp_fastafilename = outputfilename + ".tmp.fasta" 
+        tmp_fastafilename = outputfilename + ".tmp.fasta"
         of_tmp = file(tmp_fastafilename, 'w')
 
         # DEBUG:
@@ -921,7 +921,7 @@ class EM(object):
                     continue # no insertion
                 
                 elif ((prob_indels_single[base_i, 1] / denominator) > 2*insertion_threshold) and major=="major":
-                        for i in range(int(prob_indels_single[base_i, 3])):
+                        for _ in range(int(prob_indels_single[base_i, 3])):
                             new_cons.append('N')
                         log.info("Modified reference sequence %d (%s) with an "
                              "insertion of %s bases after base %d"
