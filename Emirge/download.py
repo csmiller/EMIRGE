@@ -104,7 +104,7 @@ class BaseDownloader(object):
                      "remote file size {1}."
                      .format(existing_file_size, remote_file_size))
 
-        (filename, header) = urllib.urlretrieve(url, filename,
+        (filename, _) = urllib.urlretrieve(url, filename,
                                                 self._print_progress)
 
         return filename
