@@ -2,8 +2,16 @@
 EMIRGE -- :WARNING: Experimental Version :WARNING:
 ==================================================
 
-.. image:: https://travis-ci.org/epruesse/EMIRGE.svg?branch=master
-   :target: https://travis-ci.org/epruesse/EMIRGE
+.. image:: https://travis-ci.org/csmiller/EMIRGE.svg?branch=master
+   :target: https://travis-ci.org/csmiller/EMIRGE
+.. image:: https://img.shields.io/pypi/v/emirge.svg
+   :target: https://pypi.python.org/pypi/EMIRGE
+.. image:: https://img.shields.io/pypi/dm/emirge.svg
+   :target: https://pypi.python.org/pypi/EMIRGE
+.. image:: https://img.shields.io/pypi/l/emirge.svg
+   :target: https://pypi.python.org/pypi/EMIRGE
+.. image:: https://img.shields.io/pypi/pyversions/emirge.svg
+   :target: https://pypi.python.org/pypi/EMIRGE
 
 -------------------------------------------------------------------------------
 Expectation-Maximization Iterative Reconstruction of Genes from the Environment
