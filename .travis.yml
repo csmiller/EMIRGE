@@ -1,0 +1,21 @@
+language: python
+python:
+  - "2.7"
+addons:
+  apt:
+    packages:
+     - cython
+      - python-dev
+      - libblas-dev
+      - liblapack-dev
+      - gfortran
+      - samtools
+
+install:
+  - "pip install --upgrade pip"
+  - "pip install --no-cache-dir --editable ."
+script: "true"
+cache:
+  directories:
+    - $HOME/.cache/pip
+    - $HOME/.ccache
