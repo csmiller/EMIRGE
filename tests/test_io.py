@@ -288,7 +288,6 @@ def test_AlignmentFile():
 def test_Kseq():
     reads = 0
     bp = 0
-    x = io.Kseq(read_file_1)
     with io.Kseq(read_file_1) as f:
         for seq in f:
             reads +=1

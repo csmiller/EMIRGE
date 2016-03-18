@@ -5,7 +5,7 @@ from nose.tools import assert_equal
 from numpy.lib.function_base import median
 
 from Emirge.cio import fastq_process
-from Emirge.io import File, decompressed
+from Emirge.io import decompressed
 from Emirge.log import INFO
 
 read_file_1 = "tests/test_data/ten_seq_community_000_50K_L150_I350.1.fastq.xz"

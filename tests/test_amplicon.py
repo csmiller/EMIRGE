@@ -1,5 +1,5 @@
 """test functions in Emirge/amplicon.pyx"""
-from timeit import timeit, Timer
+from timeit import Timer
 
 import numpy
 from numpy.lib.function_base import median
@@ -58,7 +58,7 @@ class Complement_test():
             for stop in 0, 1, 22, 149, 150:
                 if start+stop > 150 or stop < start:
                     continue
-                res = amplicon.complement_sequence(
+                amplicon.complement_sequence(
                     self.nd_sequence[start:stop],
                     self.result_buf
                 )
