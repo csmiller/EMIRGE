@@ -171,12 +171,14 @@ else:
 
 
 extensions = [
-    Extension("pykseq", ["pykseq/pykseq.pyx"]),
+    Extension("pykseq", ["pykseq/pykseq.pyx"],
+              libraries=["z"]),
     Extension("_emirge", ["_emirge.pyx"],
               extra_compile_args=["-O3"]),
     Extension("_emirge_amplicon", ["_emirge_amplicon.pyx"],
               extra_compile_args=["-O3"],
-              include_dirs=['./pykseq'])
+              include_dirs=['./pykseq'],
+              libraries=["z"])
     ]
 
 
