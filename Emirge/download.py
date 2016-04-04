@@ -110,10 +110,10 @@ class BaseDownloader(object):
         return filename
 
 class SourceForgeDownloader(BaseDownloader):
-    FILESURL = "https://sourceforge.net/projects/{0.project}/files/{0.path}"
+    FILESURL = "https://sourceforge.net/projects/{0.project}/files/{0.path}/"
     FILES_RE = 'latest version.*?title=./{0.path}([^/:]*)'
     DOWNLOADURL = "http://downloads.sourceforge.net/project/" \
-                  "{0.project}/{0.path}{0.filename}" \
+                  "{0.project}/{0.path}/{0.filename}" \
                   "?use_mirror=autoselect&ts={0.ts}"
 
     project = None
@@ -125,8 +125,10 @@ class SourceForgeDownloader(BaseDownloader):
         path = ""
         if self.tool:
             path += self.tool + "/"
+        print(path)
         if self.version:
-            path += self.version + "/"
+            path += self.version
+        print(path)
         return path
 
     @property
@@ -176,12 +178,20 @@ class Bowtie2Downloader(SourceForgeDownloader):
     tool = "bowtie2"
 
 class BBMapDownloader(SourceForgeDownloader):
+    DOWNLOADURL = "http://downloads.sourceforge.net/project/" \
+                  "{0.project}/{0.path}" \
+                  "?use_mirror=autoselect&ts={0.ts}"
     project = "bbmap"
 
 if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print("Valid arguments: bowtie2 bbmap")
+        sys.exit()
     cmd = lower(sys.argv[1])
     if cmd == 'bowtie2':
         downloader = Bowtie2Downloader()
+    elif cmd == 'bbmap':
+        downloader = BBMapDownloader()
     else:
         print("can't download that")
         exit()
