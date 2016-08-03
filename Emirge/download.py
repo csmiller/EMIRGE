@@ -155,6 +155,9 @@ class SilvaDownloader(BaseDownloader):
         "LISTING": ""
     }
 
+    def __init__(self):
+        self.license_confirmed = False
+
     def get_url(self, name, release=None):
         try:
             return (self.BASEURL + self.FILENAMES[name.upper()]).format(
@@ -183,6 +186,9 @@ class SilvaDownloader(BaseDownloader):
         return version
 
     def confirm_license(self, release=None):
+        if self.license_confirmed == True:
+            return
+
         license_url = self.get_url("LICENSE", release)
         license = self.fetch_url(license_url)
 
@@ -199,6 +205,7 @@ Contents of \"{url}\":
         if (answer.lower() != "yes"):
             raise DownloadException(
                 "Unable to continue -- license not accepted")
+        self.license_confirmed = True
 
     def run(self, gene="SSU", release="current", tmpdir=None):
         if release == "current":

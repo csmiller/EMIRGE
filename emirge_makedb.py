@@ -183,11 +183,17 @@ def main(argv=sys.argv[1:]):
         default="bowtie-build",
         help="path to bowtie-build binary"
     )
+    parser.add_option(
+        "--silva-license-accepted", dest="license",
+        action="store_true", default=False,
+        help="I have read and accepted the SILVA license."
+    )
 
     (options, args) = parser.parse_args(argv)
 
     try:
         downloader = SilvaDownloader()
+        downloader.license_confirmed = options.license
         silva_fasta = downloader.run(options.gene, options.release,
                                      options.tmpdir)
         clustered_fasta = cluster_fasta(options.vsearch, silva_fasta,
