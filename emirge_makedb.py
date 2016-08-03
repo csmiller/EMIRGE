@@ -31,7 +31,7 @@ def cluster_fasta(vsearch_bin, filein, minlen, maxlen, clusterid):
         filein_split[-2:-1]
     )
 
-    if os.path.isfile(fileout):
+    if os.path.isfile(fileout) and os.path.getsize(filename) >0:
         print ("Found existing file \"{0}\". Skipping clustering stage."
                .format(fileout))
         return fileout
