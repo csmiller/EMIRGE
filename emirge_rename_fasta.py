@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/home/linuxbrew/.linuxbrew/Cellar/python/2.7.12_1/bin/python
 """
 EMIRGE: EM Iterative Reconstruction of Genes from the Environment
 Copyright (C) 2010-2016 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
@@ -137,7 +137,7 @@ def rename(wd=os.getcwd(), output_file="renamed.fasta", record_prefix='',
                              prior, len(record.seq), normed_priors[i])
 
     renamed_fasta_file = open(output_file, 'w')
-    for prior, record in sorted(sorted_records, reverse=True):
+    for prior, record in sorted(sorted_records, key=lambda prior: prior[0], reverse=True):
         if prior < prob_min:
             break
         SeqIO.write(record, renamed_fasta_file, 'fasta')
