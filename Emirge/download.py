@@ -261,7 +261,7 @@ class SourceForgeDownloader(BaseDownloader):
 
         )
 
-    def run(self, args):
+    def run(self, *_):
         INFO("Retrieving version informatiom")
         self.version = self.get_current_version()
         INFO("Most recent version is: {}".format(self.version))
