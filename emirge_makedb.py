@@ -198,7 +198,6 @@ def main(argv=sys.argv[1:]):
         build_bowtie_index(options.bowtie, randomized_fasta)
         if (not options.keep):
             os.unlink(silva_fasta)
-            os.unlink(silva_fasta+".md5")
             os.unlink(clustered_fasta)
 
     except DownloadException as e:
