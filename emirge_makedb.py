@@ -102,7 +102,7 @@ def randomize_ambiguous_fasta(filein, folder=None):
     if folder is not None:
         fileout = os.path.join(folder, os.path.basename(fileout))
 
-    if os.path.exists(fileout):
+    if os.path.exists(fileout) and os.path.getsize(fileout) > 0:
         print ("Found existing file \"{0}\". Skipping randomization stage."
                .format(fileout))
         return fileout
