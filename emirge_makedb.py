@@ -8,7 +8,7 @@ import subprocess
 import sys
 from optparse import OptionParser
 
-from Emirge.download import DownloadException, fetch_url, download_url
+from Emirge.download import DownloadException, SilvaDownloader
 
 USAGE = """usage: %prog [OPTIONS]
 
@@ -18,70 +18,6 @@ will 1) download the most recent SILVA SSU database, 2) filter it by sequence
 length, 3) cluster at 97% sequence identity, 4) replace ambiguous bases
 with random characters and 5) create a bowtie index.
 """
-
-SILVA_BASEURL = "https://ftp.arb-silva.de"
-SILVA_SSUFILE = "SILVA_{0}_SSURef_Nr99_tax_silva_trunc.fasta.gz"
-SILVA_LSUFILE = "SILVA_{0}_LSURef_tax_silva_trunc.fasta.gz"
-
-
-def compute_file_md5(filename):
-    """Computes the MD5 checksum of a file"""
-    hash = hashlib.md5()
-    with open(filename, "rb") as f:
-        for chunk in iter(lambda: f.read(4096), b""):
-            hash.update(chunk)
-    return hash.hexdigest()
-
-
-def silva_find_most_recent_version():
-    """Determines most recent SILVA release found at SILVA_BASEURL"""
-    url = "/".join([SILVA_BASEURL, "current", "Exports"])
-    files = re.findall("<a href=\"SILVA_([[0-9_]*)_", fetch_url(url))
-    return files[0]
-
-
-def silva_confirm_license(release):
-    """Prompts user to confirm SILVA license found for `release`
-    Raises DownloadException if confirmation fails.
-    """
-    license_url = "/".join([SILVA_BASEURL,
-                            "release_" + release.replace(".", "_"),
-                            "Exports", "LICENSE.txt"])
-    license_txt = fetch_url(license_url)
-
-    print("""
-The SILVA database is published under a custom license. To proceed, you need
-to read this license and agree with its terms:
-    """)
-    print ("> "+license_txt.replace("\n", "\n> ").rstrip("\n> "))
-    print ""
-
-    answer = raw_input("Do you agree to these terms? [yes|NO]")
-    if (answer != "yes"):
-        raise DownloadException("Unable to continue")
-
-
-def silva_download_fasta(release, gene, tmpdir):
-    """Downloads SILVA database for `release` and `gene` into tmpdir.
-    Checks file integrity by comparing MD5 checksums.
-    """
-    filename = SILVA_SSUFILE if gene.upper() == "SSU" else SILVA_LSUFILE
-    filename = filename.format(release)
-    database_url = "/".join([SILVA_BASEURL,
-                             "release_" + release.replace(".", "_"),
-                             "Exports", filename])
-    silva_fasta = download_url(database_url, tmpdir)
-    silva_md5 = download_url(database_url + ".md5", tmpdir)
-    print "Verifying file...",
-    with open(silva_md5, "rb") as f:
-        silva_md5 = f.read().split(" ")[0]
-    local_md5 = compute_file_md5(silva_fasta)
-    if (local_md5 == silva_md5):
-        print "OK"
-        return silva_fasta
-    else:
-        print "FAILED"
-        raise DownloadException("Corrupted File?!")
 
 
 def cluster_fasta(vsearch_bin, filein, minlen, maxlen, clusterid):
@@ -250,13 +186,10 @@ def main(argv=sys.argv[1:]):
 
     (options, args) = parser.parse_args(argv)
 
-    if (options.release == "current"):
-        options.release = silva_find_most_recent_version()
-
     try:
-        silva_confirm_license(options.release)
-        silva_fasta = silva_download_fasta(options.release, options.gene,
-                                           options.tmpdir)
+        downloader = SilvaDownloader()
+        silva_fasta = downloader.run(options.gene, options.release,
+                                     options.tmpdir)
         clustered_fasta = cluster_fasta(options.vsearch, silva_fasta,
                                         options.min_len, options.max_len,
                                         options.clusterid)
