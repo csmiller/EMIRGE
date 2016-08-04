@@ -33,8 +33,9 @@ void find_repeats(unsigned int* kmer_map, int k, int min,
     unsigned int kmer = 0;
     int doubles = 0;
     int results_n = 0;
+    int pos;
 
-    for (int pos = 0; pos < sequence_len; pos++) {
+    for (pos = 0; pos < sequence_len; pos++) {
         int base = ascii2bits(sequence[pos]);
         //if (base > 3) continue;
         kmer = ((kmer << 2) | base) & mask;
@@ -65,7 +66,7 @@ void find_repeats(unsigned int* kmer_map, int k, int min,
     results[results_n++] = 0;
 
     kmer = 0;
-    for (int pos = 0; pos < sequence_len; pos++) {
+    for (pos = 0; pos < sequence_len; pos++) {
       int base = ascii2bits(sequence[pos]);
       if (base > 3) continue;
       kmer = ((kmer << 2) | base) & mask;
