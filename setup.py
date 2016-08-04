@@ -97,7 +97,8 @@ class CheckSDist(sdist):
     """Custom sdist that ensures Cython has compiled all pyx files to c."""
     _pyxfiles = ["Emirge/_kseq.pyx",
                  "Emirge/cio.pyx",
-                 "Emirge/amplicon.pyx"]
+                 "Emirge/amplicon.pyx",
+                 "Emirge/rep_finder.pyx"]
 
     def initialize_options(self):
         sdist.initialize_options(self)
@@ -176,6 +177,9 @@ extensions = [
               extra_compile_args=["-O3"],
               include_dirs=['./Emirge/']),
     Extension("Emirge.cio", ["Emirge/cio.pyx"],
+              extra_compile_args=["-O3"],
+              include_dirs=['./Emirge/']),
+    Extension("Emirge.rep_finder", ["Emirge/rep_finder.pyx"],
               extra_compile_args=["-O3"],
               include_dirs=['./Emirge/'])
     ]
