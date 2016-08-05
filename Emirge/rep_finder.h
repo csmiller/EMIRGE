@@ -43,8 +43,8 @@ void find_repeats(unsigned int* kmer_map, int k, int min,
         if (get_bit(kmer_map, kmer)) {
             doubles ++;
         } else {
-            if (doubles > min) {
-	            int match_length = doubles + k - 1;
+	        int match_length = doubles + k - 1;
+            if (match_length >= min) {
 	            size_t match_start = pos - match_length;
 
 	            char* first = (char*) memmem(

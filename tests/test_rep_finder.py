@@ -1,7 +1,6 @@
 from nose.tools import assert_equal
 
-from Emirge.rep_finder import RepFinder
-from Emirge.log import INFO
+from Emirge.find_repeats import RepFinder
 
 read_file_1 = "tests/test_data/twenty_seq_database.fasta"
 

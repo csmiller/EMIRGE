@@ -45,3 +45,4 @@ cdef class RepFinder:
             res.append([a,b,c])
 
         return res
+
