@@ -2,10 +2,16 @@
 
 inline int ascii2bits(char c) {
     switch(c) {
+        case 'a':
         case 'A': return 0;
+        case 'c':
         case 'C': return 1;
+        case 'g':
         case 'G': return 2;
-        case 'T': return 3;
+        case 'U':
+        case 'u':
+        case 'T':
+        case 't': return 3;
         default:  return 4;
     }
 }
