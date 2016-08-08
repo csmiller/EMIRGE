@@ -25,6 +25,8 @@ install:
   - "python -m Emirge.download bowtie2"
   - "unzip bowtie2*zip"
   - "ln -s bowtie2*/ bowtie2"
+  - "touch ~/.emirge_devel_mode"
+
 script: "PATH=./bowtie2:$PATH nosetests"
 cache:
   directories:

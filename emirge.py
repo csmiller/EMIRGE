@@ -44,7 +44,7 @@ from scipy import sparse
 from Emirge import io, log, mapping, VERSION
 from Emirge.clustering import vsearch
 from Emirge.io import make_pipe
-from Emirge.log import DEBUG, INFO
+from Emirge.log import DEBUG, INFO, ERROR
 from emirge_rename_fasta import rename
 
 USAGE = """usage: %prog DIR <required_parameters> [options]
@@ -1337,6 +1337,18 @@ def main(argv=sys.argv[1:]):
     command line interface to emirge
 
     """
+    if "a" in VERSION:
+        check_file="~/.emirge_devel_mode"
+        if not os.path.exists(os.path.expanduser(check_file)):
+            ERROR("""
+
+Cowardly refusing to run alpha version of EMIRGE with developer mode inactive.
+
+Please download the latest official verion from:
+  https://github.com/csmiller/EMIRGE/releases
+            """)
+            exit(2)
+
     parser = OptionParser(USAGE)
 
     # REQUIRED
