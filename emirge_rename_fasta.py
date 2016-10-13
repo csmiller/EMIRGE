@@ -120,7 +120,7 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, 
     for i, (prior, record) in enumerate(sorted_records):
         record.description = "Prior=%06f Length=%d NormPrior=%06f"%(prior, len(record.seq), normed_priors[i])
 
-    for prior, record in sorted(sorted_records, reverse=True):
+    for prior, record in sorted(sorted_records, lambda x,y: cmp(x[0], y[0]), reverse=True):
         if prior < prob_min:
             break
         sys.stdout.write(record.format('fasta'))
