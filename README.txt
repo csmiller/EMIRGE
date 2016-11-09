@@ -63,7 +63,7 @@ EMIRGE expects the following programs to be installed and available in your path
  -usearch (www.drive5.com/usearch/ -- tested with usearch version 6.0.203; versions earlier than this are incompatible).
  -samtools (http://samtools.sourceforge.net/ -- tested with verison 0.1.18)
  -bowtie (http://bowtie-bio.sourceforge.net/index.shtml -- tested with version 0.12.7 and 0.12.8)
-
+ -vsearch (https://github.com/torognes/vsearch -- optional, but required if you use emirge_makedb.py)
 INSTALLATION
 ------------------------------
 
@@ -132,20 +132,22 @@ CANDIDATE SSU DATABASE
 
 You can download a standard candidate SSU database by running the
 following command:
-python emirge_download_candidate_db.py
+python emirge_makedb.py
 
-This script is included with EMIRGE.  The current version of this
-database was made using Silva release SSURef_111_NR
-(http://www.arb-silva.de/).  Sequences were clustered using uclust at
-97% sequence identity, short and long sequences were removed, and
-non-standard characters were changed to be within {ACTG} (using
-utils/fix_nonstandard_chars.py).
+This script is included with EMIRGE, and by default downloads the
+current version of the Silva small subunit rRNA database
+(http://www.arb-silva.de/).  Sequences are clustered by default using
+vsearch at 97% sequence identity, short and long sequences are
+removed, and non-standard characters are changed to be within {ACTG}.
+See emirge_makedb.py --help for details.
 
-You can use any reference SSU database with emirge, though this one is
-recommended.  No matter your choice, you should run
-utils/fix_nonstandard_chars.py on your fasta file.  You will also need
-to first build a bowtie index, with something like:
+You can use any reference SSU database with emirge, though SILVA is
+recommended.  If you use another database, you should run
+utils/fix_nonstandard_chars.py on your fasta file to remove ambiguous
+characters, which bowtie cannot map against.  You will also need to
+first build a bowtie index, with something like:
 $ bowtie-build SSU_candidate_db.fasta SSU_candidate_db_btindex
+
 You might also consider changing the offrate (see
 http://bowtie-bio.sourceforge.net/manual.shtml)
 
