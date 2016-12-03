@@ -254,6 +254,7 @@ setup(
     url="https://github.com/csmiller/EMIRGE",
     scripts=["emirge.py",
              "emirge_amplicon.py",
+             "emirge_makedb.py",
              "emirge_rename_fasta.py"],
     data_files=["pykseq/kseq.h","_emirge_C.h"],
     ext_modules=extensions,
