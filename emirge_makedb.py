@@ -412,6 +412,8 @@ def main(argv=sys.argv[1:]):
         downloader.license_confirmed = options.license
         silva_fasta = downloader.run(options.gene, options.release,
                                      options.tmpdir)
+        subprocess.call(["gunzip", silva_fasta])
+        silva_fasta = silva_fasta.replace(".gz", "")
         clustered_fasta = cluster_fasta(options.vsearch, silva_fasta,
                                         options.min_len, options.max_len,
                                         options.clusterid, options.threads)
