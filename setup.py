@@ -25,7 +25,7 @@ import pkg_resources
 from os.path import join as pjoin
 
 
-version = '0.61.0'
+version = '0.62.1'
 
 
 try:
@@ -265,9 +265,7 @@ setup(
     setup_requires=["numpy"]
 )
 
-print ""
-print "NOTE:"
-print "To download a standard candidate SSU database to use with EMIRGE, run"
-print "python emirge_download_candidate_db.py"
-
-
+print("")
+print("NOTE:")
+print("To download a standard candidate SSU database to use with EMIRGE, run")
+print("python emirge_makedb.py")

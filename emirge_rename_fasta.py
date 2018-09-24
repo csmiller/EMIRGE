@@ -34,7 +34,7 @@ from optparse import OptionParser
 from Bio import SeqIO, Seq
 import copy
 from math import log, e
-import cPickle
+import pickle
 from gzip import GzipFile
 import numpy
 import re
@@ -67,7 +67,7 @@ def replace_with_Ns(probN, seq_i, seq, trim_N = True):
     try:
         this_probN = probN[seq_i]
     except:
-        print >> sys.stderr, seq_i, len(probN)
+        print(seq_i, len(probN), file=sys.stderr)
         raise
 
     indices = numpy.where(numpy.max(this_probN, axis=1) == default_probN)
@@ -88,7 +88,7 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, 
     current_iter = int(wd.split('.')[-1])
     prior_file = file(os.path.join(wd, 'priors.iter.%02d.txt'%current_iter))
     probN_filename = os.path.join(wd, 'probN.pkl.gz')
-    probN = cPickle.load(GzipFile(probN_filename))
+    probN = pickle.load(GzipFile(probN_filename))
 
     name2seq_i = {}
     name2prior = {}

@@ -6,8 +6,8 @@ import random
 import re
 import subprocess
 import sys
-import urllib
-import urllib2
+import urllib.request, urllib.parse, urllib.error
+import urllib.request, urllib.error, urllib.parse
 from optparse import OptionParser
 
 USAGE = """usage: %prog [OPTIONS]
@@ -53,9 +53,9 @@ class BaseDownloader(object):
         blocks = int((total - 1) / block_size) + 1
         line_width = min(77, blocks)
         if block == 0:
-            print("Downloading file of size {0}:".format(total))
+            print(("Downloading file of size {0}:".format(total)))
             if line_width > 1:
-                print("|" + "-" * (line_width - 2) + "|")
+                print(("|" + "-" * (line_width - 2) + "|"))
         else:
             if block % (blocks / line_width) == 0:
                 sys.stderr.write(".")
@@ -88,8 +88,8 @@ class BaseDownloader(object):
         INFO("Fetching {url}\n".format(url=url))
 
         try:
-            return urllib2.urlopen(url).read()
-        except urllib2.URLError as e:
+            return urllib.request.urlopen(url).read()
+        except urllib.error.URLError as e:
             raise DownloadException(
                 "Unable to fetch \"{0}\":\n \"{1}\"".format(url, e.reason)
             )
@@ -120,7 +120,7 @@ class BaseDownloader(object):
         # check if file exists
         if os.path.isfile(filename):
             existing_file_size = int(os.path.getsize(filename))
-            url_info = urllib.urlopen(url).info()
+            url_info = urllib.request.urlopen(url).info()
             remote_file_size = int(url_info.getheaders("Content-Length")[0])
             if existing_file_size == 0:
                 INFO("Found existing file of size 0. Re-downloading...")
@@ -134,7 +134,7 @@ class BaseDownloader(object):
                      "remote file size {1}."
                      .format(existing_file_size, remote_file_size))
 
-        (filename, _) = urllib.urlretrieve(url, filename,
+        (filename, _) = urllib.request.urlretrieve(url, filename,
                                            self._print_progress)
         sys.stderr.write("\n")  # clear last endline from progress bar
         self.check_file(url, filename)
@@ -209,16 +209,16 @@ class SilvaDownloader(BaseDownloader):
         license_url = self.get_url("LICENSE", release)
         license = self.fetch_url(license_url)
 
-        print("""
+        print(("""
 The SILVA database is published under a custom license. To proceed,
 you need to read this license and agree with its terms:
 
 Contents of \"{url}\":
-            """.format(url=license_url))
-        print ("> " + license.replace("\n", "\n> ").rstrip("\n> "))
-        print ""
+            """.format(url=license_url)))
+        print(("> " + license.replace("\n", "\n> ").rstrip("\n> ")))
+        print("")
 
-        answer = raw_input("Do you agree to these terms? [yes|NO]")
+        answer = input("Do you agree to these terms? [yes|NO]")
         if (answer.lower() != "yes"):
             raise DownloadException(
                 "Unable to continue -- license not accepted")
@@ -242,8 +242,8 @@ def cluster_fasta(vsearch_bin, filein, minlen, maxlen, clusterid, threads):
     )
 
     if os.path.isfile(fileout) and os.path.getsize(fileout) >0:
-        print ("Found existing file \"{0}\". Skipping clustering stage."
-               .format(fileout))
+        print(("Found existing file \"{0}\". Skipping clustering stage."
+               .format(fileout)))
         return fileout
 
     cmd = [vsearch_bin,
@@ -256,9 +256,9 @@ def cluster_fasta(vsearch_bin, filein, minlen, maxlen, clusterid, threads):
            "--cluster_fast", filein,
            "--id", str(clusterid)]
 
-    print (" ".join(["Running: "] + cmd))
+    print((" ".join(["Running: "] + cmd)))
     subprocess.call(cmd)
-    print "Done"
+    print("Done")
 
     return fileout
 
@@ -270,7 +270,7 @@ def pairs(lst):
     it = iter(lst)
     for item in it:
         try:
-            yield item, it.next()
+            yield item, next(it)
         except StopIteration:
             yield item, ""
 
@@ -314,16 +314,16 @@ def randomize_ambiguous_fasta(filein, folder=None):
         fileout = os.path.join(folder, os.path.basename(fileout))
 
     if os.path.exists(fileout) and os.path.getsize(fileout) > 0:
-        print ("Found existing file \"{0}\". Skipping randomization stage."
-               .format(fileout))
+        print(("Found existing file \"{0}\". Skipping randomization stage."
+               .format(fileout)))
         return fileout
 
     processed = 0
     total = os.path.getsize(filein)
     dots = 0
     linewidth = 77
-    print "Randomizing ambiguous bases"
-    print "|" + "-" * (linewidth-2) + "|"
+    print("Randomizing ambiguous bases")
+    print("|" + "-" * (linewidth-2) + "|")
     with open(filein, "rb") as inf, open(fileout, "wb") as outf:
         for line in inf:
             if line[0] == '>':
@@ -344,7 +344,7 @@ def build_bowtie_index(bowtie_bin, filein):
     """Calls bowtie-build on `filein` to compute bowtie index"""
     fileout = ".".join(filein.split(".")[:-1])
     cmd = [bowtie_bin, "-o", "0", filein, fileout]
-    print "Running: " + " ".join(cmd)
+    print("Running: " + " ".join(cmd))
     subprocess.call(cmd)
 
 
@@ -423,7 +423,7 @@ def main(argv=sys.argv[1:]):
             os.unlink(clustered_fasta)
 
     except DownloadException as e:
-        print(e.args[0])
+        print((e.args[0]))
         exit(1)
 
 

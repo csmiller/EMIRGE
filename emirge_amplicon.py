@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 """
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
 Copyright (C) 2010-2016 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
@@ -57,7 +57,7 @@ from subprocess import Popen, PIPE, check_call, CalledProcessError, check_output
 from time import ctime, time
 from datetime import timedelta
 import gzip
-import cPickle
+import pickle
 import _emirge_amplicon as _emirge
 # from ctrie import Trie
 # from pykseq import Kseq
@@ -111,7 +111,7 @@ class EM(object):
     """
     _VERBOSE = True
     base2i = {"A":0,"T":1,"C":2,"G":3}
-    i2base = dict([(v,k) for k,v in base2i.iteritems()])
+    i2base = dict([(v,k) for k,v in base2i.items()])
     # asciibase2i = {65:0,84:1,67:2,71:3}
 
     clustermark_pat = re.compile(r'(\d+\|.?\|)?(.*)')  # cludgey code associated with this should go into a method: get_seq_i()
@@ -440,7 +440,7 @@ class EM(object):
         self.print_priors()
         # python gzip.GzipFile is slow.  Use system call to gzip instead
         pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
-        cPickle.dump(self.probN, file(pickled_filename, 'w'), cPickle.HIGHEST_PROTOCOL)
+        pickle.dump(self.probN, file(pickled_filename, 'w'), pickle.HIGHEST_PROTOCOL)
         check_call("gzip -f %s"%(pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
         if self._VERBOSE:
             sys.stderr.write("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
@@ -464,13 +464,13 @@ class EM(object):
                     self.initial_compress_process = None # don't bother in future
                 elif poll is None:
                     if self.iteration_i == self.max_iterations - 1:  # shouldn't happen... but to be correct
-                        print >> sys.stderr, "Waiting for initial bamfile to compress before finishing...",
+                        print("Waiting for initial bamfile to compress before finishing...", end=' ', file=sys.stderr)
                         self.initial_compress_process.wait()
-                        print >> sys.stderr, "DONE"
+                        print("DONE", file=sys.stderr)
                     else:
                         pass
                 else:  # poll() returned something bad.
-                    print >> sys.stderr, "WARNING: Failed to compress initial mapping bamfile %s.\nWARNING: Failure with exit code: %s.\nWARNING: File remains uncompressed: %s"%(poll, self.initial_bam_filename_to_remove)
+                    print("WARNING: Failed to compress initial mapping bamfile %s.\nWARNING: Failure with exit code: %s.\nWARNING: File remains uncompressed: %s"%(poll, self.initial_bam_filename_to_remove), file=sys.stderr)
                     self.initial_compress_process = None # don't bother in future
 
 
@@ -740,7 +740,7 @@ class EM(object):
                     consensus[unmapped_i] = orig_bases[unmapped_i] # return to original base if unmapped / ambiguous
                 # consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
             else:
-                raise ValueError, "Invalid valud for mask: %s (choose one of {soft, hard}"%mask
+                raise ValueError("Invalid valud for mask: %s (choose one of {soft, hard}"%mask)
             of.write(">%s\n"%(title))
             of.write("%s\n"%("".join(consensus)))
             n_seqs += 1
@@ -890,7 +890,7 @@ class EM(object):
                 continue
 
             if self._VERBOSE and num_seqs < 50:
-                print >> sys.stderr, "\t\t%s|%s vs %s|%s %.3f over %s aligned columns (usearch %%ID: %s)"%(member_seq_id, member_name, seed_seq_id, seed_name, float(matches) / aln_columns, aln_columns, row[2])
+                print("\t\t%s|%s vs %s|%s %.3f over %s aligned columns (usearch %%ID: %s)"%(member_seq_id, member_name, seed_seq_id, seed_name, float(matches) / aln_columns, aln_columns, row[2]), file=sys.stderr)
 
             # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
             percent_id = (float(matches) / aln_columns) * 100.
@@ -1106,9 +1106,9 @@ class EM(object):
             else:             # single-end -- one line in samfile per alignment
                 return int(r[0][0])
         except IndexError:
-            print >> sys.stderr, "OOPS, we didn't get number of reads from bowtie:"
-            print >> sys.stderr, stderr_string
-            print >> sys.stderr, r
+            print("OOPS, we didn't get number of reads from bowtie:", file=sys.stderr)
+            print(stderr_string, file=sys.stderr)
+            print(r, file=sys.stderr)
             raise
 
 
@@ -1267,7 +1267,7 @@ def resume(working_dir, options):
 
     Takes the emirge working dir, and an OptionParser options object
     """
-    raise NotImplementedError, "This option is currently broken, and will be fixed in a later version."
+    raise NotImplementedError("This option is currently broken, and will be fixed in a later version.")
     em = EM("", "", 0, 0)  # reads1_filepath, reads2_filepath, insert_mean, insert_sd
     data_path = os.path.join(working_dir, "iter.%02d"%(options.resume_from), 'em.%02i.data.pkl.bz2'%(options.resume_from))
     sys.stdout.write("Loading saved state from %s...\n"%data_path)
@@ -1313,9 +1313,9 @@ def dependency_check():
     working_maj = 6
     working_minor = 0
     working_minor_minor = 203
-    match = re.search(r'usearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
+    match = re.search(r'usearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read().decode('utf8'))
     if match is None:
-        print >> sys.stderr, "FATAL: usearch not found in path!"
+        print("FATAL: usearch not found in path!", file=sys.stderr)
         exit(0)
     binary_name, usearch_major, usearch_minor, usearch_minor_minor = match.groups()
     usearch_major = int(usearch_major)
@@ -1324,7 +1324,7 @@ def dependency_check():
     if usearch_major < working_maj or \
        (usearch_major == working_maj and (usearch_minor < working_minor or \
                                           (usearch_minor == working_minor and usearch_minor_minor < working_minor_minor))):
-        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nusearch has different command line arguments and minor bugs in previous versions that can cause problems."%(usearch_major, usearch_minor, usearch_minor_minor, working_maj, working_minor, working_minor_minor)
+        print("FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nusearch has different command line arguments and minor bugs in previous versions that can cause problems."%(usearch_major, usearch_minor, usearch_minor_minor, working_maj, working_minor, working_minor_minor), file=sys.stderr)
         exit(0)
     return
 
@@ -1520,7 +1520,7 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
             os.mkdir(working_dir)
         else:
             if len(os.listdir(working_dir)) > 1:   # allow 1 file in case log file is redirected here.
-                print >> sys.stderr, os.listdir(working_dir)
+                print(os.listdir(working_dir), file=sys.stderr)
                 parser.error("Directory not empty: %s\nIt is recommended you run emirge in a new directory each run; delete this directory or specifiy a new one."%working_dir)
 
     # clean up options to be absolute paths
@@ -1564,8 +1564,8 @@ PloS one 8: e56018. doi:10.1371/journal.pone.0056018.\n\n""")
         em.mapping_nice = options.nice_mapping
 
     if options.randomize_init_priors:
-        print >> sys.stderr, "*"*60
-        print >> sys.stderr, "DEBUG: initialized priors will be randomized for testing purposes"
+        print("*"*60, file=sys.stderr)
+        print("DEBUG: initialized priors will be randomized for testing purposes", file=sys.stderr)
     em.initialize_EM(options.mapping, options.fasta_db, randomize_priors = options.randomize_init_priors)
 
     # BEGIN ITERATIONS
@@ -1586,5 +1586,5 @@ def f(bamfile):
     present = numpy.zeros(bamfile.nreferences, dtype=numpy.bool)
     for alignedread in bamfile:
         present[alignedread.tid] = 1
-    print timedelta(seconds = time()-t)
+    print(timedelta(seconds = time()-t))
     return present
