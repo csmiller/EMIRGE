@@ -14,6 +14,7 @@ import gzip
 import pickle
 import _emirge
 import logging
+import subprocess
 
 """
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
@@ -310,7 +311,7 @@ class EM(object):
         self.mean_read_length = numpy.mean(self.readlengths)
 
         self.sequence_name2fasta_name = {}
-        for record in FastIterator(file(self.current_reference_fasta_filename)):
+        for record in FastIterator(open(self.current_reference_fasta_filename)):
             refname = record.title.split()[0]
             self.sequence_name2fasta_name[refname] = record.title.split()[0]
             seq_i = self.sequence_name2sequence_i[-1].get(refname)
@@ -429,15 +430,15 @@ class EM(object):
         """
         save state
         """
-        tup_to_save = (self.bamfile_data, self.base2i, self.cluster_thresh, self.coverage, self.current_bam_filename, self.current_reference_fasta_filename, self.cwd, self.i2base, self.insert_mean, self.insert_sd, self.iteration_i, self.iterdir, self.iterdir_prefix, self.k, self.likelihoods, self.mapping_nice, self.max_read_length, self.min_depth, self.min_length_coverage, self.min_prior, self.n_cpus, self.posteriors, self.priors, self.probN, self.quals, self.read_i2read_name, self.read_name2read_i, self.reads1_filepath, self.reads2_filepath, self.sequence_i2sequence_name, self.sequence_name2fasta_name, self.sequence_name2sequence_i, self.snp_minor_prob_thresh, self.snp_percentage_thresh, self.unmapped_bases, self.v)
+        tup_to_save = tup_to_save = (self.bamfile_data, self.base2i, self.cluster_thresh, self.coverage, self.current_bam_filename, self.current_reference_fasta_filename, self.cwd, self.i2base, self.insert_mean, self.insert_sd, self.iteration_i, self.iterdir, self.iterdir_prefix, self.k, self.likelihoods, self.mapping_nice, self.max_read_length, self.min_depth, self.min_length_coverage, self.min_prior, self.n_cpus, self.posteriors, self.priors, self.probN, self.quals, self.read_i2read_name, self.read_name2read_i, self.reads1_filepath, self.reads2_filepath, self.sequence_i2sequence_name, self.sequence_name2fasta_name, self.sequence_name2sequence_i, self.snp_minor_prob_thresh, self.snp_percentage_thresh, self.unmapped_bases, self.v)
         if filename is None:
             filename = os.path.join(self.iterdir, 'em.%02i.data.pkl'%self.iteration_i)
         try:
-            pickle.dump(tup_to_save, file(filename, 'w'), pickle.HIGHEST_PROTOCOL)
+            pickle.dump(tup_to_save, open(filename, 'w'), pickle.HIGHEST_PROTOCOL)
         except SystemError:  # cPickle problem with numpy arrays in latest emacs???
             logging.error("oops!  cPickle error!  Falling back to pickle.\n")
             import pickle
-            pickle.dump(tup_to_save, file(filename, 'w'), pickle.HIGHEST_PROTOCOL)
+            pickle.dump(tup_to_save, open(filename, 'w'), pickle.HIGHEST_PROTOCOL)
         return filename
 
     def load_state(self, filename = None):
@@ -450,7 +451,7 @@ class EM(object):
         if filename.endswith('bz2'):
             infile = Popen("bzcat %s"%filename, shell=True, stdout=PIPE).stdout
         else:
-            infile = file(filename)
+            infile = open(filename)
 
         for name in ("bamfile_data", "base2i", "cluster_thresh", "coverage", "current_bam_filename", "current_reference_fasta_filename", "cwd", "i2base", "insert_mean", "insert_sd", "iteration_i", "iterdir", "iterdir_prefix", "k", "likelihoods", "mapping_nice", "max_read_length", "min_depth", "min_length_coverage", "min_prior", "n_cpus", "posteriors", "priors", "probN", "quals", "read_i2read_name", "read_name2read_i", "reads1_filepath", "reads2_filepath", "sequence_i2sequence_name", "sequence_name2fasta_name", "sequence_name2sequence_i", "snp_minor_prob_thresh", "snp_percentage_thresh", "unmapped_bases", "v"):
             if not hasattr(self, name):
@@ -461,7 +462,7 @@ class EM(object):
         except ValueError:  # old version didn't have bamfile_data
             (self.base2i, self.cluster_thresh, self.coverage, self.current_bam_filename, self.current_reference_fasta_filename, self.cwd, self.i2base, self.insert_mean, self.insert_sd, self.iteration_i, self.iterdir_prefix, self.k, self.likelihoods, self.mapping_nice, self.max_read_length, self.min_depth, self.min_length_coverage, self.min_prior, self.n_cpus, self.posteriors, self.priors, self.probN, self.quals, self.read_i2read_name, self.read_name2read_i, self.reads1_filepath, self.reads2_filepath, self.sequence_i2sequence_name, self.sequence_name2fasta_name, self.sequence_name2sequence_i, self.snp_minor_prob_thresh, self.snp_percentage_thresh, self.unmapped_bases, self.v) = \
                                 pickle.load(infile)
-        self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
+        self.fastafile = pysam.Fastaopen(self.current_reference_fasta_filename)
 
         # change self.posteriors to sparse matrix if we are loading old data type
         if type(self.posteriors[-1]) != type(sparse.lil_matrix([1])):
@@ -515,9 +516,9 @@ class EM(object):
             logging.info("Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
         self.print_priors()
         # python gzip.GzipFile is slow.  Use system call instead
-        # cPickle.dump(self.probN, gzip.GzipFile(os.path.join(self.iterdir, 'probN.pkl.gz'), 'w'), cPickle.HIGHEST_PROTOCOL)
+        # cPickle.dump(self.probN, gzip.Gzipopen(os.path.join(self.iterdir, 'probN.pkl.gz'), 'w'), cPickle.HIGHEST_PROTOCOL)
         pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
-        pickle.dump(self.probN, file(pickled_filename, 'w'), pickle.HIGHEST_PROTOCOL)
+        pickle.dump(self.probN, open(pickled_filename, 'wb'), pickle.HIGHEST_PROTOCOL)
         check_call("gzip -f %s"%(pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
         if self._VERBOSE:
             logging.info("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
@@ -535,9 +536,9 @@ class EM(object):
         leave a file in directory with nonzero priors printed out.
         """
         if ofname is not None:
-            of = file(ofname, 'w')
+            of = open(ofname, 'w')
         else:
-            of = file(os.path.join(self.iterdir, "priors.iter.%02d.txt"%(self.iteration_i)), 'w')
+            of = open(os.path.join(self.iterdir, "priors.iter.%02d.txt"%(self.iteration_i)), 'w')
         for seq_i, prior in enumerate(self.priors[-1]):
             seqname = self.sequence_i2sequence_name[-1][seq_i]
             of.write("%d\t%s\t%f\n"%(seq_i, seqname, prior))
@@ -576,7 +577,7 @@ class EM(object):
 
         splitcount = 0
         cullcount  = 0
-        of = file(outputfilename, 'w')
+        of = open(outputfilename, 'w')
 
         times_split   = []              # DEBUG
         times_posteriors   = []              # DEBUG
@@ -776,7 +777,7 @@ class EM(object):
         n_seqs = 0
         # i2base = self.i2base
         i2base_get = self.i2base.get # for speed
-        of = file(output_fastafilename, 'w')
+        of = open(output_fastafilename, 'w')
         reference_fastafile = pysam.Fastafile(reference_fastafilename)
 
         for seq_i in range(len(self.probN)):
@@ -806,22 +807,16 @@ class EM(object):
 
     def cluster_sequences(self, fastafilename):
         """
-        uses Edgar's USEARCH to merge sequences above self.cluster_thresh %ID over the
-        length of the shorter sequence
-
-        "Search and clustering orders of magnitude faster than BLAST"
-        Robert C. Edgar
-        Bioinformatics 2010
+        Uses vsearch to pairwise align all reconstructed sequences, then uses local aligment
+        identity to determine if sequecnes should be clustered
 
         also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after merging.
         """
-        return self.cluster_sequences2(fastafilename)
+        return self.cluster_vsearch(fastafilename)
 
-        return
-
-    def cluster_sequences2(self, fastafilename):
+    def cluster_vsearch(self, fastafilename):
         """
-        uses USEARCH  to globally align sequences.  Merge two sequences if the
+        uses vsearch  to globally align sequences.  Merge two sequences if the
         *NON-GAPPED* positions have % identity >= self.cluster_thresh
 
         also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after merging.
@@ -841,45 +836,37 @@ class EM(object):
         tocleanup.append(tmp_fastafilename)
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         tocleanup.append("%s.fai"%(tmp_fastafilename))
-        # do global alignments with USEARCH/UCLUST.
-        # I don't use --cluster because it doesn't report alignments
-        # usearch is fast but will sometimes miss things -- I've tried to tune params as best as I can.
+        # modified to align using vsearch
         # Also, I use a lower %ID thresh than specified for joining because I really calculate %ID over *mapped* sequence positions.
 
-        sens_string = "--maxaccepts 8 --maxrejects 256"
-        uclust_id = 0.80
-        algorithm="-usearch_global"
-        # uclust_id = self.cluster_thresh - 0.05
+        sens_list = ["--maxaccepts", "8", "--maxrejects", "256"]
 
-        # if em.iteration_i > 10:
-        # num_seqs = len([x for x in self.probN if x is not None])
         assert num_seqs == len([x for x in self.probN if x is not None])
         if num_seqs < 1000:
-            sens_string = "--maxaccepts 16 --maxrejects 256"
+            sens_list = ["--maxaccepts", "16", "--maxrejects", "256"]
         if num_seqs < 500:
-            sens_string = "--maxaccepts 32 --maxrejects 256"
-        if num_seqs < 150:
-            algorithm="-search_global"
-            sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
-        # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
-        if num_seqs < 50:
-            algorithm="-search_global"
-            sens_string = "-fulldp"
+            sens_list = ["--maxaccepts", "32", "--maxrejects", "256"]
+        if num_seqs < 150: 
+            sens_list = ["--maxaccepts", "0", "--maxrejects", "0"]  # slower, but more sensitive.
 
-        # there is a bug in usearch threads that I can't figure out (fails with many threads).  Currently limiting to max 6 threads
-        usearch_threads = min(6, self.n_cpus)
-        cmd = "usearch %s %s --db %s --id %.3f -quicksort -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
-              (algorithm,
-               tmp_fastafilename, tmp_fastafilename,
-               uclust_id,
-               tmp_fastafilename,
-               usearch_threads,
-               sens_string)
+        cmd = [
+                'vsearch',
+                '--threads', str(self.n_cpus),
+                '--allpairs_global',
+                tmp_fastafilename,
+                '--acceptall',
+                '-strand', 'plus',
+                '--userout', "{}.us.txt".format(tmp_fastafilename),
+                '--userfields', 'query+target+id+caln+qlo+qhi+tlo+thi', 
+            ] + sens_list
+        result = subprocess.run(
+            args=cmd
+        )
 
         if self._VERBOSE:
-            logging.info("usearch command was:\n%s\n"%(cmd))
+            logging.info(cmd)
+            logging.info("vsearch process {}".format(str(result)))
 
-        check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
         tocleanup.append("%s.us.txt"%tmp_fastafilename)
 
@@ -888,7 +875,7 @@ class EM(object):
         already_removed = set()  # seq_ids
         # this is a bit slow and almost certainly could be sped up with algorithmic improvements.
         times = []  # DEBUG
-        for row in csv.reader(file("%s.us.txt"%tmp_fastafilename), delimiter='\t'):
+        for row in csv.reader(open("%s.us.txt"%tmp_fastafilename), delimiter='\t'):
             # each row an alignment in userout file
             t0 = time()
             # member == query
@@ -913,8 +900,8 @@ class EM(object):
 
             t0 = time()
             # print >> sys.stderr, "DEBUG", alnstring_pat.findall(row[3])
-            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name).upper(),
-                                                           tmp_fastafile.fetch(member_name).upper(),
+            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name).upper().encode('utf8'),
+                                                           tmp_fastafile.fetch(member_name).upper().encode('utf8'),
                                                            self.unmapped_bases[seed_seq_id].astype(numpy.uint8),
                                                            self.unmapped_bases[member_seq_id].astype(numpy.uint8),
                                                            seed_start,
@@ -993,13 +980,13 @@ class EM(object):
         tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
         recordstrings=""
         num_seqs = 0
-        for record in FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
+        for record in FastIterator(open(fastafilename)): # read through file again, overwriting orig file if we keep the seq
             seqname = record.title.split()[0]  # strip off beginning cluster marks
             seq_id = self.sequence_name2sequence_i[-1].get(seqname)
             if seq_id not in already_removed:
                 recordstrings += str(record)  # could do a better job here of actually "merging" a new consensus, rather than just keeping one or the other.
                 num_seqs += 1
-        outfile = file(fastafilename, 'w')
+        outfile = open(fastafilename, 'w')
         outfile.write(recordstrings)
         outfile.close()
 
@@ -1278,7 +1265,7 @@ class EM(object):
             self.unmapped_bases[seq_i][zero_indices[0]] = True
             if zero_indices[0].shape[0] > 0:  # there are bases without mappings.
                 fastaname = self.sequence_name2fasta_name[self.sequence_i2sequence_name[-1][seq_i]]
-                bases = numpy.array(self.fastafile.fetch(fastaname).upper(), dtype='c')[zero_indices[0]]
+                bases = numpy.array([c for c in self.fastafile.fetch(fastaname).upper()])[zero_indices[0]]
                 numeric_bases = [base2i_get(base, 4) for base in bases]
                 error_P = numpy.zeros(zero_indices[0].shape) + default_error
                 # add P/3 to all bases without mappings.
@@ -1301,7 +1288,7 @@ class EM(object):
         """
         if output_prefix is None:
             output_prefix = os.path.join(em.iterdir, "%s.reads"%seq_i)
-        of_fastq = file('%s.fastq'%(output_prefix), 'w')
+        of_fastq = open('%s.fastq'%(output_prefix), 'w')
         # go through bam file instead of original sequencing reads, as aligned reads only a fraction
         # of original file.
         self.posteriors[-1] = self.posteriors[-1].tolil()  # seq_i x read_i
@@ -1350,7 +1337,7 @@ class EM(object):
             of_sam.write(alignedread)
             reads += 1
         of_sam.close()
-        of_fasta = file('%s.ref.fasta'%(output_prefix), 'w')
+        of_fasta = open('%s.ref.fasta'%(output_prefix), 'w')
         fasta_seq   = self.fastafile.fetch(self.sequence_i2sequence_name[-1][seq_i]).upper()
         of_fasta.write("%s"%(str(Record(self.sequence_i2sequence_name[-1][seq_i], fasta_seq))))
         of_fasta.close()
@@ -1377,7 +1364,7 @@ class EM(object):
         self.posteriors[-1] = self.posteriors[-1].tolil()  # seq_i x read_i
         posteriors = self.posteriors[-1]  # seq_i x read_i
         of_fasta_name = '%s.reads.fasta'%(output_prefix)
-        of_fasta = file(of_fasta_name, 'w')
+        of_fasta = open(of_fasta_name, 'w')
         bamfile_data = self.bamfile_data
         reads = 0
         for alignedread_i, (this_seq_i, read_i, pair_i, rlen, pos) in enumerate(self.bamfile_data):
@@ -1503,28 +1490,8 @@ def do_initial_mapping(working_dir, options):
 def dependency_check():
     """
     check presense, versions of programs used in emirge
-    TODO: right now just checking usearch, as the command line params
-    and behavior are finicky and seem to change from version to
-    version
     """
-    # usearch
-    working_maj = 6
-    working_minor = 0
-    working_minor_minor = 203
-    match = re.search(r'usearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read().decode('utf8'))
-    if match is None:
-        logging.error("FATAL: usearch not found in path!")
-        exit(0)
-    binary_name, usearch_major, usearch_minor, usearch_minor_minor = match.groups()
-    usearch_major = int(usearch_major)
-    usearch_minor = int(usearch_minor)
-    usearch_minor_minor = int(usearch_minor_minor)
-    if usearch_major < working_maj or \
-       (usearch_major == working_maj and (usearch_minor < working_minor or \
-                                          (usearch_minor == working_minor and usearch_minor_minor < working_minor_minor))):
-        logging.error("FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nusearch has different command line arguments and minor bugs in previous versions that can cause problems."%(usearch_major, usearch_minor, usearch_minor_minor, working_maj, working_minor, working_minor_minor))
-        exit(0)
-    return
+    return True
 
 def main(argv = sys.argv[1:]):
     """
