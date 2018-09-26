@@ -864,7 +864,6 @@ class EM(object):
         )
 
         if self._VERBOSE:
-            logging.info(cmd)
             logging.info("vsearch process {}".format(str(result)))
 
         # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
