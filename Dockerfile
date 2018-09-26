@@ -17,11 +17,10 @@ libbz2-dev \
 libncurses5-dev \
 liblzma-dev \
 unzip \
-cython \
 pkg-config
 RUN mkdir -p /src/
 WORKDIR /src/
-
+RUN ln -s /usr/bin/python3 /usr/local/bin/python
 
 # Pandaseq compile / install
 RUN wget https://github.com/neufeld/pandaseq/archive/v2.11.tar.gz && \
@@ -58,11 +57,23 @@ rm -r /src/bowtie*
 #RUN chmod +x /usr/local/bin/usearch
 
 # EMIRGE (finally!)
-RUN pip install numpy scipy pysam biopython cython
-ADD . /src/emirge/
+RUN pip3 install \
+numpy \
+scipy \
+pysam \
+biopython \
+setuptools \
+cython
+RUN mkdir -p /src/emirge/ && mkdir -p /src/emirge/utils && mkdir -p /src/emirge/pykseq
+ADD ./*.c /src/emirge/
+ADD ./*.py /src/emirge/
+ADD ./*.pyx /src/emirge/
+ADD ./*.h /src/emirge/
+ADD ./utils/* /src/emirge/utils/
+ADD ./pykseq /src/emirge/pykseq/
 WORKDIR /src/emirge
-RUN /usr/bin/python setup.py build
-RUN /usr/bin/python setup.py install
+RUN python setup.py build
+RUN python setup.py install
 RUN mkdir -p /emirge/db/
 #WORKDIR /emirge/db/
 #RUN emirge_makedb.py  --silva-license-accepted

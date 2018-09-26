@@ -73,7 +73,7 @@ def replace_with_Ns(probN, seq_i, seq, trim_N = True):
     indices = numpy.where(numpy.max(this_probN, axis=1) == default_probN)
     newseq = numpy.array(str(seq), dtype='c')
     newseq[indices] = 'N'
-    newseq = ''.join(newseq)
+    newseq = ''.join([b.decode('utf8') for b in newseq])
     if trim_N:
         newseq = newseq.strip("N")
     return Seq.Seq(newseq)
@@ -86,7 +86,7 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, 
     if prob_min is None:
         prob_min = -1
     current_iter = int(wd.split('.')[-1])
-    prior_file = file(os.path.join(wd, 'priors.iter.%02d.txt'%current_iter))
+    prior_file = open(os.path.join(wd, 'priors.iter.%02d.txt'%current_iter))
     probN_filename = os.path.join(wd, 'probN.pkl.gz')
     probN = pickle.load(GzipFile(probN_filename))
 
@@ -99,7 +99,7 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, 
         name2prior[atoms[1]] = atoms[2]
 
     sorted_records = []
-    for record in SeqIO.parse(file(os.path.join(wd, "iter.%02d.cons.fasta"%current_iter)), "fasta"):
+    for record in SeqIO.parse(open(os.path.join(wd, "iter.%02d.cons.fasta"%current_iter)), "fasta"):
         name = record.description.split()[0]
         record.id = "%s%d|%s"%(record_prefix, name2seq_i[name], name)
         if not no_N:
@@ -120,7 +120,7 @@ def rename(wd = os.getcwd(), prob_min = None, record_prefix = '', no_N = False, 
     for i, (prior, record) in enumerate(sorted_records):
         record.description = "Prior=%06f Length=%d NormPrior=%06f"%(prior, len(record.seq), normed_priors[i])
 
-    for prior, record in sorted(sorted_records, lambda x,y: cmp(x[0], y[0]), reverse=True):
+    for prior, record in sorted(sorted_records, key=lambda x: x[0], reverse=True):
         if prior < prob_min:
             break
         sys.stdout.write(record.format('fasta'))
