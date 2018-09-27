@@ -72,7 +72,6 @@ logFormatter = logging.Formatter(
     '%(asctime)s %(levelname)-8s [emirge.py] %(message)s')
 rootLogger = logging.getLogger()
 rootLogger.setLevel(logging.INFO)
-
 # Write to STDOUT
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(logFormatter)
@@ -859,7 +858,7 @@ class EM(object):
                 '--userout', "{}.us.txt".format(tmp_fastafilename),
                 '--userfields', 'query+target+id+caln+qlo+qhi+tlo+thi', 
             ] + sens_list
-        result = subprocess.run(
+        result = subprocess.call(
             args=cmd
         )
 
@@ -1489,6 +1488,8 @@ def do_initial_mapping(working_dir, options):
 def dependency_check():
     """
     check presense, versions of programs used in emirge
+    TODO: With usearch removed, we have no active checks now.
+    Could add vsearch, bowtie, etc. 
     """
     return True
 

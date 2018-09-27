@@ -6,8 +6,9 @@ import random
 import re
 import subprocess
 import sys
-import urllib.request, urllib.parse, urllib.error
-import urllib.request, urllib.error, urllib.parse
+import urllib.request
+import urllib.parse
+import urllib.error
 from optparse import OptionParser
 
 USAGE = """usage: %prog [OPTIONS]
@@ -22,7 +23,7 @@ Requires vsearch executable can be found in path for clustering.
 https://github.com/torognes/vsearch
 
 Requires bowtie-build (from bowtie version 1) can be found in path
-    
+
 """
 def INFO(s):
     sys.stdout.write(s+'\n')
@@ -121,7 +122,13 @@ class BaseDownloader(object):
         if os.path.isfile(filename):
             existing_file_size = int(os.path.getsize(filename))
             url_info = urllib.request.urlopen(url).info()
-            remote_file_size = int(url_info.getheaders("Content-Length")[0])
+            try:
+                remote_file_size = int(url_info.getheaders("Content-Length")[0])
+            except AttributeError:
+                remote_file_size = int([
+                    h[1] for h in
+                    url_info._headers
+                    if h[0] == 'Content-Length'][0])
             if existing_file_size == 0:
                 INFO("Found existing file of size 0. Re-downloading...")
             elif existing_file_size == remote_file_size:
@@ -145,7 +152,7 @@ class BaseDownloader(object):
         url[0] += ".md5"
         url = "?".join(url)
         try:
-            remote_md5 = self.fetch_url(url).split(" ")[0].strip()
+            remote_md5 = self.fetch_url(url).decode('utf8').split(" ")[0].strip()
         except DownloadException:
             INFO("No MD5 file found on remote")
             return
@@ -192,7 +199,7 @@ class SilvaDownloader(BaseDownloader):
 
     def get_current_version(self):
         listing_url = self.get_url("LISTING")
-        listing = self.fetch_url(listing_url)
+        listing = self.fetch_url(listing_url).decode('utf8')
         pattern = self.FILENAMES["SSU"].format(rel='([0-9.]+)')
         try:
             version = re.search(pattern, listing).group(1)
@@ -215,7 +222,7 @@ you need to read this license and agree with its terms:
 
 Contents of \"{url}\":
             """.format(url=license_url)))
-        print(("> " + license.replace("\n", "\n> ").rstrip("\n> ")))
+        print(("> " + license.decode('utf8').replace("\n", "\n> ").rstrip("\n> ")))
         print("")
 
         answer = input("Do you agree to these terms? [yes|NO]")

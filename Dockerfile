@@ -6,8 +6,8 @@ FROM      ubuntu:18.04
 RUN export DEBIAN_FRONTEND=noninteractive
 RUN mkdir /working
 RUN apt-get update && apt-get install -y \
-python3-dev \
-python3-pip \
+python-dev \
+python-pip \
 wget \
 build-essential \
 libtool \
@@ -17,10 +17,10 @@ libbz2-dev \
 libncurses5-dev \
 liblzma-dev \
 unzip \
-pkg-config
+pkg-config \
+python-pip
 RUN mkdir -p /src/
 WORKDIR /src/
-RUN ln -s /usr/bin/python3 /usr/local/bin/python
 
 # Pandaseq compile / install
 RUN wget https://github.com/neufeld/pandaseq/archive/v2.11.tar.gz && \
@@ -51,20 +51,17 @@ unzip bowtie.zip && \
 cp bowtie-1.2.2-linux-x86_64/bowtie* /usr/local/bin && \
 rm -r /src/bowtie*
 
-# USEARCH
-#RUN wget https://golob.org/software/usearch10.0.240_i86linux32
-#RUN cp /src/usearch10.0.240_i86linux32 /usr/local/bin/usearch
-#RUN chmod +x /usr/local/bin/usearch
-
 # EMIRGE (finally!)
-RUN pip3 install \
+RUN pip install \
 numpy \
 scipy \
 pysam \
 biopython \
 setuptools \
 cython
+
 RUN mkdir -p /src/emirge/ && mkdir -p /src/emirge/utils && mkdir -p /src/emirge/pykseq
+ADD emirge_makedb.py /usr/local/bin/
 ADD ./*.c /src/emirge/
 ADD ./*.py /src/emirge/
 ADD ./*.pyx /src/emirge/
@@ -75,8 +72,6 @@ WORKDIR /src/emirge
 RUN python setup.py build
 RUN python setup.py install
 RUN mkdir -p /emirge/db/
-#WORKDIR /emirge/db/
-#RUN emirge_makedb.py  --silva-license-accepted
 
 # Cleanup
 WORKDIR /
