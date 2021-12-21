@@ -11,7 +11,10 @@ from subprocess import Popen, PIPE, check_call
 from time import ctime, time
 from datetime import timedelta
 import gzip
-import pickle
+try:
+   import cPickle as pickle
+except:
+   import pickle
 import _emirge
 import logging
 import subprocess
@@ -310,13 +313,14 @@ class EM(object):
         self.mean_read_length = numpy.mean(self.readlengths)
 
         self.sequence_name2fasta_name = {}
-        for record in FastIterator(open(self.current_reference_fasta_filename)):
-            refname = record.title.split()[0]
-            self.sequence_name2fasta_name[refname] = record.title.split()[0]
-            seq_i = self.sequence_name2sequence_i[-1].get(refname)
-            if seq_i is not None:
-                self.probN[seq_i] = numpy.zeros((len(record.sequence), 5), dtype=numpy.float)   #ATCG[other] --> 01234
-                self.coverage[seq_i] = self.coverage[seq_i] / float(len(record.sequence))
+        with open(self.current_reference_fasta_filename) as current_reference_fasta_filename_h:
+            for record in FastIterator(current_reference_fasta_filename_h):
+                refname = record.title.split()[0]
+                self.sequence_name2fasta_name[refname] = record.title.split()[0]
+                seq_i = self.sequence_name2sequence_i[-1].get(refname)
+                if seq_i is not None:
+                    self.probN[seq_i] = numpy.zeros((len(record.sequence), 5), dtype=numpy.float)   #ATCG[other] --> 01234
+                    self.coverage[seq_i] = self.coverage[seq_i] / float(len(record.sequence))
 
         for d in [self.priors, self.posteriors,
                   self.sequence_name2sequence_i, self.sequence_i2sequence_name,
@@ -326,7 +330,7 @@ class EM(object):
                 del trash
 
         if self._VERBOSE:
-            logging.info("DONE Reading bam file %s at %s [%s]...\n"%(bam_filename, ctime(), timedelta(seconds = time()-start_time)))
+            logging.info("DONE Reading bam file %s at %s [%s]...\n", (bam_filename, ctime(), timedelta(seconds = time()-start_time)))
         return
 
     def initialize_EM(self, bam_filename, reference_fasta_filename):
@@ -342,7 +346,7 @@ class EM(object):
            - there is no t-1 for t = 0, hence the need to set up Pr(S)
         """
         if self._VERBOSE:
-            logging.info("Beginning initialization at %s...\n"%(ctime()))
+            logging.info("Beginning initialization at %s...\n", (ctime()))
 
         self.iteration_i = -1
         self.read_bam(bam_filename, reference_fasta_filename)
@@ -858,7 +862,7 @@ class EM(object):
                 '--userout', "{}.us.txt".format(tmp_fastafilename),
                 '--userfields', 'query+target+id+caln+qlo+qhi+tlo+thi', 
             ] + sens_list
-        result = subprocess.call(
+        result = subprocess.check_call(
             args=cmd
         )
 

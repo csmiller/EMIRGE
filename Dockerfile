@@ -1,8 +1,9 @@
 #
-# VERSION               0.62.1
+# VERSION               golob/emirge:0.62.1D
 
-FROM      ubuntu:18.04
-# For singularity on the hutch cluster
+FROM      --platform=amd64 ubuntu:18.04
+
+
 RUN export DEBIAN_FRONTEND=noninteractive
 RUN mkdir /working
 RUN apt-get update && apt-get install -y \
@@ -18,7 +19,9 @@ libncurses5-dev \
 liblzma-dev \
 unzip \
 pkg-config \
-python-pip
+python-pip && apt-get clean \
+&& apt-get purge \
+&& rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 RUN mkdir -p /src/
 WORKDIR /src/
 
@@ -56,7 +59,7 @@ RUN pip install \
 numpy \
 scipy \
 pysam \
-biopython \
+biopython==1.76 \
 setuptools \
 cython
 
@@ -71,7 +74,15 @@ ADD ./pykseq /src/emirge/pykseq/
 WORKDIR /src/emirge
 RUN python setup.py build
 RUN python setup.py install
-RUN mkdir -p /emirge/db/
+
+# Finally the DB
+RUN mkdir -p /emirge/db/arf_c100/
+WORKDIR /emirge/db/arf_c100/
+ADD SSU_candidates.fasta.gz /emirge/db/arf_c100/
+RUN  gunzip -c SSU_candidates.fasta.gz > SSU_candidates.fasta && \
+bowtie-build SSU_candidates.fasta SSU_candidates_btindex && \
+rm SSU_candidates.fasta
+WORKDIR /emirge/
 
 # Cleanup
 WORKDIR /
