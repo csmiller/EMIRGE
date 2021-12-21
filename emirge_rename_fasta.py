@@ -67,7 +67,9 @@ def replace_with_Ns(probN, seq_i, seq, trim_N = True):
     try:
         this_probN = probN[seq_i]
     except:
-        print(seq_i, len(probN), file=sys.stderr)
+        sys.stderr.write(
+            str(seq_i+"\t"+str(len(probN)))+'\n'
+        )
         raise
 
     indices = numpy.where(numpy.max(this_probN, axis=1) == default_probN)
