@@ -80,7 +80,7 @@ RUN mkdir -p /emirge/db/arf_c100/
 WORKDIR /emirge/db/arf_c100/
 ADD SSU_candidates.fasta.gz /emirge/db/arf_c100/
 RUN  gunzip -c SSU_candidates.fasta.gz > SSU_candidates.fasta && \
-bowtie-build SSU_candidates.fasta SSU_candidates_btindex && \
+bowtie-build SSU_candidates.fasta SSU_candidates_btindex --threads 4 && \
 rm SSU_candidates.fasta
 WORKDIR /emirge/
 
