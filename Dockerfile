@@ -1,5 +1,5 @@
 #
-# VERSION               golob/emirge:0.62.1D
+# VERSION               golob/emirge:0.62.1G
 
 FROM      --platform=amd64 ubuntu:18.04
 
@@ -75,15 +75,6 @@ WORKDIR /src/emirge
 RUN python setup.py build
 RUN python setup.py install
 
-# Finally the DB
-RUN mkdir -p /emirge/db/arf_c100/
-WORKDIR /emirge/db/arf_c100/
-ADD SSU_candidates.fasta.gz /emirge/db/arf_c100/
-RUN  gunzip -c SSU_candidates.fasta.gz > SSU_candidates.fasta && \
-bowtie-build SSU_candidates.fasta SSU_candidates_btindex --threads 4 && \
-rm SSU_candidates.fasta
-RUN gunzip SSU_candidates.fasta.gz
-WORKDIR /emirge/
 
 # Cleanup
 WORKDIR /
