@@ -252,7 +252,7 @@ def count_cigar_aln(char* query_seq, char* hit_seq,
                     alncode_list):
     """
     alncode list comes from a cigar string (see call in emirge_amplicon.py)
-    
+
     returns number of aligned columns and number of matches in those aligned columns as tuple
     only includes columns where both sequences have mapped bases
     """
@@ -260,7 +260,7 @@ def count_cigar_aln(char* query_seq, char* hit_seq,
     # cdef unsigned int query_i = query_start  # 0   # for global alignment, this used to always be zero.
     # cdef unsigned int hit_i   = hit_start    # 0
     cdef int matches = 0
-    cdef int aln_columns    = 0
+    cdef int aln_columns = 0
     cdef int count
     # cdef char aln_code  # doesn't work.  Expects integer
     cdef int i
@@ -332,8 +332,8 @@ def process_bamfile_predata(int seq_i, int read_i,
             read_i += 1
             # add to self.reads and self.quals and self.readlengths
             readlengths.append(len(seq))
-            reads.append(seq_alpha2int(seq, len(seq)))
-            quals.append(quals_alpha2int(qual, len(qual), ascii_offset))
+            reads.append(seq_alpha2int(seq.encode('utf8'), len(seq)))
+            quals.append(quals_alpha2int(qual.encode('utf8'), len(qual), ascii_offset))
             # reads.append(array([base_alpha2int(x) for x in fromstring(seq, dtype=uint8)], dtype=uint8))
             # quals.append(np.fromstring(qual, dtype=np.uint8) - ascii_offset)
 

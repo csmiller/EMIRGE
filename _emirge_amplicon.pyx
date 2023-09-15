@@ -513,7 +513,7 @@ def populate_reads_arrays(em):
         if reads_filepath is None:  # should only happen if no reads2_filepath present
             continue
         read_index = 0
-        ks = pykseq.Kseq(reads_filepath)
+        ks = pykseq.Kseq(reads_filepath.encode('utf8'))
         while 1:
             ks_p = ks.c_read_sequence()
             if ks_p == NULL:

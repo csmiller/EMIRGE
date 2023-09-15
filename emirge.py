@@ -1,4 +1,24 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
+import sys
+import os
+import re
+import csv
+from optparse import OptionParser, OptionGroup
+import pysam
+import numpy
+from scipy import sparse
+from subprocess import Popen, PIPE, check_call
+from time import ctime, time
+from datetime import timedelta
+import gzip
+try:
+   import cPickle as pickle
+except:
+   import pickle
+import _emirge
+import logging
+import subprocess
+
 """
 EMIRGE: Expectation-Maximization Iterative Reconstruction of Genes from the Environment
 Copyright (C) 2010-2016 Christopher S. Miller  (christopher.s.miller@ucdenver.edu)
@@ -45,26 +65,20 @@ Short-Read Assembly of Full-Length 16S Amplicons Reveals Bacterial Diversity in 
 PloS one 8: e56018. doi:10.1371/journal.pone.0056018.
 """
 
-import sys
-import os
-import re
-import csv
-from optparse import OptionParser, OptionGroup
-# from MyFasta import FastIterator, Record  # moved this code into this file.
-import pysam
-import numpy
-from scipy import sparse
-from subprocess import Popen, PIPE, check_call
-from time import ctime, time
-from datetime import timedelta
-import gzip
-import cPickle
-import _emirge
-
 BOWTIE_l = 20
-BOWTIE_e  = 300
+BOWTIE_e = 300
 
 BOWTIE_ASCII_OFFSET = 33   # currently, bowtie writes quals with an ascii offset of 33
+
+# Set up logging
+logFormatter = logging.Formatter(
+    '%(asctime)s %(levelname)-8s [emirge.py] %(message)s')
+rootLogger = logging.getLogger()
+rootLogger.setLevel(logging.INFO)
+# Write to STDOUT
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+rootLogger.addHandler(consoleHandler)
 
 
 class Record:
@@ -110,7 +124,7 @@ class EM(object):
     """
     _VERBOSE = True
     base2i = {"A":0,"T":1,"C":2,"G":3}
-    i2base = dict([(v,k) for k,v in base2i.iteritems()])
+    i2base = dict([(v,k) for k,v in base2i.items()])
     # asciibase2i = {65:0,84:1,67:2,71:3}
 
     DEFAULT_ERROR = 0.05
@@ -212,7 +226,7 @@ class EM(object):
         is that the various matrices can always get larger in a later t, but never smaller (as reads or seqs are added)
         """
         if self._VERBOSE:
-            sys.stderr.write("Reading bam file %s at %s...\n"%(bam_filename, ctime()))
+            logging.info("Reading bam file %s at %s...\n"%(bam_filename, ctime()))
             start_time = time()
 
         initial_iteration = self.iteration_i < 0  # this is initial iteration
@@ -237,7 +251,7 @@ class EM(object):
             read_i = 0
         else:
             seq_i = max(self.sequence_i2sequence_name[-2].keys()) + 1   
-            read_i = max([-1] + self.read_i2read_name[-2].keys()) + 1           # [-1] added for resume case
+            read_i = max([-1] + list(self.read_i2read_name[-2].keys())) + 1           # [-1] added for resume case
 
         # reset this every iteration
         self.coverage = [0]*seq_i
@@ -299,13 +313,14 @@ class EM(object):
         self.mean_read_length = numpy.mean(self.readlengths)
 
         self.sequence_name2fasta_name = {}
-        for record in FastIterator(file(self.current_reference_fasta_filename)):
-            refname = record.title.split()[0]
-            self.sequence_name2fasta_name[refname] = record.title.split()[0]
-            seq_i = self.sequence_name2sequence_i[-1].get(refname)
-            if seq_i is not None:
-                self.probN[seq_i] = numpy.zeros((len(record.sequence), 5), dtype=numpy.float)   #ATCG[other] --> 01234
-                self.coverage[seq_i] = self.coverage[seq_i] / float(len(record.sequence))
+        with open(self.current_reference_fasta_filename) as current_reference_fasta_filename_h:
+            for record in FastIterator(current_reference_fasta_filename_h):
+                refname = record.title.split()[0]
+                self.sequence_name2fasta_name[refname] = record.title.split()[0]
+                seq_i = self.sequence_name2sequence_i[-1].get(refname)
+                if seq_i is not None:
+                    self.probN[seq_i] = numpy.zeros((len(record.sequence), 5), dtype=numpy.float)   #ATCG[other] --> 01234
+                    self.coverage[seq_i] = self.coverage[seq_i] / float(len(record.sequence))
 
         for d in [self.priors, self.posteriors,
                   self.sequence_name2sequence_i, self.sequence_i2sequence_name,
@@ -315,7 +330,7 @@ class EM(object):
                 del trash
 
         if self._VERBOSE:
-            sys.stderr.write("DONE Reading bam file %s at %s [%s]...\n"%(bam_filename, ctime(), timedelta(seconds = time()-start_time)))
+            logging.info("DONE Reading bam file %s at %s [%s]...\n", (bam_filename, ctime(), timedelta(seconds = time()-start_time)))
         return
 
     def initialize_EM(self, bam_filename, reference_fasta_filename):
@@ -331,7 +346,7 @@ class EM(object):
            - there is no t-1 for t = 0, hence the need to set up Pr(S)
         """
         if self._VERBOSE:
-            sys.stderr.write("Beginning initialization at %s...\n"%(ctime()))
+            logging.info("Beginning initialization at %s...\n", (ctime()))
 
         self.iteration_i = -1
         self.read_bam(bam_filename, reference_fasta_filename)
@@ -349,7 +364,7 @@ class EM(object):
         self.print_priors(os.path.join(self.cwd, "priors.initialized.txt"))
 
         if self._VERBOSE:
-            sys.stderr.write("DONE with initialization at %s...\n"%(ctime()))
+            logging.info("DONE with initialization at %s...\n"%(ctime()))
         return
     def resume(self, resume_from):
         """
@@ -366,13 +381,13 @@ class EM(object):
         resume_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.resume_i))
         previous_iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.resume_i - 1))
         if not os.path.exists(resume_iterdir):
-            raise OSError, "\n\nERROR: Cannot resume from non-existent directory %s"%(resume_iterdir)
+            raise OSError("\n\nERROR: Cannot resume from non-existent directory %s"%(resume_iterdir))
         if not os.path.exists(previous_iterdir):
-            raise OSError, "\n\nERROR: Resume requires the previous iteration directory (%02d) also be present."%(resume_iterdir - 1)
+            raise OSError("\n\nERROR: Resume requires the previous iteration directory (%02d) also be present."%(resume_iterdir - 1))
         if not os.path.exists(os.path.join(resume_iterdir, "bowtie.iter.%02d.log.gz"%(self.resume_i))):
-            raise OSError, "\n\nERROR: directory %s appears to be an incomplete iteration (no bowtie log file).  You must resume from a *completed* iteration (perhaps try iteration %02d)."%(resume_iterdir, self.resume_i-1)
+            raise OSError("\n\nERROR: directory %s appears to be an incomplete iteration (no bowtie log file).  You must resume from a *completed* iteration (perhaps try iteration %02d)."%(resume_iterdir, self.resume_i-1))
         if self._VERBOSE:
-            sys.stderr.write("Resuming EMIRGE from iteration %02d at %s ...\nStarting from information in directory:\n%s\n"%(self.resume_i,
+            logging.info("Resuming EMIRGE from iteration %02d at %s ...\nStarting from information in directory:\n%s\n"%(self.resume_i,
                                                                                                                              ctime(),
                                                                                                                              resume_iterdir))
         # before calling read_bam in do_iteration, need to reset
@@ -411,22 +426,22 @@ class EM(object):
         self.iteration_i = self.resume_i - 1 
 
         if self._VERBOSE:
-            sys.stderr.write("DONE with resume initialization at %s...\n"%(ctime()))
+            logging.info("DONE with resume initialization at %s...\n"%(ctime()))
         return
 
     def save_state(self, filename = None):
         """
         save state
         """
-        tup_to_save = (self.bamfile_data, self.base2i, self.cluster_thresh, self.coverage, self.current_bam_filename, self.current_reference_fasta_filename, self.cwd, self.i2base, self.insert_mean, self.insert_sd, self.iteration_i, self.iterdir, self.iterdir_prefix, self.k, self.likelihoods, self.mapping_nice, self.max_read_length, self.min_depth, self.min_length_coverage, self.min_prior, self.n_cpus, self.posteriors, self.priors, self.probN, self.quals, self.read_i2read_name, self.read_name2read_i, self.reads1_filepath, self.reads2_filepath, self.sequence_i2sequence_name, self.sequence_name2fasta_name, self.sequence_name2sequence_i, self.snp_minor_prob_thresh, self.snp_percentage_thresh, self.unmapped_bases, self.v)
+        tup_to_save = tup_to_save = (self.bamfile_data, self.base2i, self.cluster_thresh, self.coverage, self.current_bam_filename, self.current_reference_fasta_filename, self.cwd, self.i2base, self.insert_mean, self.insert_sd, self.iteration_i, self.iterdir, self.iterdir_prefix, self.k, self.likelihoods, self.mapping_nice, self.max_read_length, self.min_depth, self.min_length_coverage, self.min_prior, self.n_cpus, self.posteriors, self.priors, self.probN, self.quals, self.read_i2read_name, self.read_name2read_i, self.reads1_filepath, self.reads2_filepath, self.sequence_i2sequence_name, self.sequence_name2fasta_name, self.sequence_name2sequence_i, self.snp_minor_prob_thresh, self.snp_percentage_thresh, self.unmapped_bases, self.v)
         if filename is None:
             filename = os.path.join(self.iterdir, 'em.%02i.data.pkl'%self.iteration_i)
         try:
-            cPickle.dump(tup_to_save, file(filename, 'w'), cPickle.HIGHEST_PROTOCOL)
+            pickle.dump(tup_to_save, open(filename, 'w'), pickle.HIGHEST_PROTOCOL)
         except SystemError:  # cPickle problem with numpy arrays in latest emacs???
-            sys.stderr.write("oops!  cPickle error!  Falling back to pickle.\n")
+            logging.error("oops!  cPickle error!  Falling back to pickle.\n")
             import pickle
-            pickle.dump(tup_to_save, file(filename, 'w'), pickle.HIGHEST_PROTOCOL)
+            pickle.dump(tup_to_save, open(filename, 'w'), pickle.HIGHEST_PROTOCOL)
         return filename
 
     def load_state(self, filename = None):
@@ -439,27 +454,27 @@ class EM(object):
         if filename.endswith('bz2'):
             infile = Popen("bzcat %s"%filename, shell=True, stdout=PIPE).stdout
         else:
-            infile = file(filename)
+            infile = open(filename)
 
         for name in ("bamfile_data", "base2i", "cluster_thresh", "coverage", "current_bam_filename", "current_reference_fasta_filename", "cwd", "i2base", "insert_mean", "insert_sd", "iteration_i", "iterdir", "iterdir_prefix", "k", "likelihoods", "mapping_nice", "max_read_length", "min_depth", "min_length_coverage", "min_prior", "n_cpus", "posteriors", "priors", "probN", "quals", "read_i2read_name", "read_name2read_i", "reads1_filepath", "reads2_filepath", "sequence_i2sequence_name", "sequence_name2fasta_name", "sequence_name2sequence_i", "snp_minor_prob_thresh", "snp_percentage_thresh", "unmapped_bases", "v"):
             if not hasattr(self, name):
                 setattr(self, name, None)
         try:
             (self.bamfile_data, self.base2i, self.cluster_thresh, self.coverage, self.current_bam_filename, self.current_reference_fasta_filename, self.cwd, self.i2base, self.insert_mean, self.insert_sd, self.iteration_i, self.iterdir, self.iterdir_prefix, self.k, self.likelihoods, self.mapping_nice, self.max_read_length, self.min_depth, self.min_length_coverage, self.min_prior, self.n_cpus, self.posteriors, self.priors, self.probN, self.quals, self.read_i2read_name, self.read_name2read_i, self.reads1_filepath, self.reads2_filepath, self.sequence_i2sequence_name, self.sequence_name2fasta_name, self.sequence_name2sequence_i, self.snp_minor_prob_thresh, self.snp_percentage_thresh, self.unmapped_bases, self.v) = \
-                                cPickle.load(infile)
+                                pickle.load(infile)
         except ValueError:  # old version didn't have bamfile_data
             (self.base2i, self.cluster_thresh, self.coverage, self.current_bam_filename, self.current_reference_fasta_filename, self.cwd, self.i2base, self.insert_mean, self.insert_sd, self.iteration_i, self.iterdir_prefix, self.k, self.likelihoods, self.mapping_nice, self.max_read_length, self.min_depth, self.min_length_coverage, self.min_prior, self.n_cpus, self.posteriors, self.priors, self.probN, self.quals, self.read_i2read_name, self.read_name2read_i, self.reads1_filepath, self.reads2_filepath, self.sequence_i2sequence_name, self.sequence_name2fasta_name, self.sequence_name2sequence_i, self.snp_minor_prob_thresh, self.snp_percentage_thresh, self.unmapped_bases, self.v) = \
-                                cPickle.load(infile)
-        self.fastafile = pysam.Fastafile(self.current_reference_fasta_filename)
+                                pickle.load(infile)
+        self.fastafile = pysam.Fastaopen(self.current_reference_fasta_filename)
 
         # change self.posteriors to sparse matrix if we are loading old data type
         if type(self.posteriors[-1]) != type(sparse.lil_matrix([1])):
             if self._VERBOSE:
-                sys.stderr.write("\tConverting old posteriors to sparse matrix format [%d items to ... "%(self.posteriors[-1].shape[0] * self.posteriors[-1].shape[1]))
+                logging.info("\tConverting old posteriors to sparse matrix format [%d items to ... "%(self.posteriors[-1].shape[0] * self.posteriors[-1].shape[1]))
             for i, p in enumerate(self.posteriors):
                 self.posteriors[i] = sparse.lil_matrix(p)
             if self._VERBOSE:
-                sys.stderr.write("%d items] Done.\n"%(self.posteriors[-1].nnz))
+                logging.info("%d items] Done.\n"%(self.posteriors[-1].nnz))
 
         return
 
@@ -474,7 +489,7 @@ class EM(object):
         """
         self.iteration_i += 1
         if self._VERBOSE:
-            sys.stderr.write("Starting iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("Starting iteration %d at %s...\n"%(self.iteration_i, ctime()))
             start_time = time()
 
         self.iterdir = os.path.join(self.cwd, "%s%02d"%(self.iterdir_prefix, self.iteration_i))
@@ -501,22 +516,22 @@ class EM(object):
 
         # leave a few things around for later.  Note that print_priors also leaves sequence_name2sequence_i mapping, basically.
         if self._VERBOSE:
-            sys.stderr.write("Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
         self.print_priors()
         # python gzip.GzipFile is slow.  Use system call instead
-        # cPickle.dump(self.probN, gzip.GzipFile(os.path.join(self.iterdir, 'probN.pkl.gz'), 'w'), cPickle.HIGHEST_PROTOCOL)
+        # cPickle.dump(self.probN, gzip.Gzipopen(os.path.join(self.iterdir, 'probN.pkl.gz'), 'w'), cPickle.HIGHEST_PROTOCOL)
         pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
-        cPickle.dump(self.probN, file(pickled_filename, 'w'), cPickle.HIGHEST_PROTOCOL)
+        pickle.dump(self.probN, open(pickled_filename, 'wb'), pickle.HIGHEST_PROTOCOL)
         check_call("gzip -f %s"%(pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
         if self._VERBOSE:
-            sys.stderr.write("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("DONE Writing priors and probN to disk for iteration %d at %s...\n"%(self.iteration_i, ctime()))
 
         # now do a new mapping run for next iteration
         self.do_mapping(consensus_filename, nice = self.mapping_nice)
 
         if self._VERBOSE:
-            sys.stderr.write("Finished iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            sys.stderr.write("Total time for iteration %d: %s\n"%(self.iteration_i, timedelta(seconds = time()-start_time)))
+            logging.info("Finished iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("Total time for iteration %d: %s\n"%(self.iteration_i, timedelta(seconds = time()-start_time)))
 
         return
     def print_priors(self, ofname = None):
@@ -524,9 +539,9 @@ class EM(object):
         leave a file in directory with nonzero priors printed out.
         """
         if ofname is not None:
-            of = file(ofname, 'w')
+            of = open(ofname, 'w')
         else:
-            of = file(os.path.join(self.iterdir, "priors.iter.%02d.txt"%(self.iteration_i)), 'w')
+            of = open(os.path.join(self.iterdir, "priors.iter.%02d.txt"%(self.iteration_i)), 'w')
         for seq_i, prior in enumerate(self.priors[-1]):
             seqname = self.sequence_i2sequence_name[-1][seq_i]
             of.write("%d\t%s\t%f\n"%(seq_i, seqname, prior))
@@ -558,14 +573,14 @@ class EM(object):
                                             # then split this sequence into two sequences.
         """
         if self._VERBOSE:
-            sys.stderr.write("Writing consensus for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            sys.stderr.write("\tsnp_minor_prob_thresh = %.3f\n"%(self.snp_minor_prob_thresh))
-            sys.stderr.write("\tsnp_percentage_thresh = %.3f\n"%(self.snp_percentage_thresh))
+            logging.info("Writing consensus for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("\tsnp_minor_prob_thresh = %.3f\n"%(self.snp_minor_prob_thresh))
+            logging.info("\tsnp_percentage_thresh = %.3f\n"%(self.snp_percentage_thresh))
             t0 = time()
 
         splitcount = 0
         cullcount  = 0
-        of = file(outputfilename, 'w')
+        of = open(outputfilename, 'w')
 
         times_split   = []              # DEBUG
         times_posteriors   = []              # DEBUG
@@ -641,7 +656,7 @@ class EM(object):
                 else:
                     title_root = title_root.groups()[0]
                 # now check for any known name with same root and a _m on it.
-                previous_m_max = max([0] + [int(x) for x in re.findall(r'%s_m(\d+)'%re.escape(title_root), " ".join(self.sequence_i2sequence_name[-1].values()))])
+                previous_m_max = max([0] + [int(x) for x in re.findall(r'%s_m(\d+)'%re.escape(title_root), " ".join(list(self.sequence_i2sequence_name[-1].values())))])
                 m_title = "%s_m%02d"%(title_root, previous_m_max+1)
 
                 # also split out Priors and Posteriors (which will be used in next round), split with average ratio of major to minor alleles.
@@ -709,7 +724,7 @@ class EM(object):
                 of.write(">%s\n"%(m_title))
                 of.write("%s\n"%("".join(minor_consensus)))
                 if self._VERBOSE:
-                    sys.stderr.write("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
+                    logging.info("splitting sequence %d (%s) to %d (%s)...\n"%(seq_i, title,
                                                                                    seq_i_minor, m_title))
 
 
@@ -741,13 +756,13 @@ class EM(object):
 
         if self._VERBOSE:
             total_time = time()-t0
-            sys.stderr.write("\tSplit out %d new minor strain sequences.\n"%(splitcount))
+            logging.info("\tSplit out %d new minor strain sequences.\n"%(splitcount))
             if splitcount > 0:
-                sys.stderr.write("\tAverage time for split sequence: [%.6f seconds]\n"%numpy.mean(times_split))
-                sys.stderr.write("\tAverage time for posterior update: [%.6f seconds]\n"%numpy.mean(times_posteriors))
-            sys.stderr.write("\tAverage time for non-split sequences: [%.6f seconds]\n"%((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
-            sys.stderr.write("\tCulled %d sequences\n"%(cullcount))
-            sys.stderr.write("DONE Writing consensus for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = total_time)))
+                logging.info("\tAverage time for split sequence: [%.6f seconds]\n"%numpy.mean(times_split))
+                logging.info("\tAverage time for posterior update: [%.6f seconds]\n"%numpy.mean(times_posteriors))
+            logging.info("\tAverage time for non-split sequences: [%.6f seconds]\n"%((loop_t_total - sum(times_split)) / (seqs_to_process - len(times_split))))
+            logging.info("\tCulled %d sequences\n"%(cullcount))
+            logging.info("DONE Writing consensus for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = total_time)))
 
         return
 
@@ -765,7 +780,7 @@ class EM(object):
         n_seqs = 0
         # i2base = self.i2base
         i2base_get = self.i2base.get # for speed
-        of = file(output_fastafilename, 'w')
+        of = open(output_fastafilename, 'w')
         reference_fastafile = pysam.Fastafile(reference_fastafilename)
 
         for seq_i in range(len(self.probN)):
@@ -786,7 +801,7 @@ class EM(object):
                     consensus[unmapped_i] = orig_bases[unmapped_i] # return to original base if unmapped.
                 # consensus[unmapped_indices] = [letter.lower() for letter in consensus[unmapped_indices]]
             else:
-                raise ValueError, "Invalid value for mask: %s (choose one of {soft, hard}"%mask
+                raise ValueError("Invalid value for mask: %s (choose one of {soft, hard}"%mask)
             of.write(">%s\n"%(title))
             of.write("%s\n"%("".join(consensus)))
             n_seqs += 1
@@ -795,22 +810,16 @@ class EM(object):
 
     def cluster_sequences(self, fastafilename):
         """
-        uses Edgar's USEARCH to merge sequences above self.cluster_thresh %ID over the
-        length of the shorter sequence
-
-        "Search and clustering orders of magnitude faster than BLAST"
-        Robert C. Edgar
-        Bioinformatics 2010
+        Uses vsearch to pairwise align all reconstructed sequences, then uses local aligment
+        identity to determine if sequecnes should be clustered
 
         also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after merging.
         """
-        return self.cluster_sequences2(fastafilename)
+        return self.cluster_vsearch(fastafilename)
 
-        return
-
-    def cluster_sequences2(self, fastafilename):
+    def cluster_vsearch(self, fastafilename):
         """
-        uses USEARCH  to globally align sequences.  Merge two sequences if the
+        uses vsearch  to globally align sequences.  Merge two sequences if the
         *NON-GAPPED* positions have % identity >= self.cluster_thresh
 
         also adjusts Pr(S) [prior] and Pr(S_t-1) [posteriors] as needed after merging.
@@ -818,8 +827,8 @@ class EM(object):
         only supports usearch version > 6, as the command line substantially changed in this version.
         """
         if self._VERBOSE:
-            sys.stderr.write("Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
-            sys.stderr.write("\tcluster threshold = %.3f\n"%(self.cluster_thresh))
+            logging.info("Clustering sequences for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("\tcluster threshold = %.3f\n"%(self.cluster_thresh))
             start_time = time()
         tocleanup = []                  # list of temporary files to remove after done
         # get posteriors ready for slicing (just prior to this call, is csr matrix?):
@@ -830,45 +839,36 @@ class EM(object):
         tocleanup.append(tmp_fastafilename)
         tmp_fastafile = pysam.Fastafile(tmp_fastafilename)
         tocleanup.append("%s.fai"%(tmp_fastafilename))
-        # do global alignments with USEARCH/UCLUST.
-        # I don't use --cluster because it doesn't report alignments
-        # usearch is fast but will sometimes miss things -- I've tried to tune params as best as I can.
+        # modified to align using vsearch
         # Also, I use a lower %ID thresh than specified for joining because I really calculate %ID over *mapped* sequence positions.
 
-        sens_string = "--maxaccepts 8 --maxrejects 256"
-        uclust_id = 0.80
-        algorithm="-usearch_global"
-        # uclust_id = self.cluster_thresh - 0.05
+        sens_list = ["--maxaccepts", "8", "--maxrejects", "256"]
 
-        # if em.iteration_i > 10:
-        # num_seqs = len([x for x in self.probN if x is not None])
         assert num_seqs == len([x for x in self.probN if x is not None])
         if num_seqs < 1000:
-            sens_string = "--maxaccepts 16 --maxrejects 256"
+            sens_list = ["--maxaccepts", "16", "--maxrejects", "256"]
         if num_seqs < 500:
-            sens_string = "--maxaccepts 32 --maxrejects 256"
-        if num_seqs < 150:
-            algorithm="-search_global"
-            sens_string = "--maxaccepts 0 --maxrejects 0"  # slower, but more sensitive.
-        # if really few seqs, then no use not doing smith-waterman or needleman wunsch alignments
-        if num_seqs < 50:
-            algorithm="-search_global"
-            sens_string = "-fulldp"
+            sens_list = ["--maxaccepts", "32", "--maxrejects", "256"]
+        if num_seqs < 150: 
+            sens_list = ["--maxaccepts", "0", "--maxrejects", "0"]  # slower, but more sensitive.
 
-        # there is a bug in usearch threads that I can't figure out (fails with many threads).  Currently limiting to max 6 threads
-        usearch_threads = min(6, self.n_cpus)
-        cmd = "usearch %s %s --db %s --id %.3f -quicksort -query_cov 0.5 -target_cov 0.5 -strand plus --userout %s.us.txt --userfields query+target+id+caln+qlo+qhi+tlo+thi -threads %d %s"%\
-              (algorithm,
-               tmp_fastafilename, tmp_fastafilename,
-               uclust_id,
-               tmp_fastafilename,
-               usearch_threads,
-               sens_string)
+        cmd = [
+                'vsearch',
+                '--threads', str(self.n_cpus),
+                '--allpairs_global',
+                tmp_fastafilename,
+                '--acceptall',
+                '-strand', 'plus',
+                '--userout', "{}.us.txt".format(tmp_fastafilename),
+                '--userfields', 'query+target+id+caln+qlo+qhi+tlo+thi', 
+            ] + sens_list
+        result = subprocess.check_call(
+            args=cmd
+        )
 
         if self._VERBOSE:
-            sys.stderr.write("usearch command was:\n%s\n"%(cmd))
+            logging.info("vsearch process {}".format(str(result)))
 
-        check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
         # read clustering file to adjust Priors and Posteriors, summing merged reference sequences
         tocleanup.append("%s.us.txt"%tmp_fastafilename)
 
@@ -877,7 +877,7 @@ class EM(object):
         already_removed = set()  # seq_ids
         # this is a bit slow and almost certainly could be sped up with algorithmic improvements.
         times = []  # DEBUG
-        for row in csv.reader(file("%s.us.txt"%tmp_fastafilename), delimiter='\t'):
+        for row in csv.reader(open("%s.us.txt"%tmp_fastafilename), delimiter='\t'):
             # each row an alignment in userout file
             t0 = time()
             # member == query
@@ -902,8 +902,8 @@ class EM(object):
 
             t0 = time()
             # print >> sys.stderr, "DEBUG", alnstring_pat.findall(row[3])
-            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name).upper(),
-                                                           tmp_fastafile.fetch(member_name).upper(),
+            aln_columns, matches = _emirge.count_cigar_aln(tmp_fastafile.fetch(seed_name).upper().encode('utf8'),
+                                                           tmp_fastafile.fetch(member_name).upper().encode('utf8'),
                                                            self.unmapped_bases[seed_seq_id].astype(numpy.uint8),
                                                            self.unmapped_bases[member_seq_id].astype(numpy.uint8),
                                                            seed_start,
@@ -919,8 +919,8 @@ class EM(object):
             if self._VERBOSE and num_seqs < 50:
                 # print >> sys.stderr, row
                 # print >> sys.stderr, "%s %s %s %s  --  %s, %s"%(member_seq_id, member_name, seed_seq_id, seed_name, float(matches), aln_columns)
-                print >> sys.stderr, "\t\t%s|%s vs %s|%s %.3f over %s aligned columns"%(member_seq_id, member_name, seed_seq_id, seed_name,
-                                                                float(matches) / aln_columns, aln_columns)
+                logging.info("\t\t%s|%s vs %s|%s %.3f over %s aligned columns"%(member_seq_id, member_name, seed_seq_id, seed_name,
+                                                                float(matches) / aln_columns, aln_columns))
 
 
             # if above thresh, then first decide which sequence to keep, (one with higher prior probability).
@@ -962,33 +962,33 @@ class EM(object):
             nummerged += 1
             if self._VERBOSE:
                 times.append(time()-t0)
-                sys.stderr.write("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns) in %.3f seconds\n"%\
+                logging.info("\t...merging %d|%s into %d|%s (%.2f%% ID over %d columns) in %.3f seconds\n"%\
                                  (remove_seq_id, remove_name,
                                   keep_seq_id,   keep_name,
                                   percent_id, aln_columns,
                                   times[-1]))
 
         # if len(times) and self._VERBOSE:  # DEBUG
-        #     sys.stderr.write("merges: %d\n"%(len(times)))
-        #     sys.stderr.write("total time for all merges: %.3f seconds\n"%(numpy.sum(times)))
-        #     sys.stderr.write("average time per merge: %.3f seconds\n"%(numpy.mean(times)))
-        #     sys.stderr.write("min time per merge: %.3f seconds\n"%(numpy.min(times)))
-        #     sys.stderr.write("max time per merge: %.3f seconds\n"%(numpy.max(times)))
+        #     logging.info("merges: %d\n"%(len(times)))
+        #     logging.info("total time for all merges: %.3f seconds\n"%(numpy.sum(times)))
+        #     logging.info("average time per merge: %.3f seconds\n"%(numpy.mean(times)))
+        #     logging.info("min time per merge: %.3f seconds\n"%(numpy.min(times)))
+        #     logging.info("max time per merge: %.3f seconds\n"%(numpy.max(times)))
 
         # write new fasta file with only new sequences
         if self._VERBOSE:
-            sys.stderr.write("Writing new fasta file for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("Writing new fasta file for iteration %d at %s...\n"%(self.iteration_i, ctime()))
         tmp_fastafile.close()
         tocleanup.append("%s.fai"%(fastafilename))  # this file will change!  So must remove index file.  pysam should check timestamps of these!
         recordstrings=""
         num_seqs = 0
-        for record in FastIterator(file(fastafilename)): # read through file again, overwriting orig file if we keep the seq
+        for record in FastIterator(open(fastafilename)): # read through file again, overwriting orig file if we keep the seq
             seqname = record.title.split()[0]  # strip off beginning cluster marks
             seq_id = self.sequence_name2sequence_i[-1].get(seqname)
             if seq_id not in already_removed:
                 recordstrings += str(record)  # could do a better job here of actually "merging" a new consensus, rather than just keeping one or the other.
                 num_seqs += 1
-        outfile = file(fastafilename, 'w')
+        outfile = open(fastafilename, 'w')
         outfile.write(recordstrings)
         outfile.close()
 
@@ -996,9 +996,9 @@ class EM(object):
             os.remove(fn)
 
         if self._VERBOSE:
-            sys.stderr.write("\tremoved %d sequences after merging\n"%(nummerged))
-            sys.stderr.write("\tsequences remaining for iteration %02d: %d\n"%(self.iteration_i, num_seqs))
-            sys.stderr.write("DONE Clustering sequences for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
+            logging.info("\tremoved %d sequences after merging\n"%(nummerged))
+            logging.info("\tsequences remaining for iteration %02d: %d\n"%(self.iteration_i, num_seqs))
+            logging.info("DONE Clustering sequences for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
 
         return
 
@@ -1009,12 +1009,12 @@ class EM(object):
         right now this is bowtie
         """
         if self._VERBOSE:
-            sys.stderr.write("Starting read mapping for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("Starting read mapping for iteration %d at %s...\n"%(self.iteration_i, ctime()))
 
         self.do_mapping_bowtie(full_fasta_path, nice = nice)
 
         if self._VERBOSE:
-            sys.stderr.write("DONE with read mapping for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("DONE with read mapping for iteration %d at %s...\n"%(self.iteration_i, ctime()))
 
         return
     def do_mapping_bowtie(self, full_fasta_path, nice = None):
@@ -1027,8 +1027,8 @@ class EM(object):
         # 1. build index
         cmd = "bowtie-build -o 3 %s %s > %s 2>&1"%(full_fasta_path , bowtie_index, bowtie_logfile) # -o 3 for speed? magnitude of speedup untested!
         if self._VERBOSE:
-            sys.stderr.write("\tbowtie-build command:\n")
-            sys.stderr.write("\t%s\n"%cmd)
+            logging.info("\tbowtie-build command:\n")
+            logging.info("\t%s\n"%cmd)
         check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
 
         # 2. run bowtie
@@ -1070,13 +1070,13 @@ class EM(object):
                 bowtie_logfile)
 
         if self._VERBOSE:
-            sys.stderr.write("\tbowtie command:\n")
-            sys.stderr.write("\t%s\n"%bowtie_command)
+            logging.info("\tbowtie command:\n")
+            logging.info("\t%s\n"%bowtie_command)
 
         check_call(bowtie_command, shell=True, stdout = sys.stdout, stderr = sys.stderr)
 
         if self._VERBOSE:
-            sys.stderr.write("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
+            logging.info("\tFinished Bowtie for iteration %02d at %s:\n"%(self.iteration_i, ctime()))
 
         # 3. clean up
         # check_call("samtools index %s.sort.PE.bam"%(output_prefix), shell=True, stdout = sys.stdout, stderr = sys.stderr)
@@ -1093,7 +1093,7 @@ class EM(object):
         sets self.likelihoods  (seq_n x read_n) for this round
         """
         if self._VERBOSE:
-            sys.stderr.write("Calculating likelihood %s for iteration %d at %s...\n"%(self.likelihoods.shape, self.iteration_i, ctime()))
+            logging.info("Calculating likelihood %s for iteration %d at %s...\n"%(self.likelihoods.shape, self.iteration_i, ctime()))
             start_time = time()
         # first calculate self.probN from mapped reads, previous round's posteriors
         self.calc_probN()   # (handles initial iteration differently within this method)
@@ -1143,7 +1143,7 @@ class EM(object):
         # now actually construct sparse matrix.
         self.likelihoods = sparse.coo_matrix((lik_data, (lik_row_seqi, lik_col_readi)), self.likelihoods.shape, dtype=self.likelihoods.dtype).tocsr()
         if self._VERBOSE:
-            sys.stderr.write("DONE Calculating likelihood for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
+            logging.info("DONE Calculating likelihood for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
         return
 
     def calc_posteriors(self):
@@ -1152,7 +1152,7 @@ class EM(object):
         requires that the likelihood and priors are already calculated.
         """
         if self._VERBOSE:
-            sys.stderr.write("Calculating posteriors for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("Calculating posteriors for iteration %d at %s...\n"%(self.iteration_i, ctime()))
             t_start = time()
 
         # first populate with numerator of Bayes' theorum.  Use t-1 for priors, which corresponds to previous item in list/queue
@@ -1182,7 +1182,7 @@ class EM(object):
         # convert to csc format for storage and use in self.calc_prior later.
         self.posteriors[-1] = self.posteriors[-1].tocsc()
         if self._VERBOSE:
-            sys.stderr.write("DONE Calculating posteriors for iteration %d at %s [%.3f seconds]...\n"%(self.iteration_i, ctime(), time() - t_start))
+            logging.info("DONE Calculating posteriors for iteration %d at %s [%.3f seconds]...\n"%(self.iteration_i, ctime(), time() - t_start))
 
     def calc_probN(self):
         """
@@ -1193,7 +1193,7 @@ class EM(object):
         factor instead of previous round's posterior.
         """
         if self._VERBOSE:
-            sys.stderr.write("\tCalculating Pr(N=n) for iteration %d at %s...\n"%(self.iteration_i, ctime()))
+            logging.info("\tCalculating Pr(N=n) for iteration %d at %s...\n"%(self.iteration_i, ctime()))
             start_time = time()
 
         # basecounts = [seqprobNarray.astype(numpy.uint32) for seqprobNarray in self.probN]
@@ -1230,9 +1230,9 @@ class EM(object):
 
         if self.resume_i is not None and (self.iteration_i == self.resume_i):  # we have just resumed a run
             pickled_filename = os.path.join(self.iterdir, 'probN.pkl')
-            sys.stderr.write("\tLoading probN for resume case from %s\n"%pickled_filename)
+            logging.info("\tLoading probN for resume case from %s\n"%pickled_filename)
             check_call("gzip -d -c %s > %s"%(pickled_filename+'.gz', pickled_filename), shell=True, stdout = sys.stdout, stderr = sys.stderr)
-            self.probN = cPickle.load(open(pickled_filename))     # and need to use already-calculated probN
+            self.probN = pickle.load(open(pickled_filename))     # and need to use already-calculated probN
             os.remove(pickled_filename) # git rid of decompressed file
         else:
             # here do looping in Cython (this loop is about 95% of the time in this method on test data):
@@ -1267,7 +1267,7 @@ class EM(object):
             self.unmapped_bases[seq_i][zero_indices[0]] = True
             if zero_indices[0].shape[0] > 0:  # there are bases without mappings.
                 fastaname = self.sequence_name2fasta_name[self.sequence_i2sequence_name[-1][seq_i]]
-                bases = numpy.array(self.fastafile.fetch(fastaname).upper(), dtype='c')[zero_indices[0]]
+                bases = numpy.array([c for c in self.fastafile.fetch(fastaname).upper()])[zero_indices[0]]
                 numeric_bases = [base2i_get(base, 4) for base in bases]
                 error_P = numpy.zeros(zero_indices[0].shape) + default_error
                 # add P/3 to all bases without mappings.
@@ -1278,7 +1278,7 @@ class EM(object):
                 probNarray[(zero_indices[0], numeric_bases)] += (1. - error_P)
                 # TODO: figure out if all this can be kept in log space... rounding errors might be +/- 3e-12
         if self._VERBOSE:
-            sys.stderr.write("\tDONE calculating Pr(N=n) for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
+            logging.info("\tDONE calculating Pr(N=n) for iteration %d at %s [%s]...\n"%(self.iteration_i, ctime(), timedelta(seconds = time()-start_time)))
 
         return
 
@@ -1290,7 +1290,7 @@ class EM(object):
         """
         if output_prefix is None:
             output_prefix = os.path.join(em.iterdir, "%s.reads"%seq_i)
-        of_fastq = file('%s.fastq'%(output_prefix), 'w')
+        of_fastq = open('%s.fastq'%(output_prefix), 'w')
         # go through bam file instead of original sequencing reads, as aligned reads only a fraction
         # of original file.
         self.posteriors[-1] = self.posteriors[-1].tolil()  # seq_i x read_i
@@ -1307,7 +1307,7 @@ class EM(object):
             reads += 1
         of_fastq.close()
         if self._VERBOSE:
-            sys.stderr.write("Wrote %d sequences to %s\n"%(reads, of_fastq.name))
+            logging.info("Wrote %d sequences to %s\n"%(reads, of_fastq.name))
         return
     def write_sam_for_seq_i(self, seq_i, output_prefix = None):
         """
@@ -1339,12 +1339,12 @@ class EM(object):
             of_sam.write(alignedread)
             reads += 1
         of_sam.close()
-        of_fasta = file('%s.ref.fasta'%(output_prefix), 'w')
+        of_fasta = open('%s.ref.fasta'%(output_prefix), 'w')
         fasta_seq   = self.fastafile.fetch(self.sequence_i2sequence_name[-1][seq_i]).upper()
         of_fasta.write("%s"%(str(Record(self.sequence_i2sequence_name[-1][seq_i], fasta_seq))))
         of_fasta.close()
         if self._VERBOSE:
-            sys.stderr.write("Wrote %d sequences to %s\n"%(reads, of_sam_name))
+            logging.info("Wrote %d sequences to %s\n"%(reads, of_sam_name))
         return
 
     def write_phrap_for_seq_i(self, seq_i, output_prefix = None):
@@ -1357,7 +1357,7 @@ class EM(object):
         PREFIX.quals.fasta
 
         """
-        raise NotImplementedError, "Broken with most recent revision of data structures (no more bamfile_readnames)"
+        raise NotImplementedError("Broken with most recent revision of data structures (no more bamfile_readnames)")
         if output_prefix is None:
             output_prefix = os.path.join(em.iterdir, "%s"%seq_i)
 
@@ -1366,7 +1366,7 @@ class EM(object):
         self.posteriors[-1] = self.posteriors[-1].tolil()  # seq_i x read_i
         posteriors = self.posteriors[-1]  # seq_i x read_i
         of_fasta_name = '%s.reads.fasta'%(output_prefix)
-        of_fasta = file(of_fasta_name, 'w')
+        of_fasta = open(of_fasta_name, 'w')
         bamfile_data = self.bamfile_data
         reads = 0
         for alignedread_i, (this_seq_i, read_i, pair_i, rlen, pos) in enumerate(self.bamfile_data):
@@ -1381,7 +1381,7 @@ class EM(object):
             reads += 1
         of_fasta.close()
         if self._VERBOSE:
-            sys.stderr.write("Wrote %d sequences to %s\n"%(reads, of_fasta_name))
+            logging.info("Wrote %d sequences to %s\n"%(reads, of_fasta_name))
         return
 
     def iterations_done(self):
@@ -1482,7 +1482,7 @@ def do_initial_mapping(working_dir, options):
         option_strings.extend([options.bowtie_db, bampath_prefix])
         cmd = "%s %s | %s bowtie --phred%d-quals -t -p %s -n 3 -l %s -e %s --best --sam --chunkmbs 128  %s - | samtools view -b -S -u -F 0x0004 - > %s.bam "%tuple(option_strings)    
 
-    print "Performing initial mapping with command:\n%s"%cmd
+    logging.info("Performing initial mapping with command:\n%s"%cmd)
     check_call(cmd, shell=True, stdout = sys.stdout, stderr = sys.stderr)
     sys.stdout.flush()
     sys.stderr.flush()
@@ -1492,28 +1492,10 @@ def do_initial_mapping(working_dir, options):
 def dependency_check():
     """
     check presense, versions of programs used in emirge
-    TODO: right now just checking usearch, as the command line params
-    and behavior are finicky and seem to change from version to
-    version
+    TODO: With usearch removed, we have no active checks now.
+    Could add vsearch, bowtie, etc. 
     """
-    # usearch
-    working_maj = 6
-    working_minor = 0
-    working_minor_minor = 203
-    match = re.search(r'usearch([^ ])* v([0-9]*)\.([0-9]*)\.([0-9]*)', Popen("usearch --version", shell=True, stdout=PIPE).stdout.read())
-    if match is None:
-        print >> sys.stderr, "FATAL: usearch not found in path!"
-        exit(0)
-    binary_name, usearch_major, usearch_minor, usearch_minor_minor = match.groups()
-    usearch_major = int(usearch_major)
-    usearch_minor = int(usearch_minor)
-    usearch_minor_minor = int(usearch_minor_minor)
-    if usearch_major < working_maj or \
-       (usearch_major == working_maj and (usearch_minor < working_minor or \
-                                          (usearch_minor == working_minor and usearch_minor_minor < working_minor_minor))):
-        print >> sys.stderr, "FATAL: usearch version found was %s.%s.%s.\nemirge works with version >=  %s.%s.%s\nusearch has different command line arguments and minor bugs in previous versions that can cause problems."%(usearch_major, usearch_minor, usearch_minor_minor, working_maj, working_minor, working_minor_minor)
-        exit(0)
-    return
+    return True
 
 def main(argv = sys.argv[1:]):
     """
